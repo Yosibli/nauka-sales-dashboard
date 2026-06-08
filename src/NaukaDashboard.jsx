@@ -152,7 +152,7 @@ export default function NaukaDashboard() {
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", fontFamily: FONT_BODY, color: C.gray }}>
       <div style={{ textAlign: "center" }}>
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 32, fontStyle: "italic", color: C.teal, marginBottom: 8 }}>Nauka</div>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 28, fontStyle: "normal", color: C.teal, letterSpacing: "0.25em", textTransform: "uppercase", marginBottom: 8 }}>Nauka</div>
         <div style={{ fontSize: 13, opacity: 0.6 }}>Loading dashboard…</div>
       </div>
     </div>
@@ -219,7 +219,7 @@ export default function NaukaDashboard() {
       {/* Header */}
       <div style={{ background: C.gray, padding: "1.25rem 1.5rem", borderRadius: 10, marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 32, fontStyle: "italic", color: C.white, letterSpacing: "0.05em" }}>Nauka</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 28, fontStyle: "normal", color: C.white, letterSpacing: "0.25em", textTransform: "uppercase", fontWeight: 500 }}>Nauka</div>
           <div style={{ fontSize: 11, color: C.teal, letterSpacing: "0.1em", textTransform: "uppercase", marginTop: 3, fontFamily: FONT_BODY }}>Weekly Sales Snapshot</div>
         </div>
         <div style={{ textAlign: "right" }}>

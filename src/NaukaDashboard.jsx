@@ -28,7 +28,7 @@ async function fetchSheet(tab) {
     );
   } catch (err) {
     console.error(`[fetchSheet: ${tab}] error`, err);
-    throw err;
+    return [];
   }
 }
 
@@ -39,21 +39,17 @@ const money = v => {
 };
 const num = v => { const n = parseInt(v); return isNaN(n) ? 0 : n; };
 
-// ── Pill chip ────────────────────────────────────────────────────────
 const Chip = ({ label, value, sub, active, onClick, accent = C.teal }) => (
-  <button
-    onClick={onClick}
-    style={{
-      display: "inline-flex", alignItems: "center", gap: 8,
-      padding: "8px 16px", borderRadius: 999,
-      background: active ? C.gray : C.white,
-      color: active ? C.teal : C.gray,
-      border: `1px solid ${active ? C.gray : "rgba(54,67,74,0.2)"}`,
-      cursor: "pointer", fontSize: 12, fontFamily: FONT_BODY,
-      transition: "all 0.15s",
-      boxShadow: active ? "0 2px 6px rgba(54,67,74,0.15)" : "none",
-    }}
-  >
+  <button onClick={onClick} style={{
+    display: "inline-flex", alignItems: "center", gap: 8,
+    padding: "8px 16px", borderRadius: 999,
+    background: active ? C.gray : C.white,
+    color: active ? C.teal : C.gray,
+    border: `1px solid ${active ? C.gray : "rgba(54,67,74,0.2)"}`,
+    cursor: "pointer", fontSize: 12, fontFamily: FONT_BODY,
+    transition: "all 0.15s",
+    boxShadow: active ? "0 2px 6px rgba(54,67,74,0.15)" : "none",
+  }}>
     <span style={{ width: 6, height: 6, borderRadius: 999, background: accent, display: "inline-block" }} />
     <span style={{ fontWeight: "bold", letterSpacing: "0.03em" }}>{label}</span>
     <span style={{ fontFamily: FONT_DISPLAY, fontSize: 15, color: active ? C.teal : C.gray }}>{value}</span>
@@ -61,14 +57,13 @@ const Chip = ({ label, value, sub, active, onClick, accent = C.teal }) => (
   </button>
 );
 
-// ── Deal card ────────────────────────────────────────────────────────
 const DealCard = ({ deal }) => {
   const days = num(deal["Days on Hold"]);
   const accent = days > 90 ? C.amber : (deal["Stage"] === "Signed OTP" && deal["DD Expiry"] ? C.amber : C.teal);
   return (
     <div style={{ background: C.white, borderRadius: 8, padding: "0.85rem 1rem", marginBottom: 8, border: `0.5px solid rgba(54,67,74,0.12)`, borderLeft: `3px solid ${accent}` }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-        <span style={{ fontSize: 13, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{deal["Property / Buyer"]}</span>
+        <span style={{ fontSize: 13, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{deal["Property / Buyer"] || deal["Deal Name"]}</span>
         <span style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.gray }}>{money(deal["Amount ($)"])}</span>
       </div>
       <div style={{ fontSize: 11, color: "rgba(54,67,74,0.6)", marginBottom: 4, fontFamily: FONT_BODY }}>
@@ -79,7 +74,6 @@ const DealCard = ({ deal }) => {
   );
 };
 
-// ── Tour card ────────────────────────────────────────────────────────
 const TourCard = ({ tour }) => (
   <div style={{ background: C.white, borderRadius: 8, padding: "0.85rem 1rem", marginBottom: 8, border: `0.5px solid rgba(54,67,74,0.12)`, borderLeft: `3px solid ${C.teal}` }}>
     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
@@ -93,44 +87,89 @@ const TourCard = ({ tour }) => (
   </div>
 );
 
-// ── Modal ────────────────────────────────────────────────────────────
+const LeadCard = ({ lead }) => (
+  <div style={{ background: C.white, borderRadius: 8, padding: "0.85rem 1rem", marginBottom: 8, border: `0.5px solid rgba(54,67,74,0.12)`, borderLeft: `3px solid ${C.teal}` }}>
+    <div style={{ fontSize: 13, fontWeight: "bold", color: C.gray, marginBottom: 4, fontFamily: FONT_BODY }}>{lead["Name"]}</div>
+    <div style={{ fontSize: 11, color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>
+      {[lead["Lead Source"], lead["Referral Source"] ? `via ${lead["Referral Source"]}` : null, lead["Advisor"]].filter(Boolean).join(" · ")}
+    </div>
+  </div>
+);
+
+const ArrivalCard = ({ arrival }) => (
+  <div style={{ background: C.white, borderRadius: 8, padding: "0.75rem 1rem", marginBottom: 8, border: `0.5px solid rgba(54,67,74,0.12)`, borderLeft: `3px solid ${C.gray}` }}>
+    <div style={{ fontSize: 13, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{arrival["Member"]}</div>
+    <div style={{ fontSize: 11, color: C.teal, marginTop: 2, fontFamily: FONT_BODY }}>{arrival["Property"]}</div>
+  </div>
+);
+
+const LostDealCard = ({ deal }) => (
+  <div style={{ background: C.white, borderRadius: 8, padding: "0.85rem 1rem", marginBottom: 8, border: `0.5px solid rgba(54,67,74,0.12)`, borderLeft: `3px solid ${C.red}` }}>
+    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+      <span style={{ fontSize: 13, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{deal["Deal Name"]}</span>
+    </div>
+    <div style={{ fontSize: 11, color: "rgba(54,67,74,0.6)", marginBottom: 4, fontFamily: FONT_BODY }}>
+      {[deal["Advisor"], deal["Source"], deal["Loss Reason"]].filter(Boolean).join(" · ")}
+    </div>
+    {deal["Notes"] && <div style={{ fontSize: 11, color: "rgba(54,67,74,0.7)", lineHeight: 1.5, fontFamily: FONT_BODY }}>{deal["Notes"]}</div>}
+  </div>
+);
+
 const Modal = ({ title, onClose, children }) => (
   <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(54,67,74,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}>
     <div onClick={e => e.stopPropagation()} style={{ background: C.beige, borderRadius: 12, padding: "1.25rem", maxWidth: 720, width: "100%", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
         <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.gray, fontStyle: "italic" }}>{title}</div>
-        <button onClick={onClose} style={{ background: "transparent", border: "none", fontSize: 24, cursor: "pointer", color: C.gray, lineHeight: 1, padding: 4 }} aria-label="Close">×</button>
+        <button onClick={onClose} style={{ background: "transparent", border: "none", fontSize: 24, cursor: "pointer", color: C.gray, lineHeight: 1, padding: 4 }}>×</button>
       </div>
       {children}
     </div>
   </div>
 );
 
-// ── Main ─────────────────────────────────────────────────────────────
 export default function NaukaDashboard() {
-  const [view, setView]           = useState("weekly");
-  const [kpis, setKpis]           = useState([]);
-  const [pipeline, setPipeline]   = useState([]);
-  const [deals, setDeals]         = useState([]);
-  const [tours, setTours]         = useState([]);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState(null);
+  const [view, setView]             = useState("weekly");
+  const [kpis, setKpis]             = useState([]);
+  const [pipeline, setPipeline]     = useState([]);
+  const [deals, setDeals]           = useState([]);
+  const [tours, setTours]           = useState([]);
+  const [leads, setLeads]           = useState([]);
+  const [arrivals, setArrivals]     = useState([]);
+  const [lostDeals, setLostDeals]   = useState([]);
+  const [signedPSAs, setSignedPSAs] = useState([]);
+  const [ytdPSAs, setYtdPSAs]       = useState([]);
+  const [allTimePSAs, setAllTimePSAs] = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState(null);
   const [lastUpdated, setLastUpdated] = useState("");
-  const [openModal, setOpenModal] = useState(null);
+  const [openModal, setOpenModal]   = useState(null);
 
   useEffect(() => {
     async function load() {
       try {
-        const [k, p, d, t] = await Promise.all([
+        const [k, p, d, t, l, a, ld, sp, ytd] = await Promise.all([
           fetchSheet("Weekly_KPIs"),
           fetchSheet("Pipeline"),
-          fetchSheet("Deals"),
+          fetchSheet("Pending Transactions"),
           fetchSheet("Prospect_Tours"),
+          fetchSheet("New_Leads"),
+          fetchSheet("Member_Arrivals"),
+          fetchSheet(" Lost_Deals"),
+          fetchSheet("New Signed PSA"),
+          fetchSheet("YTD_PSAs"),
         ]);
-        setKpis(k); setPipeline(p); setDeals(d); setTours(t);
+        setKpis(k);
+        setPipeline(p);
+        setDeals(d);
+        setTours(t);
+        setLeads(l);
+        setArrivals(a);
+        setLostDeals(ld);
+        setSignedPSAs(sp);
+        setYtdPSAs(ytd);
         setLastUpdated(new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }));
-      } catch {
-        setError("Could not load data. Check your Sheet ID and API key.");
+      } catch (e) {
+        setError("Could not load data.");
       } finally {
         setLoading(false);
       }
@@ -160,53 +199,61 @@ export default function NaukaDashboard() {
 
   if (error) return (
     <div style={{ padding: "2rem", fontFamily: FONT_BODY, color: C.red, background: C.beige, borderRadius: 10, margin: "2rem" }}>
-      <strong>Setup needed:</strong> {error}
+      <strong>Error:</strong> {error}
     </div>
   );
 
   const weeklyChips = [
-    { key: "New Leads",       label: "New Leads",        field: "New Leads",   accent: C.teal,  records: null },
-    { key: "Tours",           label: "Tours",            field: "Tours",       accent: C.gray,  records: tours,                                          title: "Tours This Week" },
-    { key: "New OTPs",        label: "New Pending OTPs", field: "New OTPs",    accent: C.teal,  records: deals.filter(d => d["Stage"] === "Pending OTP"), title: "New Pending OTPs" },
-    { key: "Signed OTPs",     label: "New Signed OTPs",  field: "Signed OTPs", accent: C.teal,  records: deals.filter(d => d["Stage"] === "Signed OTP"),  title: "New Signed OTPs" },
-    { key: "New PSAs",        label: "Signed PSAs",      field: "New PSAs",    accent: C.teal,  records: deals.filter(d => d["Stage"] === "Signed PSA"),  title: "Signed PSAs" },
-    { key: "Arrivals",        label: "Member Arrivals",  field: "Arrivals",    accent: C.gray,  records: null },
-    { key: "Lost Deals",      label: "Lost Deals",       field: "Lost Deals",  accent: C.red,   records: deals.filter(d => d["Stage"] === "Lost"),        title: "Lost Deals" },
+    { key: "New Leads",    label: "New Leads",        field: "New Leads",        accent: C.teal, records: leads,     title: "New Leads This Week",    type: "leads" },
+    { key: "Tours",        label: "Tours",            field: "Tours",            accent: C.gray, records: tours,     title: "Tours This Week",        type: "tours" },
+    { key: "New OTPs",     label: "New Pending OTPs", field: "New Pending OTPs", accent: C.teal, records: deals.filter(d => d["Stage"] === "Pending OTP"), title: "New Pending OTPs", type: "deals" },
+    { key: "Signed OTPs",  label: "New Signed OTPs",  field: "New Signed OTPs",  accent: C.teal, records: deals.filter(d => d["Stage"] === "Signed OTP"),  title: "New Signed OTPs",  type: "deals" },
+    { key: "New PSAs",     label: "Signed PSAs",      field: "New Signed PSAs",  accent: C.teal, records: signedPSAs, title: "Signed PSAs This Week", type: "deals" },
+    { key: "Arrivals",     label: "Member Arrivals",  field: "Member Arrivals",  accent: C.gray, records: arrivals,  title: "Member Arrivals",        type: "arrivals" },
+    { key: "Lost Deals",   label: "Lost Deals",       field: "Lost Deals",       accent: C.red,  records: lostDeals, title: "Lost Deals",             type: "lost" },
   ];
 
   const activeChips = [
-    { key: "Pending OTP",     label: "Pending OTP" },
-    { key: "Signed OTP",      label: "Signed OTP" },
-    { key: "Expired DD",      label: "Expired Due Diligence" },
-    { key: "YTD Signed PSAs", label: "YTD Signed PSAs" },
-    { key: "All-Time PSAs",   label: "All-Time PSAs" },
+    { key: "Pending OTP",     label: "Pending OTP",          clickable: true },
+    { key: "Signed OTP",      label: "Signed OTP",           clickable: true },
+    { key: "Expired DD",      label: "Expired Due Diligence",clickable: true },
+    { key: "YTD Signed PSAs", label: "YTD Signed PSAs",      clickable: true },
+    { key: "All-Time PSAs",   label: "All-Time PSAs",        clickable: false },
   ];
+
+  const renderModalContent = (chip) => {
+    const records = chip.records || [];
+    if (records.length === 0) return <div style={{ fontSize: 13, color: "rgba(54,67,74,0.5)", padding: "1rem 0", fontFamily: FONT_BODY }}>No records this week.</div>;
+    switch (chip.type) {
+      case "tours":    return records.map((t, i) => <TourCard key={i} tour={t} />);
+      case "leads":    return records.map((l, i) => <LeadCard key={i} lead={l} />);
+      case "arrivals": return records.map((a, i) => <ArrivalCard key={i} arrival={a} />);
+      case "lost":     return records.map((d, i) => <LostDealCard key={i} deal={d} />);
+      default:         return records.map((d, i) => <DealCard key={i} deal={d} />);
+    }
+  };
 
   const renderModal = () => {
     if (!openModal) return null;
+
     if (openModal.type === "weekly") {
       const chip = weeklyChips.find(c => c.key === openModal.key);
-      if (!chip || !chip.records) return null;
-      return (
-        <Modal title={chip.title} onClose={() => setOpenModal(null)}>
-          {chip.records.length === 0
-            ? <div style={{ fontSize: 13, color: "rgba(54,67,74,0.5)", padding: "1rem 0", fontFamily: FONT_BODY }}>No records this week.</div>
-            : chip.key === "Tours"
-              ? chip.records.map((t, i) => <TourCard key={i} tour={t} />)
-              : chip.records.map((d, i) => <DealCard key={i} deal={d} />)
-          }
-        </Modal>
-      );
+      if (!chip) return null;
+      return <Modal title={chip.title} onClose={() => setOpenModal(null)}>{renderModalContent(chip)}</Modal>;
     }
+
     if (openModal.type === "active") {
       const stage = openModal.key;
       const info = pipe(stage);
-      const stageDeals = deals.filter(d => d["Stage"] === stage);
+      let records = [];
+      if (stage === "YTD Signed PSAs") records = ytdPSAs;
+      else if (stage === "All-Time PSAs") records = ytdPSAs;
+      else records = deals.filter(d => d["Stage"] === stage);
       return (
-        <Modal title={`${stage} — ${info["Count"] || stageDeals.length} · ${money(info["Value ($)"])}`} onClose={() => setOpenModal(null)}>
-          {stageDeals.length === 0
+        <Modal title={`${stage} — ${info["Count"] || records.length} · ${money(info["Value ($)"])}`} onClose={() => setOpenModal(null)}>
+          {records.length === 0
             ? <div style={{ fontSize: 13, color: "rgba(54,67,74,0.5)", padding: "1rem 0", fontFamily: FONT_BODY }}>No deals to show.</div>
-            : stageDeals.map((d, i) => <DealCard key={i} deal={d} />)
+            : records.map((d, i) => <DealCard key={i} deal={d} />)
           }
         </Modal>
       );
@@ -247,7 +294,7 @@ export default function NaukaDashboard() {
                 value={latest[chip.field] || "—"}
                 accent={chip.accent}
                 active={openModal?.type === "weekly" && openModal.key === chip.key}
-                onClick={() => chip.records ? setOpenModal({ type: "weekly", key: chip.key }) : null}
+                onClick={() => setOpenModal({ type: "weekly", key: chip.key })}
               />
             ))}
           </div>
@@ -269,9 +316,9 @@ export default function NaukaDashboard() {
                   label={chip.label}
                   value={info["Count"] || "0"}
                   sub={money(info["Value ($)"])}
-                  accent={C.teal}
+                  accent={chip.clickable ? C.teal : "rgba(54,67,74,0.3)"}
                   active={openModal?.type === "active" && openModal.key === chip.key}
-                  onClick={() => setOpenModal({ type: "active", key: chip.key })}
+                  onClick={chip.clickable ? () => setOpenModal({ type: "active", key: chip.key }) : () => {}}
                 />
               );
             })}

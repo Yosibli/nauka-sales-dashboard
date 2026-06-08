@@ -203,14 +203,21 @@ export default function NaukaDashboard() {
     </div>
   );
 
+  const today = new Date();
+  const expiredDeals = deals.filter(d => {
+    if (!d["DD Expiry"]) return false;
+    const exp = new Date(d["DD Expiry"]);
+    return !isNaN(exp) && exp < today;
+  });
+
   const weeklyChips = [
-    { key: "New Leads",    label: "New Leads",        field: "New Leads",        accent: C.teal, records: leads,     title: "New Leads This Week",    type: "leads" },
-    { key: "Tours",        label: "Tours",            field: "Tours",            accent: C.gray, records: tours,     title: "Tours This Week",        type: "tours" },
-    { key: "New OTPs",     label: "New Pending OTPs", field: "New Pending OTPs", accent: C.teal, records: deals.filter(d => d["Stage"] === "Pending OTP"), title: "New Pending OTPs", type: "deals" },
-    { key: "Signed OTPs",  label: "New Signed OTPs",  field: "New Signed OTPs",  accent: C.teal, records: deals.filter(d => d["Stage"] === "Signed OTP"),  title: "New Signed OTPs",  type: "deals" },
+    { key: "New Leads",    label: "New Leads",        field: "New Leads",        accent: C.teal, records: leads,      title: "New Leads This Week",   type: "leads" },
+    { key: "Tours",        label: "Tours",            field: "Tours",            accent: C.gray, records: tours,      title: "Tours This Week",       type: "tours" },
+    { key: "New OTPs",     label: "New Pending OTPs", field: "New Pending OTPs", accent: C.teal, records: [],         title: "New Pending OTPs",      type: "deals" },
+    { key: "Signed OTPs",  label: "New Signed OTPs",  field: "New Signed OTPs",  accent: C.teal, records: [],         title: "New Signed OTPs",       type: "deals" },
     { key: "New PSAs",     label: "Signed PSAs",      field: "New Signed PSAs",  accent: C.teal, records: signedPSAs, title: "Signed PSAs This Week", type: "deals" },
-    { key: "Arrivals",     label: "Member Arrivals",  field: "Member Arrivals",  accent: C.gray, records: arrivals,  title: "Member Arrivals",        type: "arrivals" },
-    { key: "Lost Deals",   label: "Lost Deals",       field: "Lost Deals",       accent: C.red,  records: lostDeals, title: "Lost Deals",             type: "lost" },
+    { key: "Arrivals",     label: "Member Arrivals",  field: "Member Arrivals",  accent: C.gray, records: arrivals,   title: "Member Arrivals",       type: "arrivals" },
+    { key: "Lost Deals",   label: "Lost Deals",       field: "Lost Deals",       accent: C.red,  records: lostDeals,  title: "Lost Deals",            type: "lost" },
   ];
 
   const activeChips = [
@@ -246,7 +253,8 @@ export default function NaukaDashboard() {
       const stage = openModal.key;
       const info = pipe(stage);
       let records = [];
-      if (stage === "YTD Signed PSAs") records = ytdPSAs;
+      if (stage === "Expired DD") records = expiredDeals;
+      else if (stage === "YTD Signed PSAs") records = ytdPSAs;
       else if (stage === "All-Time PSAs") records = ytdPSAs;
       else records = deals.filter(d => d["Stage"] === stage);
       return (

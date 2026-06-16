@@ -225,7 +225,8 @@ export default function NaukaDashboard() {
     if (!d["DD Expiry"]) return false;
     const dateStr = d["DD Expiry"].includes(",") ? d["DD Expiry"] : `${d["DD Expiry"]}, 2026`;
     const exp = new Date(dateStr);
-    return !isNaN(exp) && exp < today;
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    return !isNaN(exp) && exp < todayStart;
   });
 
   const tabStyle = active => ({

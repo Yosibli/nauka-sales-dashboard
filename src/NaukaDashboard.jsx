@@ -223,7 +223,9 @@ export default function NaukaDashboard() {
   const today = new Date();
   const expiredDeals = deals.filter(d => {
     if (!d["DD Expiry"]) return false;
-    return new Date(d["DD Expiry"]) < today;
+    const dateStr = d["DD Expiry"].includes(",") ? d["DD Expiry"] : `${d["DD Expiry"]}, 2026`;
+    const exp = new Date(dateStr);
+    return !isNaN(exp) && exp < today;
   });
 
   const tabStyle = active => ({

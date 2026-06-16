@@ -140,17 +140,21 @@ const LostCard = ({ deal }) => (
 );
 
 // ── PSA Card ──────────────────────────────────────────────────────────
-const PSACard = ({ deal }) => (
-  <div style={{ background: C.white, borderRadius: 8, padding: "0.85rem 1rem", marginBottom: 8, border: `0.5px solid rgba(54,67,74,0.12)`, borderLeft: `3px solid ${C.teal}` }}>
-    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-      <span style={{ fontSize: 13, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{deal["Deal Name"]}</span>
-      <span style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.gray }}>{money(deal["Amount ($)"])}</span>
+const PSACard = ({ deal }) => {
+  const days = deal["Total Days on Hold"] || deal["Days on Hold"];
+  const psaDate = deal["PSA Date Signed"];
+  return (
+    <div style={{ background: C.white, borderRadius: 8, padding: "0.85rem 1rem", marginBottom: 8, border: `0.5px solid rgba(54,67,74,0.12)`, borderLeft: `3px solid ${C.teal}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+        <span style={{ fontSize: 13, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{deal["Deal Name"]}</span>
+        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.gray }}>{money(deal["Amount ($)"])}</span>
+      </div>
+      <div style={{ fontSize: 11, color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>
+        {[deal["Advisor"], deal["Source"], psaDate ? `PSA: ${psaDate}` : null, days ? `${days} days on hold` : null].filter(Boolean).join(" · ")}
+      </div>
     </div>
-    <div style={{ fontSize: 11, color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>
-      {[deal["Advisor"], deal["Source"], deal["PSA Date Signed"] ? `PSA: ${deal["PSA Date Signed"]}` : null, deal["Days on Hold"] ? `${deal["Days on Hold"]} days` : null].filter(Boolean).join(" · ")}
-    </div>
-  </div>
-);
+  );
+};
 
 // ── Modal ─────────────────────────────────────────────────────────────
 const Modal = ({ title, subtitle, onClose, children }) => (
@@ -272,7 +276,7 @@ export default function NaukaDashboard() {
       case "arrivals": return records.map((a, i) => <ArrivalCard key={i} arrival={a} />);
       case "lost":     return records.map((d, i) => <LostCard key={i} deal={d} />);
       case "psas":     return (<>
-        {records.map((d, i) => <DealCard key={i} deal={d} />)}
+        {records.map((d, i) => <PSACard key={i} deal={d} />)}
         {extra && <div style={{ textAlign: "center", padding: "0.75rem", background: C.teal, borderRadius: 8, fontSize: 12, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, marginTop: 4 }}>{extra}</div>}
       </>);
       default:         return records.map((d, i) => <DealCard key={i} deal={d} />);

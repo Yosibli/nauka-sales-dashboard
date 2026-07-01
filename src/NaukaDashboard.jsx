@@ -408,101 +408,15 @@ export default function NaukaDashboard() {
       )}
 
       {/* ── CONVERSIONS VIEW ──────────────────────────────────────── */}
-      {view === "conversions" && (() => {
-        const activeRows  = funnelTab === "ytd" ? cohortRows  : allTimeRows;
-        const activeTotal = funnelTab === "ytd" ? cohortTotalRow : allTimeTotalRow;
-        const activeKPIs  = funnelTab === "ytd" ? cohortKPIs : {
-          leads: allTimeTotalRow["Leads"]  || "—",
-          tours: allTimeTotalRow["Tours"]  || "—",
-          otps:  allTimeTotalRow["OTPs"]   || "—",
-          psas:  allTimeTotalRow["PSAs"]   || "—",
-          ltRate: allTimeTotalRow["Lead→Tour %"] || "—",
-          toRate: allTimeTotalRow["Tour→OTP %"]  || "—",
-          opRate: allTimeTotalRow["OTP→PSA %"]   || "—",
-          volume: money(allTimeTotalRow["PSA Volume ($)"] || 0),
-        };
-        return (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {/* Sub-tabs YTD / All-Time */}
-            <div style={{ display: "flex", gap: 6 }}>
-              {[["ytd","YTD 2026"],["alltime","All Time"]].map(([key, label]) => (
-                <button key={key} onClick={() => setFunnelTab(key)}
-                  style={{ padding: "5px 14px", fontSize: 11, borderRadius: 20, cursor: "pointer", fontFamily: FONT_BODY,
-                    background: funnelTab === key ? C.gray : "rgba(54,67,74,0.07)",
-                    color: funnelTab === key ? C.teal : C.gray,
-                    border: `0.5px solid ${funnelTab === key ? C.gray : "rgba(54,67,74,0.2)"}` }}>
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {/* KPI summary */}
-            <div style={{ background: C.beige, borderRadius: 10, padding: "1rem 1.25rem", border: "0.5px solid rgba(54,67,74,0.12)" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8 }}>
-                {[
-                  { label: "Leads",      value: activeKPIs.leads,  sub: `${activeKPIs.ltRate} → Tour` },
-                  { label: "Tours",      value: activeKPIs.tours,  sub: `${activeKPIs.toRate} → OTP`  },
-                  { label: "OTPs",       value: activeKPIs.otps,   sub: `${activeKPIs.opRate} → PSA`  },
-                  { label: "PSA Volume", value: activeKPIs.volume, sub: `${activeKPIs.psas} PSAs`      },
-                ].map(k => (
-                  <div key={k.label} style={{ background: C.white, borderRadius: 8, padding: "0.75rem 1rem", border: "0.5px solid rgba(54,67,74,0.1)", textAlign: "center" }}>
-                    <div style={{ fontSize: 10, color: "rgba(54,67,74,0.6)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, fontFamily: FONT_BODY }}>{k.label}</div>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.gray }}>{k.value}</div>
-                    <div style={{ fontSize: 11, color: C.teal, marginTop: 3, fontWeight: "bold", fontFamily: FONT_BODY }}>{k.sub}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Funnel table */}
-            <div>
-              <div style={{ background: C.gray, color: C.teal, fontSize: 11, fontWeight: "bold", letterSpacing: "0.05em", textTransform: "uppercase", padding: "7px 12px", borderRadius: "8px 8px 0 0", fontFamily: FONT_BODY }}>
-                {funnelTab === "ytd" ? "YTD 2026 · Conversion by Source" : "All Time · Conversion by Source"}
-              </div>
-              <div style={{ overflowX: "auto", background: C.white, border: "0.5px solid rgba(54,67,74,0.1)", borderRadius: "0 0 8px 8px" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, minWidth: 420 }}>
-                  <thead>
-                    <tr>
-                      {["Source","Leads","Tours","OTPs","PSAs","L→T","T→O","O→P","Volume"].map(h => (
-                        <th key={h} style={{ fontSize: 10, color: "rgba(54,67,74,0.6)", textTransform: "uppercase", letterSpacing: "0.04em", padding: "6px 8px", textAlign: h === "Source" ? "left" : "right", borderBottom: "0.5px solid rgba(54,67,74,0.1)", fontWeight: "bold", background: C.beige, whiteSpace: "nowrap" }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activeRows.map((row, i) => (
-                      <tr key={i} style={{ background: i%2===0 ? C.white : "rgba(245,243,234,0.5)" }}>
-                        <td style={{ padding: "6px 8px", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{row["Source"]}</td>
-                        {["Leads","Tours","OTPs","PSAs"].map(col => (
-                          <td key={col} style={{ padding: "6px 8px", textAlign: "right", color: C.gray, fontFamily: FONT_BODY }}>{row[col] || "—"}</td>
-                        ))}
-                        {["Lead→Tour %","Tour→OTP %","OTP→PSA %"].map(col => (
-                          <td key={col} style={{ padding: "6px 8px", textAlign: "right", fontFamily: FONT_BODY, whiteSpace: "nowrap", ...rateColor(row[col]) }}>{row[col] || "—"}</td>
-                        ))}
-                        <td style={{ padding: "6px 8px", textAlign: "right", color: C.gray, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{money(row["PSA Volume ($)"])}</td>
-                      </tr>
-                    ))}
-                    <tr style={{ background: "rgba(136,209,209,0.1)", borderTop: "0.5px solid rgba(54,67,74,0.15)" }}>
-                      <td style={{ padding: "6px 8px", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>Total</td>
-                      {["Leads","Tours","OTPs","PSAs"].map(col => (
-                        <td key={col} style={{ padding: "6px 8px", textAlign: "right", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{activeTotal[col] || "—"}</td>
-                      ))}
-                      {["Lead→Tour %","Tour→OTP %","OTP→PSA %"].map(col => (
-                        <td key={col} style={{ padding: "6px 8px", textAlign: "right", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{activeTotal[col] || "—"}</td>
-                      ))}
-                      <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{money(activeTotal["PSA Volume ($)"])}</td>
-                    </tr>
-                  </tbody>
-                </table>
-                <div style={{ padding: "8px 10px", fontSize: 10, color: "rgba(54,67,74,0.4)", display: "flex", gap: 12, fontFamily: FONT_BODY }}>
-                  <span><span style={{ color: C.green, fontWeight: "bold" }}>■</span> ≥40%</span>
-                  <span><span style={{ color: C.amber, fontWeight: "bold" }}>■</span> 15–39%</span>
-                  <span><span style={{ color: C.red, fontWeight: "bold" }}>■</span> &lt;15%</span>
-                </div>
-              </div>
-            </div>
+      {view === "conversions" && (
+        <div style={{ background: C.beige, borderRadius: 10, padding: "2rem 1.25rem", border: "0.5px solid rgba(54,67,74,0.12)", textAlign: "center" }}>
+          <div style={{ fontSize: 28, marginBottom: 12 }}>📊</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.gray, fontStyle: "italic", marginBottom: 8 }}>Conversion Rates</div>
+          <div style={{ fontSize: 13, color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY, lineHeight: 1.6 }}>
+            This section is currently under revision.<br />Updated numbers coming soon.
           </div>
-        );
-      })()}
+        </div>
+      )}
 
       {renderModal()}
     </div>

@@ -333,20 +333,31 @@ export default function NaukaDashboard() {
     }
   };
 
-  // Funnel data — YTD cohort and All-Time from separate sheets
+  // Funnel data — YTD and All-Time separate sheets
   const cohortRows      = funnel.filter(r => r["Source"] && r["Source"] !== "TOTAL");
   const cohortTotalRow  = funnel.find(r => r["Source"] === "TOTAL") ?? {};
   const allTimeRows     = funnelAllTime.filter(r => r["Source"] && r["Source"] !== "TOTAL");
   const allTimeTotalRow = funnelAllTime.find(r => r["Source"] === "TOTAL") ?? {};
 
+  const cohortKPIs = {
+    leads: cohortTotalRow["Leads"]  || "—",
+    tours: cohortTotalRow["Tours"]  || "—",
+    otps:  cohortTotalRow["OTPs"]   || "—",
+    psas:  cohortTotalRow["PSAs"]   || "—",
+    ltRate: cohortTotalRow["Lead→Tour %"] || "—",
+    toRate: cohortTotalRow["Tour→OTP %"]  || "—",
+    opRate: cohortTotalRow["OTP→PSA %"]   || "—",
+    volume: money(cohortTotalRow["PSA Volume ($)"] || 0),
+  };
+
   return (
     <div style={{ fontFamily: FONT_BODY, color: C.gray, padding: "1rem", maxWidth: 960, margin: "0 auto" }}>
 
       {/* Header */}
-      <div style={{ background: C.gray, padding: "1.25rem 1.5rem", borderRadius: 10, marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
+      <div style={{ background: C.gray, padding: "1.25rem 1.5rem", borderRadius: 10, marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
-          <img src="/Nauka_Horizontal_Logo.png" alt="Nauka" style={{ height: 56, width: "auto", display: "block" }} />
-          <div style={{ fontSize: 11, color: C.teal, letterSpacing: "0.1em", textTransform: "uppercase", marginTop: 10, fontFamily: FONT_BODY }}>Weekly Sales Snapshot</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 28, color: C.white, letterSpacing: "0.25em", textTransform: "uppercase", fontWeight: 500 }}>Nauka</div>
+          <div style={{ fontSize: 11, color: C.teal, letterSpacing: "0.1em", textTransform: "uppercase", marginTop: 3, fontFamily: FONT_BODY }}>Weekly Sales Snapshot</div>
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", fontFamily: FONT_BODY }}>Updated {lastUpdated}</div>
@@ -398,109 +409,18 @@ export default function NaukaDashboard() {
         </div>
       )}
 
-      {/* ── CONVERSIONS VIEW · YTD COHORT FUNNEL ──────────────────── */}
-      {view === "conversions" && (() => {
-        const rows     = funnelTab === "ytd" ? cohortRows : allTimeRows;
-        const totalRow = funnelTab === "ytd" ? cohortTotalRow : allTimeTotalRow;
-        const L = num(totalRow["Leads"]), T = num(totalRow["Tours"]), O = num(totalRow["OTPs"]), P = num(totalRow["PSAs"]);
-        const maxV = Math.max(L, T, O, P, 1);
-        const stages = [
-          { label: "Leads",       value: L },
-          { label: "Tours",       value: T },
-          { label: "OTPs",        value: O },
-          { label: "Signed PSAs", value: P },
-        ];
-        const rates = [
-          { label: "Lead → Tour", pct: totalRow["Lead→Tour %"] || "—" },
-          { label: "Tour → OTP",  pct: totalRow["Tour→OTP %"]  || "—" },
-          { label: "OTP → PSA",   pct: totalRow["OTP→PSA %"]   || "—" },
-        ];
-        const volume = money(totalRow["PSA Volume ($)"] || 0);
-        const hasData = L + T + O + P > 0;
-
-        return (
-          <div style={{ background: C.beige, borderRadius: 10, padding: "1rem 1.25rem", border: "0.5px solid rgba(54,67,74,0.12)" }}>
-            {/* Header + cohort toggle */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
-              <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, fontFamily: FONT_BODY }}>
-                Conversion Funnel · {funnelTab === "ytd" ? "2026 Cohort" : "All-Time"}
-              </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button style={tabStyle(funnelTab === "ytd")} onClick={() => setFunnelTab("ytd")}>2026 Cohort</button>
-                <button style={tabStyle(funnelTab === "all")} onClick={() => setFunnelTab("all")}>All-Time</button>
-              </div>
-            </div>
-
-            {!hasData ? (
-              <div style={{ fontSize: 13, color: "rgba(54,67,74,0.5)", padding: "1rem 0", fontFamily: FONT_BODY }}>No funnel data available.</div>
-            ) : (
-              <>
-                {/* Funnel bars */}
-                {stages.map((s, i) => (
-                  <div key={i} style={{ marginBottom: 16 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-                      <span style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{s.label}</span>
-                      <span style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.gray }}>{s.value}</span>
-                    </div>
-                    <div style={{ height: 12, borderRadius: 6, background: "rgba(54,67,74,0.07)", overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${Math.max((s.value / maxV) * 100, s.value > 0 ? 5 : 0)}%`, background: C.teal, borderRadius: 6, transition: "width 0.5s ease" }} />
-                    </div>
-                  </div>
-                ))}
-
-                {/* Conversion rate cards */}
-                <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, margin: "24px 0 10px", fontFamily: FONT_BODY }}>Conversion Rates</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
-                  {rates.map((r, i) => (
-                    <div key={i} style={{ background: C.white, borderRadius: 8, padding: "14px 16px", border: "0.5px solid rgba(54,67,74,0.12)" }}>
-                      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, ...rateColor(r.pct) }}>{r.pct}</div>
-                      <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", marginTop: 6, fontFamily: FONT_BODY }}>{r.label}</div>
-                    </div>
-                  ))}
-                  <div style={{ background: C.gray, borderRadius: 8, padding: "14px 16px" }}>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, color: C.teal }}>{volume}</div>
-                    <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(255,255,255,0.7)", marginTop: 6, fontFamily: FONT_BODY }}>PSA Volume</div>
-                  </div>
-                </div>
-
-                {/* By-source breakdown */}
-                {rows.length > 0 && (
-                  <>
-                    <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, margin: "24px 0 10px", fontFamily: FONT_BODY }}>By Source</div>
-                    <div style={{ background: C.white, borderRadius: 8, border: "0.5px solid rgba(54,67,74,0.12)", overflow: "hidden" }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr 1fr 1fr", padding: "10px 14px", background: "rgba(54,67,74,0.04)", fontSize: 9, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>
-                        <span>Source</span>
-                        <span style={{ textAlign: "right" }}>Leads</span>
-                        <span style={{ textAlign: "right" }}>Tours</span>
-                        <span style={{ textAlign: "right" }}>OTPs</span>
-                        <span style={{ textAlign: "right" }}>PSAs</span>
-                      </div>
-                      {rows.map((r, i) => (
-                        <div key={i} style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr 1fr 1fr", padding: "11px 14px", borderTop: "0.5px solid rgba(54,67,74,0.08)", fontSize: 12, color: C.gray, fontFamily: FONT_BODY, alignItems: "baseline" }}>
-                          <span style={{ fontWeight: "bold" }}>{r["Source"]}</span>
-                          <span style={{ textAlign: "right" }}>{r["Leads"] || "—"}</span>
-                          <span style={{ textAlign: "right" }}>{r["Tours"] || "—"}</span>
-                          <span style={{ textAlign: "right" }}>{r["OTPs"] || "—"}</span>
-                          <span style={{ textAlign: "right", fontFamily: FONT_DISPLAY, fontSize: 15 }}>{r["PSAs"] || "—"}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </>
-            )}
+      {/* ── CONVERSIONS VIEW ──────────────────────────────────────── */}
+      {view === "conversions" && (
+        <div style={{ background: C.beige, borderRadius: 10, padding: "2rem 1.25rem", border: "0.5px solid rgba(54,67,74,0.12)", textAlign: "center" }}>
+          <div style={{ fontSize: 28, marginBottom: 12 }}>📊</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.gray, fontStyle: "italic", marginBottom: 8 }}>Conversion Rates</div>
+          <div style={{ fontSize: 13, color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY, lineHeight: 1.6 }}>
+            This section is currently under revision.<br />Updated numbers coming soon.
           </div>
-        );
-      })()}
+        </div>
+      )}
 
       {renderModal()}
-
-      {/* Footer mark */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "1.75rem 0 0.5rem" }}>
-        <div style={{ flex: 1, height: 1, background: "rgba(54,67,74,0.12)" }} />
-        <img src="/Nauka_Icon_Primary_HEX.png" alt="Nauka" style={{ height: 38, width: "auto", display: "block", opacity: 0.85 }} />
-        <div style={{ flex: 1, height: 1, background: "rgba(54,67,74,0.12)" }} />
-      </div>
     </div>
   );
 }

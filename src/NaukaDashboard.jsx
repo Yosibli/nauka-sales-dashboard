@@ -236,7 +236,7 @@ export default function NaukaDashboard() {
   });
 
   const tabStyle = active => ({
-    padding: "6px 16px", fontSize: 12, borderRadius: 20, cursor: "pointer",
+    padding: "6px 14px", fontSize: 12, borderRadius: 20, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap",
     background: active ? C.gray : "rgba(54,67,74,0.07)",
     color: active ? C.teal : C.gray,
     border: `0.5px solid ${active ? C.gray : "rgba(54,67,74,0.2)"}`,
@@ -340,7 +340,7 @@ export default function NaukaDashboard() {
   const allTimeTotalRow = funnelAllTime.find(r => r["Source"] === "TOTAL") ?? {};
 
   return (
-    <div style={{ fontFamily: FONT_BODY, color: C.gray, padding: "1rem", maxWidth: 960, margin: "0 auto" }}>
+    <div style={{ fontFamily: FONT_BODY, color: C.gray, padding: "1rem 1.25rem", maxWidth: 960, margin: "0 auto" }}>
 
       {/* Header */}
       <div style={{ background: C.gray, padding: "1.25rem 1.5rem", borderRadius: 10, marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
@@ -354,7 +354,7 @@ export default function NaukaDashboard() {
       </div>
 
       {/* Main tabs */}
-      <div style={{ display: "flex", gap: 6, marginBottom: "1rem", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: "1rem", overflowX: "auto", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
         <button style={tabStyle(view === "weekly")} onClick={() => setView("weekly")}>Weekly Snapshot</button>
         <button style={tabStyle(view === "active")} onClick={() => setView("active")}>Active Transactions</button>
         <button style={tabStyle(view === "conversions")} onClick={() => setView("conversions")}>Conversions</button>
@@ -400,9 +400,9 @@ export default function NaukaDashboard() {
             <div style={{ fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", marginBottom: 12, fontFamily: FONT_BODY }}>Also This Week</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               {otherChips.map(chip => (
-                <div key={chip.key} onClick={() => setOpenModal({ type: "weekly", key: chip.key })} style={{ cursor: "pointer", background: chip.key === "Arrivals" ? "#E7F6F6" : C.white, border: chip.key === "Arrivals" ? "none" : "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "20px 22px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: chip.key === "Arrivals" ? C.gray : "rgba(54,67,74,0.6)", fontFamily: FONT_BODY, lineHeight: 1.3 }}>{chip.label}</span>
-                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 40, color: chip.key === "Lost Deals" && num(latest[chip.field]) > 0 ? C.red : C.gray }}>{latest[chip.field] || "0"}</span>
+                <div key={chip.key} onClick={() => setOpenModal({ type: "weekly", key: chip.key })} style={{ cursor: "pointer", background: chip.key === "Arrivals" ? "#E7F6F6" : C.white, border: chip.key === "Arrivals" ? "none" : "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "18px 22px" }}>
+                  <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: chip.key === "Arrivals" ? C.gray : "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>{chip.label}</div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 40, lineHeight: 1, marginTop: 8, color: chip.key === "Lost Deals" && num(latest[chip.field]) > 0 ? C.red : C.gray }}>{latest[chip.field] || "0"}</div>
                 </div>
               ))}
             </div>

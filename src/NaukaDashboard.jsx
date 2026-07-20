@@ -175,7 +175,8 @@ const Modal = ({ title, subtitle, onClose, children }) => (
 // ── Main ──────────────────────────────────────────────────────────────
 export default function NaukaDashboard() {
   const [view, setView]               = useState("weekly");
-  const [funnelTab, setFunnelTab]     = useState("ytd");
+  const [conversionTab, setConversionTab] = useState("alltime"); // "alltime" | "byyear"
+  const [selectedYear, setSelectedYear]   = useState(null);
   const [kpis, setKpis]           = useState([]);
   const [pipeline, setPipeline]   = useState([]);
   const [deals, setDeals]         = useState([]);
@@ -187,8 +188,8 @@ export default function NaukaDashboard() {
   const [pendingOTPs, setPendingOTPs] = useState([]);
   const [signedPSAs, setSignedPSAs] = useState([]);
   const [ytdPSAs, setYtdPSAs]     = useState([]);
-  const [funnel, setFunnel]           = useState([]);
   const [funnelAllTime, setFunnelAllTime] = useState([]);
+  const [funnelByYear, setFunnelByYear]   = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
   const [lastUpdated, setLastUpdated] = useState("");
@@ -197,7 +198,7 @@ export default function NaukaDashboard() {
   useEffect(() => {
     async function load() {
       try {
-        const [k, p, d, t, l, a, ld, sotp, notp, sp, ytd, fn, fa] = await Promise.all([
+        const [k, p, d, t, l, a, ld, sotp, notp, sp, ytd, fa, fy] = await Promise.all([
           fetchSheet("Weekly_KPIs"),
           fetchSheet("Pipeline"),
           fetchSheet("Pending Transactions"),
@@ -209,13 +210,15 @@ export default function NaukaDashboard() {
           fetchSheet("New_Pending_OTPs"),
           fetchSheet("New Signed PSA"),
           fetchSheet("YTD_PSAs"),
-          fetchSheet("Funnel_2026"),
           fetchSheet("Funnel_AllTime"),
+          fetchSheet("Funnel_ByYear"),
         ]);
         setKpis(k); setPipeline(p); setDeals(d); setTours(t);
         setLeads(l); setArrivals(a); setLostDeals(ld);
         setSignedOTPs(sotp); setPendingOTPs(notp); setSignedPSAs(sp); setYtdPSAs(ytd);
-        setFunnel(fn); setFunnelAllTime(fa);
+        setFunnelAllTime(fa); setFunnelByYear(fy);
+        const yrs = [...new Set(fy.map(r => r["Year"]).filter(Boolean))].sort((a, b) => b - a);
+        if (yrs.length) setSelectedYear(yrs[0]);
         setLastUpdated(new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }));
       } catch { setError("Could not load data."); }
       finally { setLoading(false); }
@@ -333,11 +336,13 @@ export default function NaukaDashboard() {
     }
   };
 
-  // Funnel data — YTD cohort and All-Time from separate sheets
-  const cohortRows      = funnel.filter(r => r["Source"] && r["Source"] !== "TOTAL");
-  const cohortTotalRow  = funnel.find(r => r["Source"] === "TOTAL") ?? {};
+  // Funnel data — All-Time table, and By-Year table filtered to the selected cohort year
   const allTimeRows     = funnelAllTime.filter(r => r["Source"] && r["Source"] !== "TOTAL");
   const allTimeTotalRow = funnelAllTime.find(r => r["Source"] === "TOTAL") ?? {};
+  const availableYears  = [...new Set(funnelByYear.map(r => r["Year"]).filter(Boolean))].sort((a, b) => b - a);
+  const yearRowsAll     = funnelByYear.filter(r => String(r["Year"]) === String(selectedYear));
+  const yearRows        = yearRowsAll.filter(r => r["Source"] && r["Source"] !== "TOTAL");
+  const yearTotalRow    = yearRowsAll.find(r => r["Source"] === "TOTAL") ?? {};
 
   return (
     <div style={{ fontFamily: FONT_BODY, color: C.gray, padding: "1rem 1.25rem", maxWidth: 960, margin: "0 auto" }}>
@@ -432,97 +437,111 @@ export default function NaukaDashboard() {
         </div>
       )}
 
-      {/* ── CONVERSIONS VIEW · YTD COHORT FUNNEL ──────────────────── */}
+      {/* ── CONVERSIONS VIEW · ALL-TIME + BY-YEAR LEAD CONVERSION ─── */}
       {view === "conversions" && (() => {
-        const rows     = funnelTab === "ytd" ? cohortRows : allTimeRows;
-        const totalRow = funnelTab === "ytd" ? cohortTotalRow : allTimeTotalRow;
-        const L = num(totalRow["Leads"]), T = num(totalRow["Tours"]), O = num(totalRow["OTPs"]), P = num(totalRow["PSAs"]);
+        const isAllTime = conversionTab === "alltime";
+        const rows      = isAllTime ? allTimeRows : yearRows;
+        const totalRow  = isAllTime ? allTimeTotalRow : yearTotalRow;
+        const L = num(totalRow["Leads"]), T = num(totalRow["Toured"]), O = num(totalRow["OTPs"]), P = num(totalRow["PSAs"]);
         const maxV = Math.max(L, T, O, P, 1);
         const stages = [
           { label: "Leads",       value: L },
-          { label: "Tours",       value: T },
-          { label: "OTPs",        value: O },
+          { label: "Toured",      value: T },
+          { label: "Signed OTPs", value: O },
           { label: "Signed PSAs", value: P },
         ];
         const rates = [
-          { label: "Lead → Tour", pct: totalRow["Lead→Tour %"] || "—" },
-          { label: "Tour → OTP",  pct: totalRow["Tour→OTP %"]  || "—" },
-          { label: "OTP → PSA",   pct: totalRow["OTP→PSA %"]   || "—" },
+          { label: "Lead → Tour", pct: totalRow["L→T%"] || "—" },
+          { label: "Tour → OTP",  pct: totalRow["T→O%"] || "—" },
+          { label: "OTP → PSA",   pct: totalRow["O→P%"] || "—" },
         ];
-        const volume = money(totalRow["PSA Volume ($)"] || 0);
         const hasData = L + T + O + P > 0;
 
         return (
-          <div style={{ background: C.beige, borderRadius: 10, padding: "1rem 1.25rem", border: "0.5px solid rgba(54,67,74,0.12)" }}>
-            {/* Header + cohort toggle */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
-              <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, fontFamily: FONT_BODY }}>
-                Conversion Funnel · {funnelTab === "ytd" ? "2026 Cohort" : "All-Time"}
-              </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button style={tabStyle(funnelTab === "ytd")} onClick={() => setFunnelTab("ytd")}>2026 Cohort</button>
-                <button style={tabStyle(funnelTab === "all")} onClick={() => setFunnelTab("all")}>All-Time</button>
-              </div>
+          <div>
+            {/* Section toggle: All-Time vs By Year */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+              <button style={tabStyle(conversionTab === "alltime")} onClick={() => setConversionTab("alltime")}>All-Time Analysis</button>
+              <button style={tabStyle(conversionTab === "byyear")} onClick={() => setConversionTab("byyear")}>By Year</button>
             </div>
 
-            {!hasData ? (
-              <div style={{ fontSize: 13, color: "rgba(54,67,74,0.5)", padding: "1rem 0", fontFamily: FONT_BODY }}>No funnel data available.</div>
-            ) : (
-              <>
-                {/* Funnel bars */}
-                {stages.map((s, i) => (
-                  <div key={i} style={{ marginBottom: 16 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-                      <span style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{s.label}</span>
-                      <span style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.gray }}>{s.value}</span>
-                    </div>
-                    <div style={{ height: 12, borderRadius: 6, background: "rgba(54,67,74,0.07)", overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${Math.max((s.value / maxV) * 100, s.value > 0 ? 5 : 0)}%`, background: C.teal, borderRadius: 6, transition: "width 0.5s ease" }} />
-                    </div>
-                  </div>
-                ))}
+            {/* Methodology note */}
+            <div style={{ fontSize: 11, lineHeight: 1.6, color: "rgba(54,67,74,0.65)", background: "rgba(136,209,209,0.18)", border: "0.5px solid rgba(54,67,74,0.1)", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontFamily: FONT_BODY }}>
+              <strong style={{ color: C.gray }}>Methodology:</strong> Each lead is assigned to the year it was created in HubSpot and stays in that cohort for its entire journey — a lead created in 2022 that signs a PSA in 2025 still counts toward 2022. Leads that skip a stage (e.g. a Signed PSA with no Signed OTP) are counted at the highest stage reached. This measures long-term conversion performance, so recent cohorts will show lower rates simply because they've had less time to mature.
+            </div>
 
-                {/* Conversion rate cards */}
-                <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, margin: "24px 0 10px", fontFamily: FONT_BODY }}>Conversion Rates</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
-                  {rates.map((r, i) => (
-                    <div key={i} style={{ background: C.white, borderRadius: 8, padding: "14px 16px", border: "0.5px solid rgba(54,67,74,0.12)" }}>
-                      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, ...rateColor(r.pct) }}>{r.pct}</div>
-                      <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", marginTop: 6, fontFamily: FONT_BODY }}>{r.label}</div>
+            <div style={{ background: C.beige, borderRadius: 10, padding: "1rem 1.25rem", border: "0.5px solid rgba(54,67,74,0.12)" }}>
+              {/* Header + year selector (By Year only) */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
+                <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, fontFamily: FONT_BODY }}>
+                  {isAllTime ? "All-Time Lead Conversion Analysis" : `Lead Conversion Analysis · ${selectedYear ?? "—"} Cohort`}
+                </div>
+                {!isAllTime && availableYears.length > 0 && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {availableYears.map(y => (
+                      <button key={y} style={tabStyle(String(selectedYear) === String(y))} onClick={() => setSelectedYear(y)}>{y}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {!hasData ? (
+                <div style={{ fontSize: 13, color: "rgba(54,67,74,0.5)", padding: "1rem 0", fontFamily: FONT_BODY }}>No funnel data available.</div>
+              ) : (
+                <>
+                  {/* Funnel bars */}
+                  {stages.map((s, i) => (
+                    <div key={i} style={{ marginBottom: 16 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                        <span style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{s.label}</span>
+                        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.gray }}>{s.value}</span>
+                      </div>
+                      <div style={{ height: 12, borderRadius: 6, background: "rgba(54,67,74,0.07)", overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${Math.max((s.value / maxV) * 100, s.value > 0 ? 5 : 0)}%`, background: C.teal, borderRadius: 6, transition: "width 0.5s ease" }} />
+                      </div>
                     </div>
                   ))}
-                  <div style={{ background: C.gray, borderRadius: 8, padding: "14px 16px" }}>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, color: C.teal }}>{volume}</div>
-                    <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(255,255,255,0.7)", marginTop: 6, fontFamily: FONT_BODY }}>PSA Volume</div>
-                  </div>
-                </div>
 
-                {/* By-source breakdown */}
-                {rows.length > 0 && (
-                  <>
-                    <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, margin: "24px 0 10px", fontFamily: FONT_BODY }}>By Source</div>
-                    <div style={{ background: C.white, borderRadius: 8, border: "0.5px solid rgba(54,67,74,0.12)", overflow: "hidden" }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr 1fr 1fr", padding: "10px 14px", background: "rgba(54,67,74,0.04)", fontSize: 9, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>
-                        <span>Source</span>
-                        <span style={{ textAlign: "right" }}>Leads</span>
-                        <span style={{ textAlign: "right" }}>Tours</span>
-                        <span style={{ textAlign: "right" }}>OTPs</span>
-                        <span style={{ textAlign: "right" }}>PSAs</span>
+                  {/* Conversion rate cards */}
+                  <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, margin: "24px 0 10px", fontFamily: FONT_BODY }}>Conversion Rates</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+                    {rates.map((r, i) => (
+                      <div key={i} style={{ background: C.white, borderRadius: 8, padding: "14px 16px", border: "0.5px solid rgba(54,67,74,0.12)" }}>
+                        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, ...rateColor(r.pct) }}>{r.pct}</div>
+                        <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", marginTop: 6, fontFamily: FONT_BODY }}>{r.label}</div>
                       </div>
-                      {rows.map((r, i) => (
-                        <div key={i} style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr 1fr 1fr", padding: "11px 14px", borderTop: "0.5px solid rgba(54,67,74,0.08)", fontSize: 12, color: C.gray, fontFamily: FONT_BODY, alignItems: "baseline" }}>
-                          <span style={{ fontWeight: "bold" }}>{r["Source"]}</span>
-                          <span style={{ textAlign: "right" }}>{r["Leads"] || "—"}</span>
-                          <span style={{ textAlign: "right" }}>{r["Tours"] || "—"}</span>
-                          <span style={{ textAlign: "right" }}>{r["OTPs"] || "—"}</span>
-                          <span style={{ textAlign: "right", fontFamily: FONT_DISPLAY, fontSize: 15 }}>{r["PSAs"] || "—"}</span>
+                    ))}
+                  </div>
+
+                  {/* By-source breakdown */}
+                  {rows.length > 0 && (
+                    <>
+                      <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, margin: "24px 0 10px", fontFamily: FONT_BODY }}>By Source</div>
+                      <div style={{ background: C.white, borderRadius: 8, border: "0.5px solid rgba(54,67,74,0.12)", overflow: "hidden" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 0.8fr 0.8fr 0.8fr 0.8fr 0.9fr", padding: "10px 14px", background: "rgba(54,67,74,0.04)", fontSize: 9, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>
+                          <span>Source</span>
+                          <span style={{ textAlign: "right" }}>Leads</span>
+                          <span style={{ textAlign: "right" }}>Toured</span>
+                          <span style={{ textAlign: "right" }}>OTPs</span>
+                          <span style={{ textAlign: "right" }}>PSAs</span>
+                          <span style={{ textAlign: "right" }}>O→P%</span>
                         </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </>
-            )}
+                        {rows.map((r, i) => (
+                          <div key={i} style={{ display: "grid", gridTemplateColumns: "1.5fr 0.8fr 0.8fr 0.8fr 0.8fr 0.9fr", padding: "11px 14px", borderTop: "0.5px solid rgba(54,67,74,0.08)", fontSize: 12, color: C.gray, fontFamily: FONT_BODY, alignItems: "baseline" }}>
+                            <span style={{ fontWeight: "bold" }}>{r["Source"]}</span>
+                            <span style={{ textAlign: "right" }}>{r["Leads"] || "—"}</span>
+                            <span style={{ textAlign: "right" }}>{r["Toured"] || "—"}</span>
+                            <span style={{ textAlign: "right" }}>{r["OTPs"] || "—"}</span>
+                            <span style={{ textAlign: "right", fontFamily: FONT_DISPLAY, fontSize: 15 }}>{r["PSAs"] || "—"}</span>
+                            <span style={{ textAlign: "right", ...rateColor(r["O→P%"] || "—") }}>{r["O→P%"] || "—"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         );
       })()}

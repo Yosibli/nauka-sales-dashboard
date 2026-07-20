@@ -336,7 +336,7 @@ export default function NaukaDashboard() {
     }
   };
 
-  // Funnel data — All-Time table, and By-Year table filtered to the selected cohort year
+  // Funnel data — All-Time table, and By-Year table filtered to the selected year group
   const allTimeRows     = funnelAllTime.filter(r => r["Source"] && r["Source"] !== "TOTAL");
   const allTimeTotalRow = funnelAllTime.find(r => r["Source"] === "TOTAL") ?? {};
   const availableYears  = [...new Set(funnelByYear.map(r => r["Year"]).filter(Boolean))].sort((a, b) => b - a);
@@ -467,14 +467,14 @@ export default function NaukaDashboard() {
 
             {/* Methodology note */}
             <div style={{ fontSize: 11, lineHeight: 1.6, color: "rgba(54,67,74,0.65)", background: "rgba(136,209,209,0.18)", border: "0.5px solid rgba(54,67,74,0.1)", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontFamily: FONT_BODY }}>
-              <strong style={{ color: C.gray }}>Methodology:</strong> Each lead is assigned to the year it was created in HubSpot and stays in that cohort for its entire journey — a lead created in 2022 that signs a PSA in 2025 still counts toward 2022. Leads that skip a stage (e.g. a Signed PSA with no Signed OTP) are counted at the highest stage reached. This measures long-term conversion performance, so recent cohorts will show lower rates simply because they've had less time to mature.
+              <strong style={{ color: C.gray }}>Methodology:</strong> Each lead is assigned to the year it was created in HubSpot and stays in that group for its entire journey — a lead created in 2022 that signs a PSA in 2025 still counts toward 2022. Leads that skip a stage (e.g. a Signed PSA with no Signed OTP) are counted at the highest stage reached. This measures long-term conversion performance, so recent year groups will show lower rates simply because they've had less time to mature.
             </div>
 
             <div style={{ background: C.beige, borderRadius: 10, padding: "1rem 1.25rem", border: "0.5px solid rgba(54,67,74,0.12)" }}>
               {/* Header + year selector (By Year only) */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
                 <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, fontFamily: FONT_BODY }}>
-                  {isAllTime ? "All-Time Lead Conversion Analysis" : `Lead Conversion Analysis · ${selectedYear ?? "—"} Cohort`}
+                  {isAllTime ? "All-Time Lead Conversion Analysis" : `Lead Conversion Analysis · ${selectedYear ?? "—"} Group`}
                 </div>
                 {!isAllTime && availableYears.length > 0 && (
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>

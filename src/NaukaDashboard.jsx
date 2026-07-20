@@ -361,40 +361,74 @@ export default function NaukaDashboard() {
       </div>
 
       {/* ── WEEKLY VIEW ───────────────────────────────────────────── */}
-      {view === "weekly" && (
-        <div style={{ background: C.beige, borderRadius: 10, padding: "1rem 1.25rem", border: "0.5px solid rgba(54,67,74,0.12)" }}>
-          <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, marginBottom: 14, fontFamily: FONT_BODY }}>
-            This Week · Tap any chip for details
+      {view === "weekly" && (() => {
+        const heroChip = weeklyChips[0];
+        const gridChips = weeklyChips.slice(1, 5);
+        const otherChips = weeklyChips.slice(5);
+        return (
+          <div>
+            <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, marginBottom: 14, fontFamily: FONT_BODY }}>
+              This Week · Tap any card for details
+            </div>
+
+            {/* Hero: New Leads */}
+            <div onClick={() => setOpenModal({ type: "weekly", key: heroChip.key })} style={{ cursor: "pointer", background: C.white, border: "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "24px 26px", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: heroChip.accent, display: "inline-block" }} />
+                  <span style={{ fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>{heroChip.label}</span>
+                </div>
+                <div style={{ fontSize: 13, color: "rgba(54,67,74,0.5)", marginTop: 10, maxWidth: 220, lineHeight: 1.5, fontFamily: FONT_BODY }}>Fresh inbound interest captured this week</div>
+              </div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 68, lineHeight: 0.9, color: C.gray }}>{latest[heroChip.field] || "0"}</div>
+            </div>
+
+            {/* Funnel grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 22 }}>
+              {gridChips.map(chip => (
+                <div key={chip.key} onClick={() => setOpenModal({ type: "weekly", key: chip.key })} style={{ cursor: "pointer", background: C.white, border: "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "20px 22px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: chip.accent, display: "inline-block", flexShrink: 0 }} />
+                    <span style={{ fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.62)", lineHeight: 1.3, fontFamily: FONT_BODY }}>{chip.label}</span>
+                  </div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 42, lineHeight: 1, color: C.gray, marginTop: 14 }}>{latest[chip.field] || "0"}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Also this week */}
+            <div style={{ fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", marginBottom: 12, fontFamily: FONT_BODY }}>Also This Week</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {otherChips.map(chip => (
+                <div key={chip.key} onClick={() => setOpenModal({ type: "weekly", key: chip.key })} style={{ cursor: "pointer", background: chip.key === "Arrivals" ? "#E7F6F6" : C.white, border: chip.key === "Arrivals" ? "none" : "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "20px 22px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: chip.key === "Arrivals" ? C.gray : "rgba(54,67,74,0.6)", fontFamily: FONT_BODY, lineHeight: 1.3 }}>{chip.label}</span>
+                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 40, color: chip.key === "Lost Deals" && num(latest[chip.field]) > 0 ? C.red : C.gray }}>{latest[chip.field] || "0"}</span>
+                </div>
+              ))}
+            </div>
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {weeklyChips.map(chip => (
-              <Chip key={chip.key} label={chip.label} value={latest[chip.field] || "—"} accent={chip.accent}
-                active={openModal?.type === "weekly" && openModal.key === chip.key}
-                onClick={() => setOpenModal({ type: "weekly", key: chip.key })} />
-            ))}
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── ACTIVE TRANSACTIONS ───────────────────────────────────── */}
       {view === "active" && (
-        <div style={{ background: C.beige, borderRadius: 10, padding: "1rem 1.25rem", border: "0.5px solid rgba(54,67,74,0.12)" }}>
-          <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, marginBottom: 14, fontFamily: FONT_BODY }}>
-            Active Transactions · Tap a stage to see deals
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {activeChips.map(chip => {
-              const info = pipe(chip.key);
-              return (
-                <Chip key={chip.key} label={chip.label}
-                  value={info["Count"] || "0"} sub={money(info["Value ($)"])}
-                  accent={chip.clickable ? C.teal : "rgba(54,67,74,0.3)"}
-                  disabled={!chip.clickable}
-                  active={openModal?.type === "active" && openModal.key === chip.key}
-                  onClick={chip.clickable ? () => setOpenModal({ type: "active", key: chip.key }) : undefined} />
-              );
-            })}
-          </div>
+        <div>
+          <div style={{ fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, marginBottom: 6, fontFamily: FONT_BODY }}>Pipeline In Motion</div>
+          <div style={{ fontSize: 13, color: "rgba(54,67,74,0.55)", lineHeight: 1.55, marginBottom: 20, fontFamily: FONT_BODY }}>Deals currently advancing through the sales pipeline, by stage.</div>
+
+          {activeChips.map(chip => {
+            const info = pipe(chip.key);
+            return (
+              <div key={chip.key} onClick={chip.clickable ? () => setOpenModal({ type: "active", key: chip.key }) : undefined}
+                style={{ cursor: chip.clickable ? "pointer" : "default", opacity: chip.clickable ? 1 : 0.6, background: C.white, border: "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "18px 22px", marginBottom: 12, display: "flex", alignItems: "center", gap: 18 }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontSize: 34, color: C.gray, minWidth: 42 }}>{info["Count"] || "0"}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{chip.label}</div>
+                  <div style={{ fontSize: 12, color: "rgba(54,67,74,0.5)", marginTop: 4, fontFamily: FONT_BODY }}>{money(info["Value ($)"])}</div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 

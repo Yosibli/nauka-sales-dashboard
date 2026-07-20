@@ -402,11 +402,11 @@ export default function NaukaDashboard() {
       {view === "conversions" && (() => {
         const rows     = funnelTab === "ytd" ? cohortRows : allTimeRows;
         const totalRow = funnelTab === "ytd" ? cohortTotalRow : allTimeTotalRow;
-        const L = num(totalRow["Leads"]), T = num(totalRow["Toured"] || totalRow["Tours"]), O = num(totalRow["OTPs"]), P = num(totalRow["PSAs"]);
+        const L = num(totalRow["Leads"]), T = num(totalRow["Tours"]), O = num(totalRow["OTPs"]), P = num(totalRow["PSAs"]);
         const maxV = Math.max(L, T, O, P, 1);
         const stages = [
           { label: "Leads",       value: L },
-          { label: "Toured",      value: T },
+          { label: "Tours",       value: T },
           { label: "OTPs",        value: O },
           { label: "Signed PSAs", value: P },
         ];
@@ -471,7 +471,7 @@ export default function NaukaDashboard() {
                       <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr 1fr 1fr", padding: "10px 14px", background: "rgba(54,67,74,0.04)", fontSize: 9, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>
                         <span>Source</span>
                         <span style={{ textAlign: "right" }}>Leads</span>
-                        <span style={{ textAlign: "right" }}>Toured</span>
+                        <span style={{ textAlign: "right" }}>Tours</span>
                         <span style={{ textAlign: "right" }}>OTPs</span>
                         <span style={{ textAlign: "right" }}>PSAs</span>
                       </div>
@@ -479,7 +479,7 @@ export default function NaukaDashboard() {
                         <div key={i} style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr 1fr 1fr", padding: "11px 14px", borderTop: "0.5px solid rgba(54,67,74,0.08)", fontSize: 12, color: C.gray, fontFamily: FONT_BODY, alignItems: "baseline" }}>
                           <span style={{ fontWeight: "bold" }}>{r["Source"]}</span>
                           <span style={{ textAlign: "right" }}>{r["Leads"] || "—"}</span>
-                          <span style={{ textAlign: "right" }}>{r["Toured"] || r["Tours"] || "—"}</span>
+                          <span style={{ textAlign: "right" }}>{r["Tours"] || "—"}</span>
                           <span style={{ textAlign: "right" }}>{r["OTPs"] || "—"}</span>
                           <span style={{ textAlign: "right", fontFamily: FONT_DISPLAY, fontSize: 15 }}>{r["PSAs"] || "—"}</span>
                         </div>

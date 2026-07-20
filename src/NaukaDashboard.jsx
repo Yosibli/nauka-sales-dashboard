@@ -471,7 +471,7 @@ export default function NaukaDashboard() {
                       <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr 1fr 1fr", padding: "10px 14px", background: "rgba(54,67,74,0.04)", fontSize: 9, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>
                         <span>Source</span>
                         <span style={{ textAlign: "right" }}>Leads</span>
-                        <span style={{ textAlign: "right" }}>Tours</span>
+                        <span style={{ textAlign: "right" }}>Toured</span>
                         <span style={{ textAlign: "right" }}>OTPs</span>
                         <span style={{ textAlign: "right" }}>PSAs</span>
                       </div>

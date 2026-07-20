@@ -445,10 +445,10 @@ export default function NaukaDashboard() {
         const L = num(totalRow["Leads"]), T = num(totalRow["Toured"]), O = num(totalRow["OTPs"]), P = num(totalRow["PSAs"]);
         const maxV = Math.max(L, T, O, P, 1);
         const stages = [
-          { label: "Leads",       value: L },
-          { label: "Toured",      value: T },
-          { label: "Signed OTPs", value: O },
-          { label: "Signed PSAs", value: P },
+          { label: "Total Leads",  value: L },
+          { label: "Toured Leads", value: T },
+          { label: "Signed OTP",   value: O },
+          { label: "Signed PSA",   value: P },
         ];
         const rates = [
           { label: "Lead → Tour", pct: totalRow["L→T%"] || "—" },

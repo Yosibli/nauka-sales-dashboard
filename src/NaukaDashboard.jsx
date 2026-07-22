@@ -402,7 +402,7 @@ export default function NaukaDashboard() {
                   </div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 14 }}>
                     <div style={{ fontFamily: FONT_DISPLAY, fontSize: 42, lineHeight: 1, color: C.gray }}>{latest[chip.field] || "0"}</div>
-                    {chip.value > 0 && <div style={{ fontSize: 13, fontWeight: "bold", color: C.teal, fontFamily: FONT_BODY }}>{money(chip.value)}</div>}
+                    {chip.value > 0 && <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: "bold", color: C.teal }}>{money(chip.value)}</div>}
                   </div>
                 </div>
               ))}

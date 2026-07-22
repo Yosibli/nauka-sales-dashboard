@@ -39,6 +39,10 @@ const money = v => {
   return n >= 1000000 ? `$${(n / 1000000).toFixed(2)}M` : `$${n.toLocaleString()}`;
 };
 const num = v => { const n = parseInt(v); return isNaN(n) ? 0 : n; };
+const sumAmount = records => (records || []).reduce((sum, r) => {
+  const n = parseFloat(String(r["Amount ($)"] ?? r["Amount"] ?? "").replace(/[$,]/g, ""));
+  return sum + (isNaN(n) ? 0 : n);
+}, 0);
 
 const rateColor = v => {
   const n = parseFloat(String(v).replace("%",""));
@@ -264,9 +268,9 @@ export default function NaukaDashboard() {
   const weeklyChips = [
     { key: "New Leads",       label: "New Leads",        field: "New Leads",        accent: C.teal,  records: leads,      title: "New Leads This Week",   type: "leads" },
     { key: "Tours",           label: "Tours",            field: "Tours",            accent: C.gray,  records: tours,      title: "Tours This Week",       type: "tours" },
-    { key: "New OTPs",        label: "New Pending OTPs", field: "New Pending OTPs", accent: C.teal,  records: pendingOTPs, title: "New Pending OTPs",      type: "deals" },
-    { key: "Signed OTPs",     label: "New Signed OTPs",  field: "New Signed OTPs",  accent: C.teal,  records: signedOTPs, title: "New Signed OTPs",       type: "deals" },
-    { key: "New PSAs",        label: "Signed PSAs",      field: "New Signed PSAs",  accent: C.teal,  records: signedPSAs, title: "Signed PSAs This Week", type: "psas" },
+    { key: "New OTPs",        label: "New Pending OTPs", field: "New Pending OTPs", accent: C.teal,  records: pendingOTPs, title: "New Pending OTPs",      type: "deals", value: sumAmount(pendingOTPs) },
+    { key: "Signed OTPs",     label: "New Signed OTPs",  field: "New Signed OTPs",  accent: C.teal,  records: signedOTPs, title: "New Signed OTPs",       type: "deals", value: sumAmount(signedOTPs) },
+    { key: "New PSAs",        label: "Signed PSAs",      field: "New Signed PSAs",  accent: C.teal,  records: signedPSAs, title: "Signed PSAs This Week", type: "psas", value: sumAmount(signedPSAs) },
     { key: "Arrivals",        label: "Member Arrivals",  field: "Member Arrivals",  accent: C.gray,  records: arrivals,   title: "Member Arrivals",       type: "arrivals" },
     { key: "Lost Deals",      label: "Lost Deals",       field: "Lost Deals",       accent: C.red,   records: lostDeals,  title: "Lost Deals",            type: "lost" },
   ];
@@ -396,7 +400,10 @@ export default function NaukaDashboard() {
                     <span style={{ width: 7, height: 7, borderRadius: "50%", background: chip.accent, display: "inline-block", flexShrink: 0 }} />
                     <span style={{ fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.62)", lineHeight: 1.3, fontFamily: FONT_BODY }}>{chip.label}</span>
                   </div>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 42, lineHeight: 1, color: C.gray, marginTop: 14 }}>{latest[chip.field] || "0"}</div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 14 }}>
+                    <div style={{ fontFamily: FONT_DISPLAY, fontSize: 42, lineHeight: 1, color: C.gray }}>{latest[chip.field] || "0"}</div>
+                    {chip.value > 0 && <div style={{ fontSize: 13, fontWeight: "bold", color: C.teal, fontFamily: FONT_BODY }}>{money(chip.value)}</div>}
+                  </div>
                 </div>
               ))}
             </div>

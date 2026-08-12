@@ -52,40 +52,14 @@ const rateColor = v => {
   return { color: C.red, fontWeight: "bold" };
 };
 
-// Parses both plain counts ("13") and money strings ("$51,150,000" / "232364137.96")
-const parseNum = v => {
-  const n = parseFloat(String(v ?? "").replace(/[$,]/g, ""));
-  return isNaN(n) ? 0 : n;
-};
-
-// ── Trend badge — week-over-week (or period-over-period) comparison ────
-// Mirrors the HubSpot native widget: ▲/▼ + % change, gray "No change" when flat,
-// hover shows "Previous period: X" via the native title tooltip.
-const Trend = ({ current, previous, money: isMoney = false }) => {
-  const c = parseNum(current), p = parseNum(previous);
-  const prevLabel = isMoney ? money(p) : p.toLocaleString();
-  if (p === 0 && c === 0) return null;
-  if (p === 0) {
-    return (
-      <span title={`Previous period: ${prevLabel}`} style={{ fontSize: 10, fontWeight: "bold", color: C.green, fontFamily: FONT_BODY, cursor: "help" }}>▲ New</span>
-    );
-  }
-  const diff = c - p;
-  if (diff === 0) {
-    return (
-      <span title={`Previous period: ${prevLabel}`} style={{ fontSize: 10, color: "rgba(54,67,74,0.45)", fontFamily: FONT_BODY, cursor: "help" }}>No change</span>
-    );
-  }
-  const up = diff > 0;
-  const pct = Math.abs((diff / p) * 100);
-  return (
-    <span title={`Previous period: ${prevLabel}`} style={{
-      display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: "bold",
-      color: up ? C.green : C.red, fontFamily: FONT_BODY, cursor: "help",
-    }}>
-      {up ? "▲" : "▼"} {pct.toFixed(1)}%
-    </span>
-  );
+// ── Trend badge — shows the LITERAL comparison text stored in the sheet ────
+// (e.g. "No change", "▲ 50% (prev: 2)") — this is never computed by the
+// dashboard; it only displays whatever HubSpot's own "vs last week" widget said.
+const TrendBadge = ({ text }) => {
+  if (!text) return null;
+  const t = String(text).trim();
+  const color = t.startsWith("▲") ? C.green : t.startsWith("▼") ? C.red : "rgba(54,67,74,0.45)";
+  return <span style={{ fontSize: 10, fontWeight: "bold", color, fontFamily: FONT_BODY }}>{t}</span>;
 };
 
 // ── Chip ─────────────────────────────────────────────────────────────
@@ -267,10 +241,7 @@ export default function NaukaDashboard() {
   }, []);
 
   const latest = kpis[0] ?? {};
-  const previous = kpis[1] ?? {}; // prior week, for ▲/▼ comparisons — Weekly_KPIs always has newest week in row 1
-  const pipeSeries = stage => pipeline.filter(r => r["Stage"] === stage); // rows for a stage, newest first
-  const pipe = stage => pipeSeries(stage)[0] ?? {};
-  const pipePrev = stage => pipeSeries(stage)[1] ?? {};
+  const pipe = stage => pipeline.find(r => r["Stage"] === stage) ?? {};
 
   const today = new Date();
   const expiredDeals = deals.filter(d => {
@@ -305,13 +276,13 @@ export default function NaukaDashboard() {
   );
 
   const weeklyChips = [
-    { key: "New Leads",       label: "New Leads",        field: "New Leads",        accent: C.teal,  records: leads,      title: "New Leads This Week",   type: "leads" },
-    { key: "Tours",           label: "Tours",            field: "Tours",            accent: C.gray,  records: tours,      title: "Tours This Week",       type: "tours" },
-    { key: "New OTPs",        label: "New Pending OTPs", field: "New Pending OTPs", accent: C.teal,  records: pendingOTPs, title: "New Pending OTPs",      type: "deals", value: sumAmount(pendingOTPs) },
-    { key: "Signed OTPs",     label: "New Signed OTPs",  field: "New Signed OTPs",  accent: C.teal,  records: signedOTPs, title: "New Signed OTPs",       type: "deals", value: sumAmount(signedOTPs) },
-    { key: "New PSAs",        label: "Signed PSAs",      field: "New Signed PSAs",  accent: C.teal,  records: signedPSAs, title: "Signed PSAs This Week", type: "psas", value: sumAmount(signedPSAs) },
-    { key: "Arrivals",        label: "Member Arrivals",  field: "Member Arrivals",  accent: C.gray,  records: arrivals,   title: "Member Arrivals",       type: "arrivals" },
-    { key: "Lost Deals",      label: "Lost Deals",       field: "Lost Deals",       accent: C.red,   records: lostDeals,  title: "Lost Deals",            type: "lost" },
+    { key: "New Leads",       label: "New Leads",        field: "New Leads",        accent: C.teal,  records: leads,      title: "New Leads This Week",   type: "leads",    trendField: "New Leads Trend" },
+    { key: "Tours",           label: "Tours",            field: "Tours",            accent: C.gray,  records: tours,      title: "Tours This Week",       type: "tours",    trendField: "Tours Trend" },
+    { key: "New OTPs",        label: "New Pending OTPs", field: "New Pending OTPs", accent: C.teal,  records: pendingOTPs, title: "New Pending OTPs",      type: "deals",    trendField: "New Pending OTPs Trend", value: sumAmount(pendingOTPs) },
+    { key: "Signed OTPs",     label: "New Signed OTPs",  field: "New Signed OTPs",  accent: C.teal,  records: signedOTPs, title: "New Signed OTPs",       type: "deals",    trendField: "New Signed OTPs Trend", trendField2: "New Signed OTPs $ Trend", value: sumAmount(signedOTPs) },
+    { key: "New PSAs",        label: "Signed PSAs",      field: "New Signed PSAs",  accent: C.teal,  records: signedPSAs, title: "Signed PSAs This Week", type: "psas",     trendField: "New Signed PSAs Trend", value: sumAmount(signedPSAs) },
+    { key: "Arrivals",        label: "Member Arrivals",  field: "Member Arrivals",  accent: C.gray,  records: arrivals,   title: "Member Arrivals",       type: "arrivals", trendField: "Member Arrivals Trend" },
+    { key: "Lost Deals",      label: "Lost Deals",       field: "Lost Deals",       accent: C.red,   records: lostDeals,  title: "Lost Deals",            type: "lost",     trendField: "Lost Deals Trend" },
   ];
 
   const activeChips = [
@@ -430,7 +401,7 @@ export default function NaukaDashboard() {
               </div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontFamily: FONT_DISPLAY, fontSize: 68, lineHeight: 0.9, color: C.gray }}>{latest[heroChip.field] || "0"}</div>
-                <div style={{ marginTop: 6 }}><Trend current={latest[heroChip.field]} previous={previous[heroChip.field]} /></div>
+                <div style={{ marginTop: 6 }}><TrendBadge text={latest[heroChip.trendField]} /></div>
               </div>
             </div>
 
@@ -446,7 +417,10 @@ export default function NaukaDashboard() {
                     <div style={{ fontFamily: FONT_DISPLAY, fontSize: 42, lineHeight: 1, color: C.gray }}>{latest[chip.field] || "0"}</div>
                     {chip.value > 0 && <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: "bold", color: C.teal }}>{money(chip.value)}</div>}
                   </div>
-                  <div style={{ marginTop: 6 }}><Trend current={latest[chip.field]} previous={previous[chip.field]} /></div>
+                  <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
+                    <TrendBadge text={latest[chip.trendField]} />
+                    {chip.trendField2 && <TrendBadge text={latest[chip.trendField2]} />}
+                  </div>
                 </div>
               ))}
             </div>
@@ -458,7 +432,7 @@ export default function NaukaDashboard() {
                 <div key={chip.key} onClick={() => setOpenModal({ type: "weekly", key: chip.key })} style={{ cursor: "pointer", background: chip.key === "Arrivals" ? "#E7F6F6" : C.white, border: chip.key === "Arrivals" ? "none" : "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "18px 22px" }}>
                   <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: chip.key === "Arrivals" ? C.gray : "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>{chip.label}</div>
                   <div style={{ fontFamily: FONT_DISPLAY, fontSize: 40, lineHeight: 1, marginTop: 8, color: chip.key === "Lost Deals" && num(latest[chip.field]) > 0 ? C.red : C.gray }}>{latest[chip.field] || "0"}</div>
-                  <div style={{ marginTop: 6 }}><Trend current={latest[chip.field]} previous={previous[chip.field]} /></div>
+                  <div style={{ marginTop: 6 }}><TrendBadge text={latest[chip.trendField]} /></div>
                 </div>
               ))}
             </div>
@@ -474,19 +448,18 @@ export default function NaukaDashboard() {
 
           {activeChips.map(chip => {
             const info = pipe(chip.key);
-            const prevInfo = pipePrev(chip.key);
             return (
               <div key={chip.key} onClick={chip.clickable ? () => setOpenModal({ type: "active", key: chip.key }) : undefined}
                 style={{ cursor: chip.clickable ? "pointer" : "default", opacity: chip.clickable ? 1 : 0.6, background: C.white, border: "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "18px 22px", marginBottom: 12, display: "flex", alignItems: "center", gap: 18 }}>
                 <div style={{ minWidth: 42 }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontSize: 34, color: C.gray }}>{info["Count"] || "0"}</div>
-                  <Trend current={info["Count"]} previous={prevInfo["Count"]} />
+                  <TrendBadge text={info["Count Trend"]} />
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{chip.label}</div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 4 }}>
                     <div style={{ fontSize: 12, color: "rgba(54,67,74,0.5)", fontFamily: FONT_BODY }}>{money(info["Value ($)"])}</div>
-                    <Trend current={info["Value ($)"]} previous={prevInfo["Value ($)"]} money />
+                    <TrendBadge text={info["Value Trend"]} />
                   </div>
                 </div>
               </div>

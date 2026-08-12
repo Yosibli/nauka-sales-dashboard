@@ -55,11 +55,23 @@ const rateColor = v => {
 // ── Trend badge — shows the LITERAL comparison text stored in the sheet ────
 // (e.g. "No change", "▲ 50% (prev: 2)") — this is never computed by the
 // dashboard; it only displays whatever HubSpot's own "vs last week" widget said.
+// The "(prev: X)" part (if present) is shown as a hover tooltip instead of inline,
+// mirroring the native HubSpot widget behavior.
 const TrendBadge = ({ text }) => {
   if (!text) return null;
   const t = String(text).trim();
-  const color = t.startsWith("▲") ? C.green : t.startsWith("▼") ? C.red : "rgba(54,67,74,0.45)";
-  return <span style={{ fontSize: 10, fontWeight: "bold", color, fontFamily: FONT_BODY }}>{t}</span>;
+  const m = t.match(/^(.*?)\s*\(([^)]+)\)\s*$/); // splits "▲ 50% (prev: 2)" → main + detail
+  const main = m ? m[1].trim() : t;
+  const detail = m ? m[2].replace(/^prev:\s*/i, "") : null;
+  const color = main.startsWith("▲") ? C.green : main.startsWith("▼") ? C.red : "rgba(54,67,74,0.45)";
+  return (
+    <span
+      title={detail ? `Previous period: ${detail}` : undefined}
+      style={{ fontSize: 10, fontWeight: "bold", color, fontFamily: FONT_BODY, cursor: detail ? "help" : "default", borderBottom: detail ? "1px dotted currentColor" : "none" }}
+    >
+      {main}
+    </span>
+  );
 };
 
 // ── Chip ─────────────────────────────────────────────────────────────

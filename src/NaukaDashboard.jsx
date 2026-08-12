@@ -52,6 +52,42 @@ const rateColor = v => {
   return { color: C.red, fontWeight: "bold" };
 };
 
+// Parses both plain counts ("13") and money strings ("$51,150,000" / "232364137.96")
+const parseNum = v => {
+  const n = parseFloat(String(v ?? "").replace(/[$,]/g, ""));
+  return isNaN(n) ? 0 : n;
+};
+
+// ── Trend badge — week-over-week (or period-over-period) comparison ────
+// Mirrors the HubSpot native widget: ▲/▼ + % change, gray "No change" when flat,
+// hover shows "Previous period: X" via the native title tooltip.
+const Trend = ({ current, previous, money: isMoney = false }) => {
+  const c = parseNum(current), p = parseNum(previous);
+  const prevLabel = isMoney ? money(p) : p.toLocaleString();
+  if (p === 0 && c === 0) return null;
+  if (p === 0) {
+    return (
+      <span title={`Previous period: ${prevLabel}`} style={{ fontSize: 10, fontWeight: "bold", color: C.green, fontFamily: FONT_BODY, cursor: "help" }}>▲ New</span>
+    );
+  }
+  const diff = c - p;
+  if (diff === 0) {
+    return (
+      <span title={`Previous period: ${prevLabel}`} style={{ fontSize: 10, color: "rgba(54,67,74,0.45)", fontFamily: FONT_BODY, cursor: "help" }}>No change</span>
+    );
+  }
+  const up = diff > 0;
+  const pct = Math.abs((diff / p) * 100);
+  return (
+    <span title={`Previous period: ${prevLabel}`} style={{
+      display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: "bold",
+      color: up ? C.green : C.red, fontFamily: FONT_BODY, cursor: "help",
+    }}>
+      {up ? "▲" : "▼"} {pct.toFixed(1)}%
+    </span>
+  );
+};
+
 // ── Chip ─────────────────────────────────────────────────────────────
 const Chip = ({ label, value, sub, active, onClick, accent = C.teal, disabled }) => (
   <button onClick={disabled ? undefined : onClick} style={{
@@ -231,7 +267,10 @@ export default function NaukaDashboard() {
   }, []);
 
   const latest = kpis[0] ?? {};
-  const pipe = stage => pipeline.find(r => r["Stage"] === stage) ?? {};
+  const previous = kpis[1] ?? {}; // prior week, for ▲/▼ comparisons — Weekly_KPIs always has newest week in row 1
+  const pipeSeries = stage => pipeline.filter(r => r["Stage"] === stage); // rows for a stage, newest first
+  const pipe = stage => pipeSeries(stage)[0] ?? {};
+  const pipePrev = stage => pipeSeries(stage)[1] ?? {};
 
   const today = new Date();
   const expiredDeals = deals.filter(d => {
@@ -389,7 +428,10 @@ export default function NaukaDashboard() {
                 </div>
                 <div style={{ fontSize: 13, color: "rgba(54,67,74,0.5)", marginTop: 10, maxWidth: 220, lineHeight: 1.5, fontFamily: FONT_BODY }}>Fresh inbound interest captured this week</div>
               </div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 68, lineHeight: 0.9, color: C.gray }}>{latest[heroChip.field] || "0"}</div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontSize: 68, lineHeight: 0.9, color: C.gray }}>{latest[heroChip.field] || "0"}</div>
+                <div style={{ marginTop: 6 }}><Trend current={latest[heroChip.field]} previous={previous[heroChip.field]} /></div>
+              </div>
             </div>
 
             {/* Funnel grid */}
@@ -404,6 +446,7 @@ export default function NaukaDashboard() {
                     <div style={{ fontFamily: FONT_DISPLAY, fontSize: 42, lineHeight: 1, color: C.gray }}>{latest[chip.field] || "0"}</div>
                     {chip.value > 0 && <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: "bold", color: C.teal }}>{money(chip.value)}</div>}
                   </div>
+                  <div style={{ marginTop: 6 }}><Trend current={latest[chip.field]} previous={previous[chip.field]} /></div>
                 </div>
               ))}
             </div>
@@ -415,6 +458,7 @@ export default function NaukaDashboard() {
                 <div key={chip.key} onClick={() => setOpenModal({ type: "weekly", key: chip.key })} style={{ cursor: "pointer", background: chip.key === "Arrivals" ? "#E7F6F6" : C.white, border: chip.key === "Arrivals" ? "none" : "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "18px 22px" }}>
                   <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: chip.key === "Arrivals" ? C.gray : "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>{chip.label}</div>
                   <div style={{ fontFamily: FONT_DISPLAY, fontSize: 40, lineHeight: 1, marginTop: 8, color: chip.key === "Lost Deals" && num(latest[chip.field]) > 0 ? C.red : C.gray }}>{latest[chip.field] || "0"}</div>
+                  <div style={{ marginTop: 6 }}><Trend current={latest[chip.field]} previous={previous[chip.field]} /></div>
                 </div>
               ))}
             </div>
@@ -430,13 +474,20 @@ export default function NaukaDashboard() {
 
           {activeChips.map(chip => {
             const info = pipe(chip.key);
+            const prevInfo = pipePrev(chip.key);
             return (
               <div key={chip.key} onClick={chip.clickable ? () => setOpenModal({ type: "active", key: chip.key }) : undefined}
                 style={{ cursor: chip.clickable ? "pointer" : "default", opacity: chip.clickable ? 1 : 0.6, background: C.white, border: "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "18px 22px", marginBottom: 12, display: "flex", alignItems: "center", gap: 18 }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontSize: 34, color: C.gray, minWidth: 42 }}>{info["Count"] || "0"}</div>
+                <div style={{ minWidth: 42 }}>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 34, color: C.gray }}>{info["Count"] || "0"}</div>
+                  <Trend current={info["Count"]} previous={prevInfo["Count"]} />
+                </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{chip.label}</div>
-                  <div style={{ fontSize: 12, color: "rgba(54,67,74,0.5)", marginTop: 4, fontFamily: FONT_BODY }}>{money(info["Value ($)"])}</div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 4 }}>
+                    <div style={{ fontSize: 12, color: "rgba(54,67,74,0.5)", fontFamily: FONT_BODY }}>{money(info["Value ($)"])}</div>
+                    <Trend current={info["Value ($)"]} previous={prevInfo["Value ($)"]} money />
+                  </div>
                 </div>
               </div>
             );

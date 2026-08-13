@@ -52,42 +52,6 @@ const rateColor = v => {
   return { color: C.red, fontWeight: "bold" };
 };
 
-// ── Trend badge — shows the LITERAL comparison text stored in the sheet ────
-// (e.g. "No change", "▲ 50% (prev: 2)") — this is never computed by the
-// dashboard; it only displays whatever HubSpot's own "vs last week" widget said.
-// The "(prev: X)" part (if present) shows on hover (desktop) AND on tap (mobile,
-// where native title tooltips don't fire) via a small popover.
-const TrendBadge = ({ text }) => {
-  const [open, setOpen] = useState(false);
-  if (!text) return null;
-  const t = String(text).trim();
-  const m = t.match(/^(.*?)\s*\(([^)]+)\)\s*$/); // splits "▲ 50% (prev: 2)" → main + detail
-  const main = m ? m[1].trim() : t;
-  const detail = m ? m[2].replace(/^prev:\s*/i, "") : null;
-  const color = main.startsWith("▲") ? C.green : main.startsWith("▼") ? C.red : "rgba(54,67,74,0.45)";
-  return (
-    <span style={{ position: "relative", display: "inline-block" }}>
-      <span
-        title={detail ? `Previous period: ${detail}` : undefined}
-        onClick={detail ? (e) => { e.stopPropagation(); setOpen(o => !o); } : undefined}
-        style={{ fontSize: 10, fontWeight: "bold", color, fontFamily: FONT_BODY, cursor: detail ? "help" : "default", borderBottom: detail ? "1px dotted currentColor" : "none" }}
-      >
-        {main}
-      </span>
-      {open && detail && (
-        <span onClick={e => e.stopPropagation()} style={{
-          position: "absolute", bottom: "130%", left: "50%", transform: "translateX(-50%)",
-          background: C.gray, color: C.white, fontSize: 10, fontWeight: "normal", fontFamily: FONT_BODY,
-          padding: "6px 10px", borderRadius: 6, whiteSpace: "nowrap", zIndex: 20,
-          boxShadow: "0 4px 12px rgba(0,0,0,0.25)",
-        }}>
-          Previous period: {detail}
-        </span>
-      )}
-    </span>
-  );
-};
-
 // ── Chip ─────────────────────────────────────────────────────────────
 const Chip = ({ label, value, sub, active, onClick, accent = C.teal, disabled }) => (
   <button onClick={disabled ? undefined : onClick} style={{
@@ -163,11 +127,8 @@ const LeadCard = ({ lead }) => {
 // ── Arrival Card ──────────────────────────────────────────────────────
 const ArrivalCard = ({ arrival }) => (
   <div style={{ background: C.white, borderRadius: 8, padding: "0.75rem 1rem", marginBottom: 8, border: `0.5px solid rgba(54,67,74,0.12)`, borderLeft: `3px solid ${C.gray}` }}>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-      <div style={{ fontSize: 13, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.5 }}>{arrival["Names"] || arrival["Member"]}</div>
-      {arrival["Arrival Date"] && <div style={{ fontSize: 11, color: "rgba(54,67,74,0.55)", fontFamily: FONT_BODY, whiteSpace: "nowrap", flexShrink: 0 }}>{arrival["Arrival Date"]}</div>}
-    </div>
-    <div style={{ fontSize: 11, color: C.teal, marginTop: 4, fontFamily: FONT_BODY, fontWeight: "bold", letterSpacing: "0.04em" }}>{arrival["Staying"] || arrival["Property"]}</div>
+    <div style={{ fontSize: 13, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{arrival["Member"]}</div>
+    <div style={{ fontSize: 11, color: C.teal, marginTop: 2, fontFamily: FONT_BODY, fontWeight: "bold", letterSpacing: "0.04em" }}>{arrival["Property"]}</div>
   </div>
 );
 
@@ -231,6 +192,7 @@ export default function NaukaDashboard() {
   const [pendingOTPs, setPendingOTPs] = useState([]);
   const [signedPSAs, setSignedPSAs] = useState([]);
   const [ytdPSAs, setYtdPSAs]     = useState([]);
+  const [resalePSAs, setResalePSAs] = useState([]);
   const [funnelAllTime, setFunnelAllTime] = useState([]);
   const [funnelByYear, setFunnelByYear]   = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -241,7 +203,7 @@ export default function NaukaDashboard() {
   useEffect(() => {
     async function load() {
       try {
-        const [k, p, d, t, l, a, ld, sotp, notp, sp, ytd, fa, fy] = await Promise.all([
+        const [k, p, d, t, l, a, ld, sotp, notp, sp, ytd, resale, fa, fy] = await Promise.all([
           fetchSheet("Weekly_KPIs"),
           fetchSheet("Pipeline"),
           fetchSheet("Pending Transactions"),
@@ -253,12 +215,14 @@ export default function NaukaDashboard() {
           fetchSheet("New_Pending_OTPs"),
           fetchSheet("New Signed PSA"),
           fetchSheet("YTD_PSAs"),
+          fetchSheet("YTD_Resale_PSAs"),
           fetchSheet("Funnel_AllTime"),
           fetchSheet("Funnel_ByYear"),
         ]);
         setKpis(k); setPipeline(p); setDeals(d); setTours(t);
         setLeads(l); setArrivals(a); setLostDeals(ld);
         setSignedOTPs(sotp); setPendingOTPs(notp); setSignedPSAs(sp); setYtdPSAs(ytd);
+        setResalePSAs(resale);
         setFunnelAllTime(fa); setFunnelByYear(fy);
         const yrs = [...new Set(fy.map(r => r["Year"]).filter(Boolean))].sort((a, b) => b - a);
         if (yrs.length) setSelectedYear(yrs[0]);
@@ -305,13 +269,13 @@ export default function NaukaDashboard() {
   );
 
   const weeklyChips = [
-    { key: "New Leads",       label: "New Leads",        field: "New Leads",        accent: C.teal,  records: leads,      title: "New Leads This Week",   type: "leads",    trendField: "New Leads Trend" },
-    { key: "Tours",           label: "Tours",            field: "Tours",            accent: C.gray,  records: tours,      title: "Tours This Week",       type: "tours",    trendField: "Tours Trend" },
-    { key: "New OTPs",        label: "New Pending OTPs", field: "New Pending OTPs", accent: C.teal,  records: pendingOTPs, title: "New Pending OTPs",      type: "deals",    trendField: "New Pending OTPs Trend", value: sumAmount(pendingOTPs) },
-    { key: "Signed OTPs",     label: "New Signed OTPs",  field: "New Signed OTPs",  accent: C.teal,  records: signedOTPs, title: "New Signed OTPs",       type: "deals",    trendField: "New Signed OTPs Trend", trendField2: "New Signed OTPs $ Trend", value: sumAmount(signedOTPs) },
-    { key: "New PSAs",        label: "Signed PSAs",      field: "New Signed PSAs",  accent: C.teal,  records: signedPSAs, title: "Signed PSAs This Week", type: "psas",     trendField: "New Signed PSAs Trend", value: sumAmount(signedPSAs) },
-    { key: "Arrivals",        label: "Member Arrivals",  field: "Member Arrivals",  accent: C.gray,  records: arrivals,   title: "Member Arrivals",       type: "arrivals", trendField: "Member Arrivals Trend" },
-    { key: "Lost Deals",      label: "Lost Deals",       field: "Lost Deals",       accent: C.red,   records: lostDeals,  title: "Lost Deals",            type: "lost",     trendField: "Lost Deals Trend" },
+    { key: "New Leads",       label: "New Leads",        field: "New Leads",        accent: C.teal,  records: leads,      title: "New Leads This Week",   type: "leads" },
+    { key: "Tours",           label: "Tours",            field: "Tours",            accent: C.gray,  records: tours,      title: "Tours This Week",       type: "tours" },
+    { key: "New OTPs",        label: "New Pending OTPs", field: "New Pending OTPs", accent: C.teal,  records: pendingOTPs, title: "New Pending OTPs",      type: "deals", value: sumAmount(pendingOTPs) },
+    { key: "Signed OTPs",     label: "New Signed OTPs",  field: "New Signed OTPs",  accent: C.teal,  records: signedOTPs, title: "New Signed OTPs",       type: "deals", value: sumAmount(signedOTPs) },
+    { key: "New PSAs",        label: "Signed PSAs",      field: "New Signed PSAs",  accent: C.teal,  records: signedPSAs, title: "Signed PSAs This Week", type: "psas", value: sumAmount(signedPSAs) },
+    { key: "Arrivals",        label: "Member Arrivals",  field: "Member Arrivals",  accent: C.gray,  records: arrivals,   title: "Member Arrivals",       type: "arrivals" },
+    { key: "Lost Deals",      label: "Lost Deals",       field: "Lost Deals",       accent: C.red,   records: lostDeals,  title: "Lost Deals",            type: "lost" },
   ];
 
   const activeChips = [
@@ -319,6 +283,7 @@ export default function NaukaDashboard() {
     { key: "Signed OTP",      label: "Signed OTP",            clickable: true },
     { key: "Expired DD",      label: "Expired Due Diligence", clickable: true },
     { key: "YTD Signed PSAs", label: "YTD Signed PSAs",       clickable: true },
+    { key: "Resale PSAs",     label: "Resale PSAs",           clickable: true },
     { key: "All-Time PSAs",   label: "All-Time PSAs",         clickable: false },
   ];
 
@@ -363,6 +328,10 @@ export default function NaukaDashboard() {
         records = ytdPSAs;
         subtitle = avgDays ? `YTD Average Days on Hold: ${avgDays} days` : null;
       }
+      else if (stage === "Resale PSAs") {
+        records = resalePSAs;
+        subtitle = "Tracked separately from primary developer inventory";
+      }
       return (
         <Modal title={`${stage}`} subtitle={subtitle} onClose={() => setOpenModal(null)}>
           <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
@@ -371,7 +340,7 @@ export default function NaukaDashboard() {
           </div>
           {records.length === 0
             ? <div style={{ fontSize: 13, color: "rgba(54,67,74,0.5)", padding: "1rem 0", fontFamily: FONT_BODY }}>No deals to show.</div>
-            : records.map((d, i) => stage === "YTD Signed PSAs" ? <PSACard key={i} deal={d} /> : <DealCard key={i} deal={d} />)
+            : records.map((d, i) => (stage === "YTD Signed PSAs" || stage === "Resale PSAs") ? <PSACard key={i} deal={d} /> : <DealCard key={i} deal={d} />)
           }
           {subtitle && <div style={{ textAlign: "center", padding: "0.75rem", background: C.teal, borderRadius: 8, fontSize: 12, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, marginTop: 8 }}>{subtitle}</div>}
         </Modal>
@@ -428,10 +397,7 @@ export default function NaukaDashboard() {
                 </div>
                 <div style={{ fontSize: 13, color: "rgba(54,67,74,0.5)", marginTop: 10, maxWidth: 220, lineHeight: 1.5, fontFamily: FONT_BODY }}>Fresh inbound interest captured this week</div>
               </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontSize: 68, lineHeight: 0.9, color: C.gray }}>{latest[heroChip.field] || "0"}</div>
-                <div style={{ marginTop: 6 }}><TrendBadge text={latest[heroChip.trendField]} /></div>
-              </div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 68, lineHeight: 0.9, color: C.gray }}>{latest[heroChip.field] || "0"}</div>
             </div>
 
             {/* Funnel grid */}
@@ -446,10 +412,6 @@ export default function NaukaDashboard() {
                     <div style={{ fontFamily: FONT_DISPLAY, fontSize: 42, lineHeight: 1, color: C.gray }}>{latest[chip.field] || "0"}</div>
                     {chip.value > 0 && <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: "bold", color: C.teal }}>{money(chip.value)}</div>}
                   </div>
-                  <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
-                    <TrendBadge text={latest[chip.trendField]} />
-                    {chip.trendField2 && <TrendBadge text={latest[chip.trendField2]} />}
-                  </div>
                 </div>
               ))}
             </div>
@@ -461,7 +423,6 @@ export default function NaukaDashboard() {
                 <div key={chip.key} onClick={() => setOpenModal({ type: "weekly", key: chip.key })} style={{ cursor: "pointer", background: chip.key === "Arrivals" ? "#E7F6F6" : C.white, border: chip.key === "Arrivals" ? "none" : "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "18px 22px" }}>
                   <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: chip.key === "Arrivals" ? C.gray : "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>{chip.label}</div>
                   <div style={{ fontFamily: FONT_DISPLAY, fontSize: 40, lineHeight: 1, marginTop: 8, color: chip.key === "Lost Deals" && num(latest[chip.field]) > 0 ? C.red : C.gray }}>{latest[chip.field] || "0"}</div>
-                  <div style={{ marginTop: 6 }}><TrendBadge text={latest[chip.trendField]} /></div>
                 </div>
               ))}
             </div>
@@ -480,16 +441,10 @@ export default function NaukaDashboard() {
             return (
               <div key={chip.key} onClick={chip.clickable ? () => setOpenModal({ type: "active", key: chip.key }) : undefined}
                 style={{ cursor: chip.clickable ? "pointer" : "default", opacity: chip.clickable ? 1 : 0.6, background: C.white, border: "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "18px 22px", marginBottom: 12, display: "flex", alignItems: "center", gap: 18 }}>
-                <div style={{ minWidth: 42 }}>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 34, color: C.gray }}>{info["Count"] || "0"}</div>
-                  <TrendBadge text={info["Count Trend"]} />
-                </div>
+                <div style={{ fontFamily: FONT_DISPLAY, fontSize: 34, color: C.gray, minWidth: 42 }}>{info["Count"] || "0"}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{chip.label}</div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 4 }}>
-                    <div style={{ fontSize: 12, color: "rgba(54,67,74,0.5)", fontFamily: FONT_BODY }}>{money(info["Value ($)"])}</div>
-                    <TrendBadge text={info["Value Trend"]} />
-                  </div>
+                  <div style={{ fontSize: 12, color: "rgba(54,67,74,0.5)", marginTop: 4, fontFamily: FONT_BODY }}>{money(info["Value ($)"])}</div>
                 </div>
               </div>
             );

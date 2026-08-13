@@ -52,6 +52,29 @@ const rateColor = v => {
   return { color: C.red, fontWeight: "bold" };
 };
 
+// ── Trend badge ──────────────────────────────────────────────────────
+// Shows the LITERAL comparison text stored in the sheet
+// (e.g. "No change", "▲ 50% (prev: 2)") — this is never computed by the
+// dashboard; it only displays whatever HubSpot's own "vs last week" widget said.
+// The "(prev: X)" part (if present) is shown as a hover tooltip instead of inline,
+// mirroring the native HubSpot widget behavior.
+const TrendBadge = ({ text }) => {
+  if (!text) return null;
+  const t = String(text).trim();
+  const m = t.match(/^(.*?)\s*\(([^)]+)\)\s*$/); // splits "▲ 50% (prev: 2)" → main + detail
+  const main = m ? m[1].trim() : t;
+  const detail = m ? m[2].replace(/^prev:\s*/i, "") : null;
+  const color = main.startsWith("▲") ? C.green : main.startsWith("▼") ? C.red : "rgba(54,67,74,0.45)";
+  return (
+    <span
+      title={detail ? `Previous period: ${detail}` : undefined}
+      style={{ fontSize: 10, fontWeight: "bold", color, fontFamily: FONT_BODY, cursor: detail ? "help" : "default", borderBottom: detail ? "1px dotted currentColor" : "none" }}
+    >
+      {main}
+    </span>
+  );
+};
+
 // ── Chip ─────────────────────────────────────────────────────────────
 const Chip = ({ label, value, sub, active, onClick, accent = C.teal, disabled }) => (
   <button onClick={disabled ? undefined : onClick} style={{
@@ -269,13 +292,13 @@ export default function NaukaDashboard() {
   );
 
   const weeklyChips = [
-    { key: "New Leads",       label: "New Leads",        field: "New Leads",        accent: C.teal,  records: leads,      title: "New Leads This Week",   type: "leads" },
-    { key: "Tours",           label: "Tours",            field: "Tours",            accent: C.gray,  records: tours,      title: "Tours This Week",       type: "tours" },
-    { key: "New OTPs",        label: "New Pending OTPs", field: "New Pending OTPs", accent: C.teal,  records: pendingOTPs, title: "New Pending OTPs",      type: "deals", value: sumAmount(pendingOTPs) },
-    { key: "Signed OTPs",     label: "New Signed OTPs",  field: "New Signed OTPs",  accent: C.teal,  records: signedOTPs, title: "New Signed OTPs",       type: "deals", value: sumAmount(signedOTPs) },
-    { key: "New PSAs",        label: "Signed PSAs",      field: "New Signed PSAs",  accent: C.teal,  records: signedPSAs, title: "Signed PSAs This Week", type: "psas", value: sumAmount(signedPSAs) },
-    { key: "Arrivals",        label: "Member Arrivals",  field: "Member Arrivals",  accent: C.gray,  records: arrivals,   title: "Member Arrivals",       type: "arrivals" },
-    { key: "Lost Deals",      label: "Lost Deals",       field: "Lost Deals",       accent: C.red,   records: lostDeals,  title: "Lost Deals",            type: "lost" },
+    { key: "New Leads",       label: "New Leads",        field: "New Leads",        accent: C.teal,  records: leads,      title: "New Leads This Week",   type: "leads",    trendField: "New Leads Trend" },
+    { key: "Tours",           label: "Tours",            field: "Tours",            accent: C.gray,  records: tours,      title: "Tours This Week",       type: "tours",    trendField: "Tours Trend" },
+    { key: "New OTPs",        label: "New Pending OTPs", field: "New Pending OTPs", accent: C.teal,  records: pendingOTPs, title: "New Pending OTPs",      type: "deals",    trendField: "New Pending OTPs Trend", value: sumAmount(pendingOTPs) },
+    { key: "Signed OTPs",     label: "New Signed OTPs",  field: "New Signed OTPs",  accent: C.teal,  records: signedOTPs, title: "New Signed OTPs",       type: "deals",    trendField: "New Signed OTPs Trend", trendField2: "New Signed OTPs $ Trend", value: sumAmount(signedOTPs) },
+    { key: "New PSAs",        label: "Signed PSAs",      field: "New Signed PSAs",  accent: C.teal,  records: signedPSAs, title: "Signed PSAs This Week", type: "psas",     trendField: "New Signed PSAs Trend", value: sumAmount(signedPSAs) },
+    { key: "Arrivals",        label: "Member Arrivals",  field: "Member Arrivals",  accent: C.gray,  records: arrivals,   title: "Member Arrivals",       type: "arrivals", trendField: "Member Arrivals Trend" },
+    { key: "Lost Deals",      label: "Lost Deals",       field: "Lost Deals",       accent: C.red,   records: lostDeals,  title: "Lost Deals",            type: "lost",     trendField: "Lost Deals Trend" },
   ];
 
   const activeChips = [
@@ -397,7 +420,10 @@ export default function NaukaDashboard() {
                 </div>
                 <div style={{ fontSize: 13, color: "rgba(54,67,74,0.5)", marginTop: 10, maxWidth: 220, lineHeight: 1.5, fontFamily: FONT_BODY }}>Fresh inbound interest captured this week</div>
               </div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 68, lineHeight: 0.9, color: C.gray }}>{latest[heroChip.field] || "0"}</div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontSize: 68, lineHeight: 0.9, color: C.gray }}>{latest[heroChip.field] || "0"}</div>
+                <div style={{ marginTop: 6 }}><TrendBadge text={latest[heroChip.trendField]} /></div>
+              </div>
             </div>
 
             {/* Funnel grid */}
@@ -412,6 +438,10 @@ export default function NaukaDashboard() {
                     <div style={{ fontFamily: FONT_DISPLAY, fontSize: 42, lineHeight: 1, color: C.gray }}>{latest[chip.field] || "0"}</div>
                     {chip.value > 0 && <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: "bold", color: C.teal }}>{money(chip.value)}</div>}
                   </div>
+                  <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
+                    <TrendBadge text={latest[chip.trendField]} />
+                    {chip.trendField2 && <TrendBadge text={latest[chip.trendField2]} />}
+                  </div>
                 </div>
               ))}
             </div>
@@ -423,6 +453,7 @@ export default function NaukaDashboard() {
                 <div key={chip.key} onClick={() => setOpenModal({ type: "weekly", key: chip.key })} style={{ cursor: "pointer", background: chip.key === "Arrivals" ? "#E7F6F6" : C.white, border: chip.key === "Arrivals" ? "none" : "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "18px 22px" }}>
                   <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: chip.key === "Arrivals" ? C.gray : "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>{chip.label}</div>
                   <div style={{ fontFamily: FONT_DISPLAY, fontSize: 40, lineHeight: 1, marginTop: 8, color: chip.key === "Lost Deals" && num(latest[chip.field]) > 0 ? C.red : C.gray }}>{latest[chip.field] || "0"}</div>
+                  <div style={{ marginTop: 6 }}><TrendBadge text={latest[chip.trendField]} /></div>
                 </div>
               ))}
             </div>
@@ -441,10 +472,16 @@ export default function NaukaDashboard() {
             return (
               <div key={chip.key} onClick={chip.clickable ? () => setOpenModal({ type: "active", key: chip.key }) : undefined}
                 style={{ cursor: chip.clickable ? "pointer" : "default", opacity: chip.clickable ? 1 : 0.6, background: C.white, border: "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "18px 22px", marginBottom: 12, display: "flex", alignItems: "center", gap: 18 }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontSize: 34, color: C.gray, minWidth: 42 }}>{info["Count"] || "0"}</div>
+                <div style={{ minWidth: 42 }}>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 34, color: C.gray }}>{info["Count"] || "0"}</div>
+                  <TrendBadge text={info["Count Trend"]} />
+                </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{chip.label}</div>
-                  <div style={{ fontSize: 12, color: "rgba(54,67,74,0.5)", marginTop: 4, fontFamily: FONT_BODY }}>{money(info["Value ($)"])}</div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 4 }}>
+                    <div style={{ fontSize: 12, color: "rgba(54,67,74,0.5)", fontFamily: FONT_BODY }}>{money(info["Value ($)"])}</div>
+                    <TrendBadge text={info["Value Trend"]} />
+                  </div>
                 </div>
               </div>
             );

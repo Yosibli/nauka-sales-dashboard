@@ -326,9 +326,10 @@ export default function NaukaDashboard() {
     }
   };
 
-  // YTD avg days
+  // YTD avg days — include legitimate 0-day values (HubSpot's "Days To PSA" property
+  // clamps at 0 instead of going negative); only exclude truly missing/unparseable cells.
   const avgDays = (() => {
-    const days = ytdPSAs.map(r => parseInt(r["Days on Hold"])).filter(d => !isNaN(d) && d > 0);
+    const days = ytdPSAs.map(r => parseInt(r["Days on Hold"])).filter(d => !isNaN(d));
     return days.length ? Math.round(days.reduce((a,b) => a+b, 0) / days.length) : null;
   })();
 

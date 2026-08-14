@@ -177,7 +177,7 @@ const PSACard = ({ deal }) => {
         <span style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.gray }}>{money(deal["Amount ($)"])}</span>
       </div>
       <div style={{ fontSize: 11, color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>
-        {[deal["Advisor"], deal["Source"], psaDate ? `PSA: ${psaDate}` : null, days ? `${days} days on hold` : null].filter(Boolean).join(" · ")}
+        {[deal["Advisor"], deal["Source"], deal["Referral Source"] ? `via ${deal["Referral Source"]}` : null, psaDate ? `PSA: ${psaDate}` : null, days ? `${days} days on hold` : null].filter(Boolean).join(" · ")}
       </div>
     </div>
   );

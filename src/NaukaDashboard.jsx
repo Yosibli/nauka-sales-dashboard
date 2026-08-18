@@ -265,8 +265,13 @@ export default function NaukaDashboard() {
   const today = new Date();
   const expiredDeals = deals.filter(d => {
     if (!d["DD Expiry"]) return false;
-    const dateStr = d["DD Expiry"].includes(",") ? d["DD Expiry"] : `${d["DD Expiry"]}, 2026`;
-    const exp = new Date(dateStr);
+    const raw = String(d["DD Expiry"]).trim();
+    if (!raw) return false;
+    // Try parsing as-is first (handles "6/3/2026", "2026-06-03", "Jun 3, 2026", etc).
+    // Only fall back to appending a year if that produced an invalid date AND the
+    // string doesn't already end in a 4-digit year (e.g. a bare "Jun 3").
+    let exp = new Date(raw);
+    if (isNaN(exp) && !/\d{4}\s*$/.test(raw)) exp = new Date(`${raw}, 2026`);
     const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     return !isNaN(exp) && exp < todayStart;
   });

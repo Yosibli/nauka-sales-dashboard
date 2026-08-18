@@ -59,6 +59,13 @@ const rateColor = v => {
 // The "(prev: X)" part (if present) is shown as a hover tooltip instead of inline,
 // mirroring the native HubSpot widget behavior.
 const TrendBadge = ({ text }) => {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    if (!show) return;
+    const close = () => setShow(false);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [show]);
   if (!text) return null;
   const t = String(text).trim();
   const m = t.match(/^(.*?)\s*\(([^)]+)\)\s*$/); // splits "▲ 50% (prev: 2)" → main + detail
@@ -66,11 +73,22 @@ const TrendBadge = ({ text }) => {
   const detail = m ? m[2].replace(/^prev:\s*/i, "") : null;
   const color = main.startsWith("▲") ? C.green : main.startsWith("▼") ? C.red : "rgba(54,67,74,0.45)";
   return (
-    <span
-      title={detail ? `Previous period: ${detail}` : undefined}
-      style={{ fontSize: 10, fontWeight: "bold", color, fontFamily: FONT_BODY, cursor: detail ? "help" : "default", borderBottom: detail ? "1px dotted currentColor" : "none" }}
-    >
-      {main}
+    <span style={{ position: "relative", display: "inline-block" }}>
+      <span
+        title={detail ? `Previous period: ${detail}` : undefined}
+        onClick={e => { if (detail) { e.stopPropagation(); setShow(s => !s); } }}
+        style={{ fontSize: 10, fontWeight: "bold", color, fontFamily: FONT_BODY, cursor: detail ? "help" : "default", borderBottom: detail ? "1px dotted currentColor" : "none" }}
+      >
+        {main}
+      </span>
+      {show && detail && (
+        <span
+          onClick={e => e.stopPropagation()}
+          style={{ position: "absolute", bottom: "130%", left: "50%", transform: "translateX(-50%)", background: C.gray, color: C.white, fontSize: 10, padding: "5px 9px", borderRadius: 6, whiteSpace: "nowrap", zIndex: 20, fontFamily: FONT_BODY, boxShadow: "0 2px 8px rgba(0,0,0,0.25)" }}
+        >
+          Previous period: {detail}
+        </span>
+      )}
     </span>
   );
 };

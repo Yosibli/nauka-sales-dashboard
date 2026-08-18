@@ -150,8 +150,11 @@ const LeadCard = ({ lead }) => {
 // ── Arrival Card ──────────────────────────────────────────────────────
 const ArrivalCard = ({ arrival }) => (
   <div style={{ background: C.white, borderRadius: 8, padding: "0.75rem 1rem", marginBottom: 8, border: `0.5px solid rgba(54,67,74,0.12)`, borderLeft: `3px solid ${C.gray}` }}>
-    <div style={{ fontSize: 13, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{arrival["Member"]}</div>
-    <div style={{ fontSize: 11, color: C.teal, marginTop: 2, fontFamily: FONT_BODY, fontWeight: "bold", letterSpacing: "0.04em" }}>{arrival["Property"]}</div>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+      <div style={{ fontSize: 13, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{arrival["Names"]}</div>
+      {arrival["Arrival Date"] && <div style={{ fontSize: 10, color: "rgba(54,67,74,0.5)", fontFamily: FONT_BODY, whiteSpace: "nowrap", marginLeft: 8 }}>{arrival["Arrival Date"]}</div>}
+    </div>
+    <div style={{ fontSize: 11, color: C.teal, marginTop: 2, fontFamily: FONT_BODY, fontWeight: "bold", letterSpacing: "0.04em" }}>{arrival["Staying"]}</div>
   </div>
 );
 

@@ -545,10 +545,6 @@ const CalendarView = ({ records }) => {
 
   return (
     <div>
-      <div style={{ fontSize: 11, color: "rgba(54,67,74,0.65)", background: "rgba(136,209,209,0.18)", border: "0.5px solid rgba(54,67,74,0.1)", borderRadius: 8, padding: "10px 14px", marginBottom: 14, lineHeight: 1.6, fontFamily: FONT_BODY }}>
-        <strong style={{ color: C.gray }}>This calendar builds itself from advisor input.</strong> Every prospect visit logged in the CRM shows up here automatically — arrival, departure, advisor, and status. No separate reporting needed.
-      </div>
-
       {/* Legend */}
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 14 }}>
         {["inprogress", "dayvisit", "completed", "canceled", "scheduled"].map(s => (
@@ -592,9 +588,9 @@ const CalendarView = ({ records }) => {
                 {week.map((cell, ci) => {
                   const isToday = calSameDay(cell.date, CAL_TODAY);
                   return (
-                    <div key={ci} style={{ borderRight: ci < 6 ? "0.5px solid rgba(54,67,74,0.08)" : "none", padding: "7px 7px 4px 7px", background: cell.outside ? "#FAFAF7" : C.white }}>
+                    <div key={ci} style={{ borderRight: ci < 6 ? "0.5px solid rgba(54,67,74,0.08)" : "none", padding: "5px 3px 3px 3px", background: cell.outside ? "#FAFAF7" : C.white }}>
                       <div style={{
-                        width: 20, height: 20, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                        width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
                         fontSize: 11, fontWeight: isToday ? "bold" : "normal",
                         color: cell.outside ? "rgba(54,67,74,0.3)" : isToday ? "#fff" : C.gray,
                         background: isToday ? C.teal : "transparent", fontFamily: FONT_BODY,
@@ -617,7 +613,7 @@ const CalendarView = ({ records }) => {
                         style={{
                           gridColumn: `${startIdx + 1} / span ${endIdx - startIdx + 1}`,
                           background: CAL_STATUS_COLOR[status], color: "#fff", fontSize: 11, fontWeight: "bold",
-                          padding: "6px 10px", cursor: "pointer", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                          padding: "6px 5px", cursor: "pointer", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                           fontFamily: FONT_BODY,
                         }}
                       >
@@ -723,6 +719,15 @@ export default function NaukaDashboard() {
     background: active ? C.gray : "rgba(54,67,74,0.07)",
     color: active ? C.teal : C.gray,
     border: `0.5px solid ${active ? C.gray : "rgba(54,67,74,0.2)"}`,
+    transition: "all 0.15s", fontFamily: FONT_BODY,
+  });
+
+  const mainTabStyle = active => ({
+    padding: "10px 8px", fontSize: 12, fontWeight: "bold", borderRadius: 8, cursor: "pointer",
+    textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+    background: active ? C.gray : C.white,
+    color: active ? C.teal : C.gray,
+    border: `0.5px solid ${active ? C.gray : "rgba(54,67,74,0.15)"}`,
     transition: "all 0.15s", fontFamily: FONT_BODY,
   });
 
@@ -845,11 +850,11 @@ export default function NaukaDashboard() {
       </div>
 
       {/* Main tabs */}
-      <div style={{ display: "flex", gap: 6, marginBottom: "1rem", overflowX: "auto", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
-        <button style={tabStyle(view === "weekly")} onClick={() => setView("weekly")}>Weekly Snapshot</button>
-        <button style={tabStyle(view === "active")} onClick={() => setView("active")}>Active Transactions</button>
-        <button style={tabStyle(view === "conversions")} onClick={() => setView("conversions")}>Conversions</button>
-        <button style={tabStyle(view === "calendar")} onClick={() => setView("calendar")}>Prospect Calendar</button>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: "1rem" }}>
+        <button style={mainTabStyle(view === "weekly")} onClick={() => setView("weekly")}>Weekly Snapshot</button>
+        <button style={mainTabStyle(view === "calendar")} onClick={() => setView("calendar")}>Prospect Calendar</button>
+        <button style={mainTabStyle(view === "active")} onClick={() => setView("active")}>Active Transactions</button>
+        <button style={mainTabStyle(view === "conversions")} onClick={() => setView("conversions")}>Conversions</button>
       </div>
 
       {/* ── WEEKLY VIEW ───────────────────────────────────────────── */}

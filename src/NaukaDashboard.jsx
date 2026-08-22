@@ -12,6 +12,8 @@ const C = {
   red:   "#C0665A",
   amber: "#D4935A",
   green: "#1D9E75",
+  slate: "#5B7C99",  // calendar: completed / departed visits
+  purple:"#8E6FA8",  // calendar: same-day visits
 };
 
 const FONT_DISPLAY = "'Larken', Georgia, serif";
@@ -220,6 +222,425 @@ const Modal = ({ title, subtitle, onClose, children }) => (
   </div>
 );
 
+// ══════════════════════════════════════════════════════════════════════
+// ── PROSPECT CALENDAR ────────────────────────────────────────────────
+// Manually maintained from advisor CRM input (not yet wired to a Sheets
+// tab — HubSpot custom-object access for this data isn't available via
+// API yet, so this list is hand-updated from what advisors log).
+// ══════════════════════════════════════════════════════════════════════
+
+const CAL_TODAY = new Date("2026-08-20T00:00:00");
+
+function cd(s) { return new Date(s + "T00:00:00"); }
+function calFmt(dt) { return dt.toLocaleDateString("en-US", { day: "2-digit", month: "short" }); }
+function calSameDay(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+function calInRange(date, start, end) {
+  const t = date.getTime();
+  return t >= start.getTime() && t <= end.getTime();
+}
+
+// Parses the "Prospect_Calendar" sheet tab into the record shape the calendar
+// components expect. Falls back to FALLBACK_CALENDAR_RECORDS below if the tab
+// is missing or empty (e.g. before it's been created in the spreadsheet).
+function parseCalendarSheet(rows) {
+  if (!rows || rows.length === 0) return [];
+  const parseDate = s => {
+    if (!s) return null;
+    const [m, d, y] = String(s).split("/").map(n => parseInt(n, 10));
+    if (!m || !d || !y) return null;
+    return new Date(y, m - 1, d);
+  };
+  const parseNotes = s => {
+    if (!s || !String(s).trim()) return [];
+    return String(s).split("||").map(chunk => {
+      const c = chunk.trim();
+      const m = c.match(/^([A-Za-z]+ \d{1,2}):\s*(.*)$/);
+      return m ? { date: m[1], text: m[2] } : { date: null, text: c };
+    });
+  };
+  return rows
+    .map(r => ({
+      name: r["Name"],
+      arrival: parseDate(r["Arrival Date"]),
+      departure: parseDate(r["Departure Date"]),
+      stage: r["Stage"],
+      coveredBy: r["Covered By"] || null,
+      owner: r["Owner"] || null,
+      source: r["Source"] || null,
+      referral: r["Referral Source"] || null,
+      email: r["Email"] || null,
+      lifecycle: r["Lifecycle Stage"] || null,
+      leadStatus: r["Lead Status"] || null,
+      guests: r["Guests"] || null,
+      chargeNote: r["Charge Note"] || null,
+      notes: parseNotes(r["Notes"]),
+    }))
+    .filter(r => r.name && r.arrival && r.departure);
+}
+
+// Fallback data — used only if the Prospect_Calendar sheet tab isn't set up yet.
+const FALLBACK_CALENDAR_RECORDS = [
+  {
+    name: "Duke Daugherty",
+    arrival: cd("2026-08-19"),
+    departure: cd("2026-08-23"),
+    stage: "Arrived On Property",
+    coveredBy: "Oscar Fraustro",
+    owner: "Oscar Fraustro",
+    source: "Internal",
+    referral: "Dulce Ponce",
+    email: null,
+    lifecycle: "Marketing Qualified Lead",
+    leadStatus: "Active",
+    guests: null,
+    chargeNote: "To Oscar's account with notes",
+  },
+  {
+    name: "Lorenzo Cue",
+    arrival: cd("2026-08-15"),
+    departure: cd("2026-08-15"),
+    stage: "Departed from Property",
+    coveredBy: "Oscar Fraustro",
+    owner: "Oscar Fraustro",
+    source: "Internal",
+    referral: "Jaime Ysita",
+    email: null,
+    lifecycle: "Sales Qualified Lead",
+    leadStatus: "Active",
+    guests: null,
+    chargeNote: "To Oscar's sales account with notes",
+  },
+  {
+    name: "Juan Carlos Hevia",
+    arrival: cd("2026-08-14"),
+    departure: cd("2026-08-17"),
+    stage: "Departed from Property",
+    coveredBy: null,
+    owner: "Oscar Fraustro",
+    source: "Internal",
+    referral: "Pepe Miguel",
+    email: "juancarlos.hevia@gmail.com",
+    lifecycle: "Opportunity",
+    leadStatus: "Active",
+    guests: "4 adults, 2 children: Federica Hevia Pérez, Marietta (4 YO), Carola (2 YO), Eduardo Garza, Roberta Pérez",
+    chargeNote: "To Prospect's Account",
+    notes: [
+      { date: null, text: "He was at Nauka as a member already — he's all set in terms of sales." },
+      { date: null, text: "PSA (Purchase & Sale Agreement) is pending execution." },
+    ],
+  },
+  {
+    name: "LB Jamess + group",
+    arrival: cd("2026-08-07"),
+    departure: cd("2026-08-11"),
+    stage: "Departed from Property",
+    coveredBy: "Eli Pacino",
+    owner: "Eli Pacino",
+    source: "Internal",
+    referral: "Mark Birnbaum",
+    email: null,
+    lifecycle: "Sales Qualified Lead",
+    leadStatus: "Active",
+    guests: "8 adults: LB James, Vivian Christine, Randy Mims, Mark Birnbaum, Sian Cotton, Kiarah Du Barry",
+    chargeNote: "To Prospect Account",
+    notes: [
+      { date: "Aug 7", text: "Arrived 12:28 PM (Tepic) / 1:45 PM (Puerto Vallarta) — 2 airport pickups. Staying at Siari (lock-off), Aug 7 to 11. Group of 7 adults total (8 guests + 1 security), golf + BC dinner." },
+      { date: "Aug 21", text: "Club is reviewing the bill with Mark B. — pending approval." },
+    ],
+  },
+  {
+    name: "Jose Carlos Perez",
+    arrival: cd("2026-08-03"),
+    departure: cd("2026-08-03"),
+    stage: "Canceled",
+    coveredBy: "Oscar Fraustro",
+    owner: "Oscar Fraustro",
+    source: "Referral",
+    referral: "Eduardo Sierra",
+    email: null,
+    lifecycle: "Sales Qualified Lead",
+    leadStatus: "Timing",
+    guests: null,
+    chargeNote: "To Oscar's Sales Account",
+    notes: [
+      {
+        date: "Aug 3",
+        text: "Meeting canceled. Please direct him to MBC where I will welcome them. Understand MBC is closed but need to show topo map first, so if possible someone from F&B to have towels and welcome drink. Full property tour after that with possible lunch at Village or Nest. Please have Black CanAm clean and ready.",
+      },
+      {
+        date: "August 6",
+        text: "Unfortunately, the weather was not good — intense rain and wind — and we had to cancel his visit. He was not able to come another day during this visit since more than 50 family members were arriving to the Rosewood for a family reunion. I insisted he should visit soon.",
+      },
+      {
+        date: "August 20",
+        text: "Short WhatsApp texting conversation. He had the best time with his family in Mandarina and plans to come back, unsure when. When he does, he is definitely coming to see Nauka.",
+      },
+    ],
+  },
+];
+
+function calStatus(r) {
+  if (r.stage === "Canceled") return "canceled";
+  const isDayVisit = calSameDay(r.arrival, r.departure);
+  if (r.stage === "Departed from Property") return isDayVisit ? "dayvisit" : "completed";
+  if (r.stage === "Arrived On Property") {
+    if (r.arrival > CAL_TODAY) return "scheduled";
+    return isDayVisit ? "dayvisit" : "inprogress";
+  }
+  return "scheduled";
+}
+const CAL_STATUS_COLOR = {
+  completed: C.slate,
+  canceled: C.red,
+  scheduled: C.amber,
+  inprogress: C.green,
+  dayvisit: C.purple,
+};
+const CAL_STATUS_LABEL = {
+  completed: "Departed From Property",
+  canceled: "Cancelled",
+  scheduled: "Scheduled",
+  inprogress: "Arrived On Property",
+  dayvisit: "Day Visit",
+};
+
+function calGetIssues(r) {
+  const issues = [];
+  if (r.isMember) return issues;
+  if (r.stage !== "Canceled" && !r.coveredBy) issues.push({ label: "No advisor / 'Covered By' assigned", level: "red" });
+  if (r.stage === "Arrived On Property" && r.departure < CAL_TODAY) issues.push({ label: `Departure date already passed (${calFmt(r.departure)}) — stage is stale`, level: "red" });
+  if (r.stage !== "Canceled" && !r.email) issues.push({ label: "Email not yet captured", level: "amber" });
+  return issues;
+}
+function calSeverity(issues) {
+  if (issues.some(i => i.level === "red")) return "red";
+  if (issues.some(i => i.level === "amber")) return "amber";
+  return "green";
+}
+
+const CalDot = ({ level }) => {
+  const color = level === "red" ? C.red : level === "amber" ? C.amber : C.green;
+  return <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: color, marginRight: 7, flexShrink: 0 }} />;
+};
+
+const CalStagePill = ({ stage }) => {
+  const color = stage === "Arrived On Property" ? C.green : stage === "Canceled" ? C.red : C.slate;
+  return (
+    <span style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: "bold", color: "#fff", background: color, borderRadius: 999, padding: "3px 10px" }}>
+      {stage}
+    </span>
+  );
+};
+
+const CalendarRecordCard = ({ r, showIssues }) => {
+  const [open, setOpen] = useState(false);
+  const issues = calGetIssues(r);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 4 }}>
+        <div style={{ fontSize: 12, color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>
+          Arrival: {calFmt(r.arrival)} · Departure: {calFmt(r.departure)}
+          {r.coveredBy ? ` · Covered by: ${r.coveredBy}` : ""}
+        </div>
+        <CalStagePill stage={r.stage} />
+      </div>
+
+      {(r.source || r.lifecycle) && (
+        <div style={{ fontSize: 12, color: "rgba(54,67,74,0.6)", marginBottom: 10, fontFamily: FONT_BODY }}>
+          {r.source || ""}{r.referral ? ` (ref: ${r.referral})` : ""}{r.lifecycle ? ` · ${r.lifecycle}` : ""}{r.leadStatus ? ` · ${r.leadStatus}` : ""}
+        </div>
+      )}
+
+      {showIssues && (
+        <div style={{ marginBottom: 10, display: "flex", flexDirection: "column", gap: 5 }}>
+          {issues.length === 0 ? (
+            <div style={{ display: "flex", alignItems: "center", fontSize: 13, color: C.gray, fontFamily: FONT_BODY }}>
+              <CalDot level="green" /> No open items
+            </div>
+          ) : (
+            issues.map((iss, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", fontSize: 13, color: C.gray, fontFamily: FONT_BODY }}>
+                <CalDot level={iss.level} /> {iss.label}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {r.email && <div style={{ fontSize: 12, color: "rgba(54,67,74,0.6)", marginBottom: 8, fontFamily: FONT_BODY }}>{r.email}</div>}
+
+      {r.guests && (
+        <div style={{ marginBottom: 8 }}>
+          <span onClick={() => setOpen(!open)} style={{ fontSize: 11, color: C.teal, cursor: "pointer", fontFamily: FONT_BODY, fontWeight: "bold" }}>
+            {open ? "▲ hide guests" : "▼ view guests"}
+          </span>
+          {open && (
+            <div style={{ marginTop: 8, paddingTop: 8, borderTop: "0.5px solid rgba(54,67,74,0.12)", fontSize: 13, color: C.gray, fontFamily: FONT_BODY }}>
+              {r.guests}
+            </div>
+          )}
+        </div>
+      )}
+
+      {r.chargeNote && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "0.5px solid rgba(54,67,74,0.12)" }}>
+          <div style={{ fontSize: 10, fontWeight: "bold", color: "rgba(54,67,74,0.55)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, fontFamily: FONT_BODY }}>
+            Charge Notes
+          </div>
+          <div style={{ fontSize: 13, color: C.gray, lineHeight: 1.5, fontFamily: FONT_BODY }}>{r.chargeNote}</div>
+        </div>
+      )}
+
+      {r.notes && r.notes.length > 0 && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "0.5px solid rgba(54,67,74,0.12)" }}>
+          <div style={{ fontSize: 10, fontWeight: "bold", color: "rgba(54,67,74,0.55)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, fontFamily: FONT_BODY }}>
+            Notes
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {r.notes.map((n, i) => (
+              <div key={i} style={{ fontSize: 13, color: C.gray, lineHeight: 1.5, fontFamily: FONT_BODY }}>
+                {n.date && <span style={{ fontWeight: "bold", color: "rgba(54,67,74,0.55)" }}>Note added {n.date}: </span>}
+                {n.text}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+function buildMonthGrid(year, month) {
+  const first = new Date(year, month, 1);
+  const startWeekday = first.getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells = [];
+  const prevMonthDays = new Date(year, month, 0).getDate();
+  for (let i = startWeekday - 1; i >= 0; i--) {
+    cells.push({ date: new Date(year, month - 1, prevMonthDays - i), outside: true });
+  }
+  for (let day = 1; day <= daysInMonth; day++) {
+    cells.push({ date: new Date(year, month, day), outside: false });
+  }
+  while (cells.length % 7 !== 0) {
+    const last = cells[cells.length - 1].date;
+    const next = new Date(last);
+    next.setDate(next.getDate() + 1);
+    cells.push({ date: next, outside: true });
+  }
+  const weeks = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  return weeks;
+}
+
+const CalendarView = ({ records }) => {
+  const [selected, setSelected] = useState(null);
+  const year = 2026;
+  const month = 7; // August (0-indexed)
+  const weeks = buildMonthGrid(year, month);
+  const weekdayLabels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: "rgba(54,67,74,0.65)", background: "rgba(136,209,209,0.18)", border: "0.5px solid rgba(54,67,74,0.1)", borderRadius: 8, padding: "10px 14px", marginBottom: 14, lineHeight: 1.6, fontFamily: FONT_BODY }}>
+        <strong style={{ color: C.gray }}>This calendar builds itself from advisor input.</strong> Every prospect visit logged in the CRM shows up here automatically — arrival, departure, advisor, and status. No separate reporting needed.
+      </div>
+
+      {/* Legend */}
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 14 }}>
+        {["inprogress", "dayvisit", "completed", "canceled", "scheduled"].map(s => (
+          <div key={s} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.gray, fontFamily: FONT_BODY }}>
+            <span style={{ width: 10, height: 10, borderRadius: 3, background: CAL_STATUS_COLOR[s], display: "inline-block" }} />
+            {CAL_STATUS_LABEL[s]}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ background: C.white, borderRadius: 8, border: "0.5px solid rgba(54,67,74,0.12)", overflow: "hidden" }}>
+        <div style={{ padding: "14px 18px", borderBottom: "0.5px solid rgba(54,67,74,0.1)" }}>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.gray, fontStyle: "italic" }}>August 2026</div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
+          {weekdayLabels.map(wd => (
+            <div key={wd} style={{ fontSize: 10, fontWeight: "bold", color: "rgba(54,67,74,0.5)", textAlign: "center", padding: "8px 0", borderBottom: "0.5px solid rgba(54,67,74,0.1)", textTransform: "uppercase", fontFamily: FONT_BODY }}>
+              {wd.slice(0, 3)}
+            </div>
+          ))}
+        </div>
+
+        {weeks.map((week, wi) => {
+          const weekEvents = records
+            .map(r => {
+              let startIdx = -1, endIdx = -1;
+              week.forEach((c, idx) => {
+                if (calInRange(c.date, r.arrival, r.departure)) {
+                  if (startIdx === -1) startIdx = idx;
+                  endIdx = idx;
+                }
+              });
+              return { r, startIdx, endIdx };
+            })
+            .filter(x => x.startIdx !== -1);
+
+          return (
+            <div key={wi} style={{ position: "relative", borderBottom: "0.5px solid rgba(54,67,74,0.1)", minHeight: 88 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
+                {week.map((cell, ci) => {
+                  const isToday = calSameDay(cell.date, CAL_TODAY);
+                  return (
+                    <div key={ci} style={{ borderRight: ci < 6 ? "0.5px solid rgba(54,67,74,0.08)" : "none", padding: "7px 7px 4px 7px", background: cell.outside ? "#FAFAF7" : C.white }}>
+                      <div style={{
+                        width: 20, height: 20, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 11, fontWeight: isToday ? "bold" : "normal",
+                        color: cell.outside ? "rgba(54,67,74,0.3)" : isToday ? "#fff" : C.gray,
+                        background: isToday ? C.teal : "transparent", fontFamily: FONT_BODY,
+                      }}>
+                        {cell.date.getDate()}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "6px 0" }}>
+                {weekEvents.map(({ r, startIdx, endIdx }) => {
+                  const status = calStatus(r);
+                  return (
+                    <div key={r.name} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
+                      <div
+                        onClick={() => setSelected(r)}
+                        title={`${r.name} — ${CAL_STATUS_LABEL[status]}`}
+                        style={{
+                          gridColumn: `${startIdx + 1} / span ${endIdx - startIdx + 1}`,
+                          background: CAL_STATUS_COLOR[status], color: "#fff", fontSize: 11, fontWeight: "bold",
+                          padding: "6px 10px", cursor: "pointer", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                          fontFamily: FONT_BODY,
+                        }}
+                      >
+                        {r.name}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {selected && (
+        <Modal title={selected.name} onClose={() => setSelected(null)}>
+          <CalendarRecordCard r={selected} showIssues={true} />
+        </Modal>
+      )}
+    </div>
+  );
+};
+
 // ── Main ──────────────────────────────────────────────────────────────
 export default function NaukaDashboard() {
   const [view, setView]               = useState("weekly");
@@ -239,6 +660,7 @@ export default function NaukaDashboard() {
   const [resalePSAs, setResalePSAs] = useState([]);
   const [funnelAllTime, setFunnelAllTime] = useState([]);
   const [funnelByYear, setFunnelByYear]   = useState([]);
+  const [calendarRows, setCalendarRows]   = useState([]);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
   const [lastUpdated, setLastUpdated] = useState("");
@@ -247,7 +669,7 @@ export default function NaukaDashboard() {
   useEffect(() => {
     async function load() {
       try {
-        const [k, p, d, t, l, a, ld, sotp, notp, sp, ytd, resale, fa, fy] = await Promise.all([
+        const [k, p, d, t, l, a, ld, sotp, notp, sp, ytd, resale, fa, fy, cal] = await Promise.all([
           fetchSheet("Weekly_KPIs"),
           fetchSheet("Pipeline"),
           fetchSheet("Pending Transactions"),
@@ -262,12 +684,14 @@ export default function NaukaDashboard() {
           fetchSheet("YTD_Resale_PSAs"),
           fetchSheet("Funnel_AllTime"),
           fetchSheet("Funnel_ByYear"),
+          fetchSheet("Prospect_Calendar"),
         ]);
         setKpis(k); setPipeline(p); setDeals(d); setTours(t);
         setLeads(l); setArrivals(a); setLostDeals(ld);
         setSignedOTPs(sotp); setPendingOTPs(notp); setSignedPSAs(sp); setYtdPSAs(ytd);
         setResalePSAs(resale);
         setFunnelAllTime(fa); setFunnelByYear(fy);
+        setCalendarRows(cal);
         const yrs = [...new Set(fy.map(r => r["Year"]).filter(Boolean))].sort((a, b) => b - a);
         if (yrs.length) setSelectedYear(yrs[0]);
         setLastUpdated(new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }));
@@ -425,6 +849,7 @@ export default function NaukaDashboard() {
         <button style={tabStyle(view === "weekly")} onClick={() => setView("weekly")}>Weekly Snapshot</button>
         <button style={tabStyle(view === "active")} onClick={() => setView("active")}>Active Transactions</button>
         <button style={tabStyle(view === "conversions")} onClick={() => setView("conversions")}>Conversions</button>
+        <button style={tabStyle(view === "calendar")} onClick={() => setView("calendar")}>Prospect Calendar</button>
       </div>
 
       {/* ── WEEKLY VIEW ───────────────────────────────────────────── */}
@@ -624,6 +1049,11 @@ export default function NaukaDashboard() {
           </div>
         );
       })()}
+
+      {/* ── PROSPECT CALENDAR ───────────────────────────────────────── */}
+      {view === "calendar" && (
+        <CalendarView records={calendarRows.length ? parseCalendarSheet(calendarRows) : FALLBACK_CALENDAR_RECORDS} />
+      )}
 
       {renderModal()}
 

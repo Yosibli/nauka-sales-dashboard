@@ -517,66 +517,6 @@ const CalendarRecordCard = ({ r, showIssues }) => {
   );
 };
 
-function useIsMobile(breakpoint = 640) {
-  const [isMobile, setIsMobile] = useState(
-    typeof window !== "undefined" ? window.innerWidth <= breakpoint : false
-  );
-  useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth <= breakpoint);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [breakpoint]);
-  return isMobile;
-}
-
-// ── Agenda view (mobile) ────────────────────────────────────────────
-// A 7-column month grid gets cramped on a phone — day circles, event
-// bars, and text all compete for a few dozen pixels per column. Instead,
-// mobile gets a scrollable list of visits sorted by arrival date, each
-// row big enough to read and tap comfortably.
-const AgendaView = ({ records, onSelect }) => {
-  const sorted = [...records].sort((a, b) => a.arrival - b.arrival);
-  const monthLabel = a => a.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-
-  if (sorted.length === 0) {
-    return (
-      <div style={{ background: C.white, borderRadius: 8, border: "0.5px solid rgba(54,67,74,0.12)", padding: "2rem 1rem", textAlign: "center", fontSize: 13, color: "rgba(54,67,74,0.5)", fontFamily: FONT_BODY }}>
-        No prospect visits found.
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ background: C.white, borderRadius: 8, border: "0.5px solid rgba(54,67,74,0.12)", overflow: "hidden" }}>
-      {sorted.map((r, i) => {
-        const status = calStatus(r);
-        const sameDay = calSameDay(r.arrival, r.departure);
-        return (
-          <div
-            key={r.name + i}
-            onClick={() => onSelect(r)}
-            style={{
-              display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", cursor: "pointer",
-              borderBottom: i < sorted.length - 1 ? "0.5px solid rgba(54,67,74,0.1)" : "none",
-            }}
-          >
-            <span style={{ width: 10, height: 10, borderRadius: "50%", background: CAL_STATUS_COLOR[status], flexShrink: 0 }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
-              <div style={{ fontSize: 12, color: "rgba(54,67,74,0.55)", fontFamily: FONT_BODY, marginTop: 2 }}>
-                {sameDay ? monthLabel(r.arrival) : `${monthLabel(r.arrival)} \u2192 ${monthLabel(r.departure)}`}
-              </div>
-            </div>
-            <span style={{ fontSize: 10, fontWeight: "bold", color: CAL_STATUS_COLOR[status], fontFamily: FONT_BODY, textAlign: "right", flexShrink: 0, maxWidth: 90 }}>
-              {CAL_STATUS_LABEL[status]}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
-
 function buildMonthGrid(year, month) {
   const first = new Date(year, month, 1);
   const startWeekday = first.getDay();
@@ -602,16 +542,16 @@ function buildMonthGrid(year, month) {
 
 const CalendarView = ({ records }) => {
   const [selected, setSelected] = useState(null);
-  const isMobile = useIsMobile();
   const year = 2026;
   const month = 7; // August (0-indexed)
   const weeks = buildMonthGrid(year, month);
   const weekdayLabels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const GRID_MIN_WIDTH = 650; // keeps day cells and event bars legible; scrolls horizontally below this
 
   return (
     <div>
       {/* Legend */}
-      <div style={{ display: "flex", gap: isMobile ? 10 : 16, flexWrap: "wrap", marginBottom: 14 }}>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 14 }}>
         {["inprogress", "dayvisit", "completed", "canceled", "scheduled"].map(s => (
           <div key={s} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.gray, fontFamily: FONT_BODY }}>
             <span style={{ width: 10, height: 10, borderRadius: 3, background: CAL_STATUS_COLOR[s], display: "inline-block" }} />
@@ -620,10 +560,11 @@ const CalendarView = ({ records }) => {
         ))}
       </div>
 
-      {isMobile ? (
-        <AgendaView records={records} onSelect={setSelected} />
-      ) : (
-        <div style={{ background: C.white, borderRadius: 8, border: "0.5px solid rgba(54,67,74,0.12)", overflow: "hidden" }}>
+      {/* Horizontal scroll wrapper — on phones the grid keeps its full width and
+          the user swipes sideways, instead of every column getting squeezed down
+          to an unreadable sliver. */}
+      <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", borderRadius: 8, border: "0.5px solid rgba(54,67,74,0.12)" }}>
+        <div style={{ background: C.white, minWidth: GRID_MIN_WIDTH, overflow: "hidden" }}>
           <div style={{ padding: "14px 18px", borderBottom: "0.5px solid rgba(54,67,74,0.1)" }}>
             <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.gray, fontStyle: "italic" }}>August 2026</div>
           </div>
@@ -695,7 +636,7 @@ const CalendarView = ({ records }) => {
             );
           })}
         </div>
-      )}
+      </div>
 
       {selected && (
         <Modal title={selected.name} onClose={() => setSelected(null)}>

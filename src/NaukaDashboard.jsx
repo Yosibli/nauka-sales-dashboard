@@ -546,7 +546,6 @@ const CalendarView = ({ records }) => {
   const month = 7; // August (0-indexed)
   const weeks = buildMonthGrid(year, month);
   const weekdayLabels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const GRID_MIN_WIDTH = 650; // keeps day cells and event bars legible; scrolls horizontally below this
 
   return (
     <div>
@@ -560,82 +559,79 @@ const CalendarView = ({ records }) => {
         ))}
       </div>
 
-      {/* Horizontal scroll wrapper — on phones the grid keeps its full width and
-          the user swipes sideways, instead of every column getting squeezed down
-          to an unreadable sliver. */}
-      <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", borderRadius: 8, border: "0.5px solid rgba(54,67,74,0.12)" }}>
-        <div style={{ background: C.white, minWidth: GRID_MIN_WIDTH, overflow: "hidden" }}>
-          <div style={{ padding: "14px 18px", borderBottom: "0.5px solid rgba(54,67,74,0.1)" }}>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.gray, fontStyle: "italic" }}>August 2026</div>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
-            {weekdayLabels.map(wd => (
-              <div key={wd} style={{ fontSize: 10, fontWeight: "bold", color: "rgba(54,67,74,0.5)", textAlign: "center", padding: "8px 0", borderBottom: "0.5px solid rgba(54,67,74,0.1)", textTransform: "uppercase", fontFamily: FONT_BODY }}>
-                {wd.slice(0, 3)}
-              </div>
-            ))}
-          </div>
-
-          {weeks.map((week, wi) => {
-            const weekEvents = records
-              .map(r => {
-                let startIdx = -1, endIdx = -1;
-                week.forEach((c, idx) => {
-                  if (calInRange(c.date, r.arrival, r.departure)) {
-                    if (startIdx === -1) startIdx = idx;
-                    endIdx = idx;
-                  }
-                });
-                return { r, startIdx, endIdx };
-              })
-              .filter(x => x.startIdx !== -1);
-
-            return (
-              <div key={wi} style={{ position: "relative", borderBottom: "0.5px solid rgba(54,67,74,0.1)", minHeight: 88 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
-                  {week.map((cell, ci) => {
-                    const isToday = calSameDay(cell.date, CAL_TODAY);
-                    return (
-                      <div key={ci} style={{ borderRight: ci < 6 ? "0.5px solid rgba(54,67,74,0.08)" : "none", padding: "5px 3px 3px 3px", background: cell.outside ? "#FAFAF7" : C.white }}>
-                        <div style={{
-                          width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                          fontSize: 11, fontWeight: isToday ? "bold" : "normal",
-                          color: cell.outside ? "rgba(54,67,74,0.3)" : isToday ? "#fff" : C.gray,
-                          background: isToday ? C.teal : "transparent", fontFamily: FONT_BODY,
-                        }}>
-                          {cell.date.getDate()}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "6px 0" }}>
-                  {weekEvents.map(({ r, startIdx, endIdx }) => {
-                    const status = calStatus(r);
-                    return (
-                      <div key={r.name} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
-                        <div
-                          onClick={() => setSelected(r)}
-                          title={`${r.name} — ${CAL_STATUS_LABEL[status]}`}
-                          style={{
-                            gridColumn: `${startIdx + 1} / span ${endIdx - startIdx + 1}`,
-                            background: CAL_STATUS_COLOR[status], color: "#fff", fontSize: 11, fontWeight: "bold",
-                            padding: "6px 5px", cursor: "pointer", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                            fontFamily: FONT_BODY,
-                          }}
-                        >
-                          {r.name}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
+      {/* Fluid grid — no horizontal scroll, no fixed min-width. Columns shrink
+          naturally on narrow screens; event-bar text truncates with ellipsis. */}
+      <div style={{ background: C.white, borderRadius: 8, border: "0.5px solid rgba(54,67,74,0.12)", overflow: "hidden" }}>
+        <div style={{ padding: "14px 18px", borderBottom: "0.5px solid rgba(54,67,74,0.1)" }}>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.gray, fontStyle: "italic" }}>August 2026</div>
         </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
+          {weekdayLabels.map(wd => (
+            <div key={wd} style={{ fontSize: 10, fontWeight: "bold", color: "rgba(54,67,74,0.5)", textAlign: "center", padding: "8px 0", borderBottom: "0.5px solid rgba(54,67,74,0.1)", textTransform: "uppercase", fontFamily: FONT_BODY }}>
+              {wd.slice(0, 3)}
+            </div>
+          ))}
+        </div>
+
+        {weeks.map((week, wi) => {
+          const weekEvents = records
+            .map(r => {
+              let startIdx = -1, endIdx = -1;
+              week.forEach((c, idx) => {
+                if (calInRange(c.date, r.arrival, r.departure)) {
+                  if (startIdx === -1) startIdx = idx;
+                  endIdx = idx;
+                }
+              });
+              return { r, startIdx, endIdx };
+            })
+            .filter(x => x.startIdx !== -1);
+
+          return (
+            <div key={wi} style={{ position: "relative", borderBottom: "0.5px solid rgba(54,67,74,0.1)", minHeight: 88 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
+                {week.map((cell, ci) => {
+                  const isToday = calSameDay(cell.date, CAL_TODAY);
+                  return (
+                    <div key={ci} style={{ borderRight: ci < 6 ? "0.5px solid rgba(54,67,74,0.08)" : "none", padding: "5px 3px 3px 3px", background: cell.outside ? "#FAFAF7" : C.white }}>
+                      <div style={{
+                        width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 11, fontWeight: isToday ? "bold" : "normal",
+                        color: cell.outside ? "rgba(54,67,74,0.3)" : isToday ? "#fff" : C.gray,
+                        background: isToday ? C.teal : "transparent", fontFamily: FONT_BODY,
+                      }}>
+                        {cell.date.getDate()}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "6px 0" }}>
+                {weekEvents.map(({ r, startIdx, endIdx }) => {
+                  const status = calStatus(r);
+                  return (
+                    <div key={r.name} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
+                      <div
+                        onClick={() => setSelected(r)}
+                        title={`${r.name} — ${CAL_STATUS_LABEL[status]}`}
+                        style={{
+                          gridColumn: `${startIdx + 1} / span ${endIdx - startIdx + 1}`,
+                          background: CAL_STATUS_COLOR[status], color: "#fff", fontSize: 11, fontWeight: "bold",
+                          padding: "6px 5px", cursor: "pointer", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                          fontFamily: FONT_BODY,
+                        }}
+                      >
+                        {r.name}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {selected && (

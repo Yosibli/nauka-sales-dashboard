@@ -413,7 +413,6 @@ function calGetIssues(r) {
   const issues = [];
   if (r.isMember) return issues;
   if (r.stage !== "Canceled" && !r.coveredBy) issues.push({ label: "No advisor / 'Covered By' assigned", level: "red" });
-  if (r.stage === "Arrived On Property" && r.departure < CAL_TODAY) issues.push({ label: `Departure date already passed (${calFmt(r.departure)}) — stage is stale`, level: "red" });
   // Email check runs regardless of stage (including Canceled) — a canceled visit is
   // still a prospect worth following up with, so a missing email is still an open item.
   if (!r.email) issues.push({ label: "No email captured", level: "amber" });

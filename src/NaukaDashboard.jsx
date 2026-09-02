@@ -1042,13 +1042,11 @@ export default function NaukaDashboard() {
                 style={{ cursor: chip.clickable ? "pointer" : "default", opacity: chip.clickable ? 1 : 0.6, background: C.white, border: "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "18px 22px", marginBottom: 12, display: "flex", alignItems: "center", gap: 18 }}>
                 <div style={{ minWidth: 42 }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontSize: 34, color: C.gray }}>{info["Count"] || "0"}</div>
-                  {!chip.noTrend && <TrendBadge text={info["Count Trend"]} />}
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{chip.label}</div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 4 }}>
                     <div style={{ fontSize: 12, color: "rgba(54,67,74,0.64)", fontFamily: FONT_BODY }}>{money(info["Value ($)"])}</div>
-                    {!chip.noTrend && <TrendBadge text={info["Value Trend"]} />}
                   </div>
                 </div>
               </div>

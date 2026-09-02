@@ -115,36 +115,70 @@ const Chip = ({ label, value, sub, active, onClick, accent = C.teal, disabled })
   </button>
 );
 
+// ── Editorial row primitives ────────────────────────────────────────
+// Inspired by the LIFE Properties brochure spread: no boxed cards — a
+// teal (or status-colored) all-caps eyebrow name, a bold subhead line,
+// then quiet metadata and body copy, separated by a hairline rule.
+const ROW_STYLE = { padding: "16px 0", borderBottom: "1px solid rgba(54,67,74,0.12)" };
+const Eyebrow = ({ children, color = C.teal }) => (
+  <div style={{ fontSize: 12, fontWeight: "bold", letterSpacing: "0.07em", textTransform: "uppercase", color, fontFamily: FONT_BODY, marginBottom: 3 }}>
+    {children}
+  </div>
+);
+const Subhead = ({ children }) => (
+  <div style={{ fontSize: 13.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, marginBottom: 6 }}>
+    {children}
+  </div>
+);
+const RowMeta = ({ children }) => (
+  <div style={{ fontSize: 11.5, color: "rgba(54,67,74,0.72)", marginBottom: 6, fontFamily: FONT_BODY }}>{children}</div>
+);
+const RowNotes = ({ children, preLine }) => (
+  <div style={{ fontSize: 12.5, color: "rgba(54,67,74,0.85)", lineHeight: 1.55, fontFamily: FONT_BODY, whiteSpace: preLine ? "pre-line" : "normal" }}>{children}</div>
+);
+// Splits "Property Name | Buyer Name" into its two parts, falling back
+// gracefully when there's no buyer segment.
+function splitDealName(name) {
+  if (!name) return { property: "", buyer: null };
+  const [property, ...rest] = String(name).split("|");
+  return { property: property.trim(), buyer: rest.length ? rest.join("|").trim() : null };
+}
+
 // ── Deal Card ─────────────────────────────────────────────────────────
 const DealCard = ({ deal }) => {
   const days = num(deal["Days on Hold"]);
   const accent = days > 90 ? C.amber : C.teal;
+  const { property, buyer } = splitDealName(deal["Property / Buyer"] || deal["Deal Name"]);
   return (
-    <div style={{ background: C.white, borderRadius: 8, padding: "0.85rem 1rem", marginBottom: 8, border: `0.5px solid rgba(54,67,74,0.12)`, borderLeft: `3px solid ${accent}` }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-        <span style={{ fontSize: 13, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{deal["Property / Buyer"] || deal["Deal Name"]}</span>
-        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.gray }}>{money(deal["Amount ($)"] || deal["Amount"])}</span>
+    <div style={ROW_STYLE}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+        <div>
+          <Eyebrow color={accent}>{property}</Eyebrow>
+          {buyer && <Subhead>{buyer}</Subhead>}
+        </div>
+        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 19, color: C.gray, whiteSpace: "nowrap" }}>{money(deal["Amount ($)"] || deal["Amount"])}</span>
       </div>
-      <div style={{ fontSize: 11, color: "rgba(54,67,74,0.6)", marginBottom: 4, fontFamily: FONT_BODY }}>
+      <RowMeta>
         {[deal["Advisor"], deal["Source"], days ? `${days} days` : null, deal["DD Expiry"] ? `DD: ${deal["DD Expiry"]}` : null].filter(Boolean).join(" · ")}
-      </div>
-      {deal["Notes"] && <div style={{ fontSize: 11, color: "rgba(54,67,74,0.7)", lineHeight: 1.5, fontFamily: FONT_BODY }}>{deal["Notes"]}</div>}
+      </RowMeta>
+      {deal["Notes"] && <RowNotes>{deal["Notes"]}</RowNotes>}
     </div>
   );
 };
 
 // ── Tour Card ─────────────────────────────────────────────────────────
 const TourCard = ({ tour }) => (
-  <div style={{ background: C.white, borderRadius: 8, padding: "0.85rem 1rem", marginBottom: 8, border: `0.5px solid rgba(54,67,74,0.12)`, borderLeft: `3px solid ${C.teal}` }}>
-    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-      <span style={{ fontSize: 13, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{tour["Prospect / Member"] || tour["Prospect"]}</span>
-      <span style={{ fontSize: 11, color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>{tour["Date"] || ""}</span>
+  <div style={ROW_STYLE}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+      <Eyebrow>{tour["Prospect / Member"] || tour["Prospect"]}</Eyebrow>
+      <span style={{ fontSize: 11.5, color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{tour["Date"] || ""}</span>
     </div>
-    <div style={{ fontSize: 11, color: "rgba(54,67,74,0.6)", marginBottom: 4, fontFamily: FONT_BODY }}>
-      {[tour["Type"], tour["Advisor"], tour["Lead Source"] || tour["Source"]].filter(Boolean).join(" · ")}
+    <Subhead>{[tour["Type"], tour["Advisor"]].filter(Boolean).join(" · ")}</Subhead>
+    <RowMeta>
+      {tour["Lead Source"] || tour["Source"] || ""}
       {tour["Referral Source"] ? ` · via ${tour["Referral Source"]}` : ""}
-    </div>
-    {tour["Notes"] && <div style={{ fontSize: 11, color: "rgba(54,67,74,0.7)", lineHeight: 1.5, fontFamily: FONT_BODY, whiteSpace: "pre-line" }}>{tour["Notes"]}</div>}
+    </RowMeta>
+    {tour["Notes"] && <RowNotes preLine>{tour["Notes"]}</RowNotes>}
   </div>
 );
 
@@ -152,59 +186,67 @@ const TourCard = ({ tour }) => (
 const LeadCard = ({ lead }) => {
   const missingEmail = !lead["Email"] || lead["Email"] === "⚠️ MISSING";
   return (
-    <div style={{ background: C.white, borderRadius: 8, padding: "0.85rem 1rem", marginBottom: 8, border: `0.5px solid rgba(54,67,74,0.12)`, borderLeft: `3px solid ${missingEmail ? C.red : C.teal}` }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-        <span style={{ fontSize: 13, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{lead["Name"]}</span>
-        {missingEmail && <span style={{ fontSize: 10, background: "rgba(192,102,90,0.12)", color: C.red, padding: "2px 8px", borderRadius: 10, fontWeight: "bold" }}>⚠️ No email</span>}
+    <div style={ROW_STYLE}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+        <Eyebrow color={missingEmail ? C.red : C.teal}>{lead["Name"]}</Eyebrow>
+        {missingEmail && <span style={{ fontSize: 10, color: C.red, fontWeight: "bold", fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>⚠ No email</span>}
       </div>
-      <div style={{ fontSize: 11, color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>
+      <Subhead>{[lead["Lifecycle Stage"], lead["Lead Status"]].filter(Boolean).join(" · ")}</Subhead>
+      <RowMeta>
         {[lead["Lead Source"], lead["Referral Source"] ? `via ${lead["Referral Source"]}` : null, lead["Advisor"]].filter(Boolean).join(" · ")}
-      </div>
-      <div style={{ fontSize: 11, color: "rgba(54,67,74,0.5)", marginTop: 2, fontFamily: FONT_BODY }}>
-        {[lead["Lifecycle Stage"], lead["Lead Status"]].filter(Boolean).join(" · ")}
-      </div>
+      </RowMeta>
     </div>
   );
 };
 
 // ── Arrival Card ──────────────────────────────────────────────────────
 const ArrivalCard = ({ arrival }) => (
-  <div style={{ background: C.white, borderRadius: 8, padding: "0.75rem 1rem", marginBottom: 8, border: `0.5px solid rgba(54,67,74,0.12)`, borderLeft: `3px solid ${C.gray}` }}>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-      <div style={{ fontSize: 13, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{arrival["Names"]}</div>
-      {arrival["Arrival Date"] && <div style={{ fontSize: 10, color: "rgba(54,67,74,0.5)", fontFamily: FONT_BODY, whiteSpace: "nowrap", marginLeft: 8 }}>{arrival["Arrival Date"]}</div>}
+  <div style={ROW_STYLE}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+      <Eyebrow>{arrival["Staying"]}</Eyebrow>
+      {arrival["Arrival Date"] && <span style={{ fontSize: 11, color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{arrival["Arrival Date"]}</span>}
     </div>
-    <div style={{ fontSize: 11, color: C.teal, marginTop: 2, fontFamily: FONT_BODY, fontWeight: "bold", letterSpacing: "0.04em" }}>{arrival["Staying"]}</div>
+    <Subhead>{arrival["Names"]}</Subhead>
   </div>
 );
 
 // ── Lost Card ─────────────────────────────────────────────────────────
-const LostCard = ({ deal }) => (
-  <div style={{ background: C.white, borderRadius: 8, padding: "0.85rem 1rem", marginBottom: 8, border: `0.5px solid rgba(54,67,74,0.12)`, borderLeft: `3px solid ${C.red}` }}>
-    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-      <span style={{ fontSize: 13, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{deal["Deal Name"]}</span>
-      <span style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.gray }}>{money(deal["Amount ($)"] || deal["Amount"])}</span>
+const LostCard = ({ deal }) => {
+  const { property, buyer } = splitDealName(deal["Deal Name"]);
+  return (
+    <div style={ROW_STYLE}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+        <div>
+          <Eyebrow color={C.red}>{property}</Eyebrow>
+          {buyer && <Subhead>{buyer}</Subhead>}
+        </div>
+        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 19, color: C.gray, whiteSpace: "nowrap" }}>{money(deal["Amount ($)"] || deal["Amount"])}</span>
+      </div>
+      <RowMeta>
+        {[deal["Advisor"], deal["Source"], deal["Loss Reason"], deal["Days on Hold"] ? `${deal["Days on Hold"]} days on hold` : null].filter(Boolean).join(" · ")}
+      </RowMeta>
+      {deal["Notes"] && <RowNotes>{deal["Notes"]}</RowNotes>}
     </div>
-    <div style={{ fontSize: 11, color: "rgba(54,67,74,0.6)", marginBottom: 4, fontFamily: FONT_BODY }}>
-      {[deal["Advisor"], deal["Source"], deal["Loss Reason"], deal["Days on Hold"] ? `${deal["Days on Hold"]} days on hold` : null].filter(Boolean).join(" · ")}
-    </div>
-    {deal["Notes"] && <div style={{ fontSize: 11, color: "rgba(54,67,74,0.7)", lineHeight: 1.5, fontFamily: FONT_BODY }}>{deal["Notes"]}</div>}
-  </div>
-);
+  );
+};
 
 // ── PSA Card ──────────────────────────────────────────────────────────
 const PSACard = ({ deal }) => {
   const days = deal["Total Days on Hold"] || deal["Days on Hold"];
   const psaDate = deal["PSA Date Signed"];
+  const { property, buyer } = splitDealName(deal["Deal Name"]);
   return (
-    <div style={{ background: C.white, borderRadius: 8, padding: "0.85rem 1rem", marginBottom: 8, border: `0.5px solid rgba(54,67,74,0.12)`, borderLeft: `3px solid ${C.teal}` }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-        <span style={{ fontSize: 13, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{deal["Deal Name"]}</span>
-        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.gray }}>{money(deal["Amount ($)"])}</span>
+    <div style={ROW_STYLE}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+        <div>
+          <Eyebrow>{property}</Eyebrow>
+          {buyer && <Subhead>{buyer}</Subhead>}
+        </div>
+        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 19, color: C.gray, whiteSpace: "nowrap" }}>{money(deal["Amount ($)"])}</span>
       </div>
-      <div style={{ fontSize: 11, color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>
+      <RowMeta>
         {[deal["Advisor"], deal["Source"], deal["Referral Source"] ? `via ${deal["Referral Source"]}` : null, psaDate ? `PSA: ${psaDate}` : null, days ? `${days} days on hold` : null].filter(Boolean).join(" · ")}
-      </div>
+      </RowMeta>
     </div>
   );
 };
@@ -216,7 +258,7 @@ const Modal = ({ title, subtitle, onClose, children }) => (
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
         <div>
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.gray, fontStyle: "italic" }}>{title}</div>
-          {subtitle && <div style={{ fontSize: 11, color: "rgba(54,67,74,0.6)", marginTop: 3, fontFamily: FONT_BODY }}>{subtitle}</div>}
+          {subtitle && <div style={{ fontSize: 11, color: "rgba(54,67,74,0.72)", marginTop: 3, fontFamily: FONT_BODY }}>{subtitle}</div>}
         </div>
         <button onClick={onClose} style={{ background: "transparent", border: "none", fontSize: 24, cursor: "pointer", color: C.gray, lineHeight: 1, padding: 4 }}>×</button>
       </div>
@@ -445,7 +487,7 @@ const CalendarRecordCard = ({ r, showIssues }) => {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 4 }}>
-        <div style={{ fontSize: 12, color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>
+        <div style={{ fontSize: 12, color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY }}>
           Arrival: {calFmt(r.arrival)} · Departure: {calFmt(r.departure)}
           {r.coveredBy ? ` · Covered by: ${r.coveredBy}` : ""}
         </div>
@@ -453,7 +495,7 @@ const CalendarRecordCard = ({ r, showIssues }) => {
       </div>
 
       {(r.source || r.lifecycle) && (
-        <div style={{ fontSize: 12, color: "rgba(54,67,74,0.6)", marginBottom: 10, fontFamily: FONT_BODY }}>
+        <div style={{ fontSize: 12, color: "rgba(54,67,74,0.72)", marginBottom: 10, fontFamily: FONT_BODY }}>
           {r.source || ""}{r.referral ? ` (ref: ${r.referral})` : ""}{r.lifecycle ? ` · ${r.lifecycle}` : ""}{r.leadStatus ? ` · ${r.leadStatus}` : ""}
         </div>
       )}
@@ -474,7 +516,7 @@ const CalendarRecordCard = ({ r, showIssues }) => {
         </div>
       )}
 
-      {r.email && <div style={{ fontSize: 12, color: "rgba(54,67,74,0.6)", marginBottom: 8, fontFamily: FONT_BODY }}>{r.email}</div>}
+      {r.email && <div style={{ fontSize: 12, color: "rgba(54,67,74,0.72)", marginBottom: 8, fontFamily: FONT_BODY }}>{r.email}</div>}
 
       {r.guests && (
         <div style={{ marginBottom: 8 }}>
@@ -605,7 +647,7 @@ const CalendarView = ({ records }) => {
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
           {weekdayLabels.map(wd => (
-            <div key={wd} style={{ fontSize: 10, fontWeight: "bold", color: "rgba(54,67,74,0.5)", textAlign: "center", padding: "8px 0", borderBottom: "0.5px solid rgba(54,67,74,0.1)", textTransform: "uppercase", fontFamily: FONT_BODY }}>
+            <div key={wd} style={{ fontSize: 10, fontWeight: "bold", color: "rgba(54,67,74,0.64)", textAlign: "center", padding: "8px 0", borderBottom: "0.5px solid rgba(54,67,74,0.1)", textTransform: "uppercase", fontFamily: FONT_BODY }}>
               {wd.slice(0, 3)}
             </div>
           ))}
@@ -671,7 +713,7 @@ const CalendarView = ({ records }) => {
         })}
 
         {!monthHasEvents && (
-          <div style={{ padding: "16px 18px", fontSize: 13, color: "rgba(54,67,74,0.5)", fontFamily: FONT_BODY, fontStyle: "italic", borderTop: "0.5px solid rgba(54,67,74,0.1)" }}>
+          <div style={{ padding: "16px 18px", fontSize: 13, color: "rgba(54,67,74,0.64)", fontFamily: FONT_BODY, fontStyle: "italic", borderTop: "0.5px solid rgba(54,67,74,0.1)" }}>
             No tours scheduled yet for {label}.
           </div>
         )}
@@ -811,12 +853,12 @@ export default function NaukaDashboard() {
     { key: "Expired DD",      label: "Expired Due Diligence", clickable: true },
     { key: "YTD Signed PSAs", label: "YTD Signed PSAs",       clickable: true },
     { key: "Resale PSAs",     label: "Resale PSAs",           clickable: true },
-    { key: "All-Time PSAs",   label: "All-Time PSAs",         clickable: false },
+    { key: "All-Time PSAs",   label: "All-Time PSAs",         clickable: false, noTrend: true },
   ];
 
   const renderModalContent = (records, type, extra) => {
     if (!records || records.length === 0)
-      return <div style={{ fontSize: 13, color: "rgba(54,67,74,0.5)", padding: "1rem 0", fontFamily: FONT_BODY }}>No records this week.</div>;
+      return <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>No records this week.</div>;
     switch (type) {
       case "tours":    return records.map((t, i) => <TourCard key={i} tour={t} />);
       case "leads":    return records.map((l, i) => <LeadCard key={i} lead={l} />);
@@ -880,7 +922,7 @@ export default function NaukaDashboard() {
             <div style={{ background: C.gray, borderRadius: 8, padding: "0.5rem 1rem", fontFamily: FONT_DISPLAY, fontSize: 20, color: C.white }}>{money(info["Value ($)"])}</div>
           </div>
           {records.length === 0
-            ? <div style={{ fontSize: 13, color: "rgba(54,67,74,0.5)", padding: "1rem 0", fontFamily: FONT_BODY }}>No deals to show.</div>
+            ? <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>No deals to show.</div>
             : records.map((d, i) => (stage === "YTD Signed PSAs" || stage === "Resale PSAs") ? <PSACard key={i} deal={d} /> : <DealCard key={i} deal={d} />)
           }
           {subtitle && <div style={{ textAlign: "center", padding: "0.75rem", background: C.teal, borderRadius: 8, fontSize: 12, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, marginTop: 8 }}>{subtitle}</div>}
@@ -935,9 +977,9 @@ export default function NaukaDashboard() {
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
                   <span style={{ width: 7, height: 7, borderRadius: "50%", background: heroChip.accent, display: "inline-block" }} />
-                  <span style={{ fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>{heroChip.label}</span>
+                  <span style={{ fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY }}>{heroChip.label}</span>
                 </div>
-                <div style={{ fontSize: 13, color: "rgba(54,67,74,0.5)", marginTop: 10, maxWidth: 220, lineHeight: 1.5, fontFamily: FONT_BODY }}>Fresh inbound interest captured this week</div>
+                <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", marginTop: 10, maxWidth: 220, lineHeight: 1.5, fontFamily: FONT_BODY }}>Fresh inbound interest captured this week</div>
               </div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontFamily: FONT_DISPLAY, fontSize: 68, lineHeight: 0.9, color: C.gray }}>{latest[heroChip.field] || "0"}</div>
@@ -970,7 +1012,7 @@ export default function NaukaDashboard() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               {otherChips.map(chip => (
                 <div key={chip.key} onClick={() => setOpenModal({ type: "weekly", key: chip.key })} style={{ cursor: "pointer", background: chip.key === "Arrivals" ? "#E7F6F6" : C.white, border: chip.key === "Arrivals" ? "none" : "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "18px 22px" }}>
-                  <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: chip.key === "Arrivals" ? C.gray : "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>{chip.label}</div>
+                  <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: chip.key === "Arrivals" ? C.gray : "rgba(54,67,74,0.72)", fontFamily: FONT_BODY }}>{chip.label}</div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 8 }}>
                     <div style={{ fontFamily: FONT_DISPLAY, fontSize: 40, lineHeight: 1, color: chip.key === "Lost Deals" && num(latest[chip.field]) > 0 ? C.red : C.gray }}>{latest[chip.field] || "0"}</div>
                     {chip.value > 0 && (
@@ -1000,13 +1042,13 @@ export default function NaukaDashboard() {
                 style={{ cursor: chip.clickable ? "pointer" : "default", opacity: chip.clickable ? 1 : 0.6, background: C.white, border: "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "18px 22px", marginBottom: 12, display: "flex", alignItems: "center", gap: 18 }}>
                 <div style={{ minWidth: 42 }}>
                   <div style={{ fontFamily: FONT_DISPLAY, fontSize: 34, color: C.gray }}>{info["Count"] || "0"}</div>
-                  <TrendBadge text={info["Count Trend"]} />
+                  {!chip.noTrend && <TrendBadge text={info["Count Trend"]} />}
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{chip.label}</div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 4 }}>
-                    <div style={{ fontSize: 12, color: "rgba(54,67,74,0.5)", fontFamily: FONT_BODY }}>{money(info["Value ($)"])}</div>
-                    <TrendBadge text={info["Value Trend"]} />
+                    <div style={{ fontSize: 12, color: "rgba(54,67,74,0.64)", fontFamily: FONT_BODY }}>{money(info["Value ($)"])}</div>
+                    {!chip.noTrend && <TrendBadge text={info["Value Trend"]} />}
                   </div>
                 </div>
               </div>
@@ -1064,7 +1106,7 @@ export default function NaukaDashboard() {
               </div>
 
               {!hasData ? (
-                <div style={{ fontSize: 13, color: "rgba(54,67,74,0.5)", padding: "1rem 0", fontFamily: FONT_BODY }}>No funnel data available.</div>
+                <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>No funnel data available.</div>
               ) : (
                 <>
                   {/* Funnel bars */}
@@ -1096,7 +1138,7 @@ export default function NaukaDashboard() {
                     <>
                       <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, margin: "24px 0 10px", fontFamily: FONT_BODY }}>By Source</div>
                       <div style={{ background: C.white, borderRadius: 8, border: "0.5px solid rgba(54,67,74,0.12)", overflow: "hidden" }}>
-                        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 0.8fr 0.8fr 0.8fr 0.8fr 0.9fr", padding: "10px 14px", background: "rgba(54,67,74,0.04)", fontSize: 9, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 0.8fr 0.8fr 0.8fr 0.8fr 0.9fr", padding: "10px 14px", background: "rgba(54,67,74,0.04)", fontSize: 9, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY }}>
                           <span>Source</span>
                           <span style={{ textAlign: "right" }}>Leads</span>
                           <span style={{ textAlign: "right" }}>Toured</span>

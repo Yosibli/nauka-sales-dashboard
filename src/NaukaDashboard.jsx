@@ -232,7 +232,7 @@ const Modal = ({ title, subtitle, onClose, children }) => (
 // API yet, so this list is hand-updated from what advisors log).
 // ══════════════════════════════════════════════════════════════════════
 
-const CAL_TODAY = new Date("2026-08-20T00:00:00");
+const CAL_TODAY = new Date("2026-09-01T00:00:00");
 
 function cd(s) { return new Date(s + "T00:00:00"); }
 function calFmt(dt) { return dt.toLocaleDateString("en-US", { day: "2-digit", month: "short" }); }
@@ -540,12 +540,33 @@ function buildMonthGrid(year, month) {
   return weeks;
 }
 
+// Months the slider can page through. Add another { year, month, label } entry
+// here when October opens up — nothing else needs to change.
+const CAL_MONTHS = [
+  { year: 2026, month: 7, label: "August 2026" },
+  { year: 2026, month: 8, label: "September 2026" },
+];
+
 const CalendarView = ({ records }) => {
   const [selected, setSelected] = useState(null);
-  const year = 2026;
-  const month = 7; // August (0-indexed)
+  const [monthIdx, setMonthIdx] = useState(0);
+  const { year, month, label } = CAL_MONTHS[monthIdx];
   const weeks = buildMonthGrid(year, month);
   const weekdayLabels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  // Does this month have any events at all? (used for the empty state)
+  const monthStart = new Date(year, month, 1);
+  const monthEnd = new Date(year, month + 1, 0);
+  const monthHasEvents = records.some(r => r.arrival <= monthEnd && r.departure >= monthStart);
+
+  const atFirst = monthIdx === 0;
+  const atLast = monthIdx === CAL_MONTHS.length - 1;
+  const arrowBtn = disabled => ({
+    width: 30, height: 30, borderRadius: "50%", border: `0.5px solid rgba(54,67,74,${disabled ? 0.08 : 0.2})`,
+    background: C.white, color: disabled ? "rgba(54,67,74,0.25)" : C.gray,
+    cursor: disabled ? "default" : "pointer", fontSize: 15, fontFamily: FONT_BODY,
+    display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+  });
 
   return (
     <div>
@@ -562,8 +583,24 @@ const CalendarView = ({ records }) => {
       {/* Fluid grid — no horizontal scroll, no fixed min-width. Columns shrink
           naturally on narrow screens; event-bar text truncates with ellipsis. */}
       <div style={{ background: C.white, borderRadius: 8, border: "0.5px solid rgba(54,67,74,0.12)", overflow: "hidden" }}>
-        <div style={{ padding: "14px 18px", borderBottom: "0.5px solid rgba(54,67,74,0.1)" }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.gray, fontStyle: "italic" }}>August 2026</div>
+        <div style={{ padding: "14px 18px", borderBottom: "0.5px solid rgba(54,67,74,0.1)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <button
+            aria-label="Previous month"
+            disabled={atFirst}
+            onClick={() => setMonthIdx(i => Math.max(0, i - 1))}
+            style={arrowBtn(atFirst)}
+          >
+            ‹
+          </button>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.gray, fontStyle: "italic" }}>{label}</div>
+          <button
+            aria-label="Next month"
+            disabled={atLast}
+            onClick={() => setMonthIdx(i => Math.min(CAL_MONTHS.length - 1, i + 1))}
+            style={arrowBtn(atLast)}
+          >
+            ›
+          </button>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
@@ -632,6 +669,12 @@ const CalendarView = ({ records }) => {
             </div>
           );
         })}
+
+        {!monthHasEvents && (
+          <div style={{ padding: "16px 18px", fontSize: 13, color: "rgba(54,67,74,0.5)", fontFamily: FONT_BODY, fontStyle: "italic", borderTop: "0.5px solid rgba(54,67,74,0.1)" }}>
+            No tours scheduled yet for {label}.
+          </div>
+        )}
       </div>
 
       {selected && (

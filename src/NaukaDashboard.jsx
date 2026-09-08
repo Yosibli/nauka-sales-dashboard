@@ -27,11 +27,11 @@ const FONT_BODY    = "'FreightSans Pro', 'Trebuchet MS', sans-serif";
 // the YTD_PSAs sheet tab) to exclude from that goal figure. Update it
 // whenever Ops flags another deal as related-party/non-market.
 const SALES_TEAM_GOAL_EXCLUSIONS = [
-  "RCRR 5201/5203 Alejandro Aboumrad",
-  "RCRR 5102/5104 Alfredo Miguel",
-  "RCRR 5301/5303 Brent Handler",
+  "RCRR 5201/5203 | Alejandro Aboumrad",
+  "RCRR 5102/5104 | Alfredo Miguel",
+  "RCRR 5301/5303 | Brent Handler",
   "SIari RCRR 6201/6203 | COSE Servicios",
-  "RCRR 5202/5204 Jaime Ysita",
+  "RCRR 5202/5204 | Jaime Ysita",
   "SIari RCRR 6202/6204 | Vertiente SA",
 ];
 // Qualifying re-sale inventory PSAs (from the YTD_Resale_PSAs tab) DO count

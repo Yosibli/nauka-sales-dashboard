@@ -889,7 +889,6 @@ export default function NaukaDashboard() {
     { key: "Signed OTP",      label: "Signed OTP",              clickable: true },
     { key: "Expired DD",      label: "Expired Due Diligence",   clickable: true },
     { key: "YTD Signed PSAs", label: "YTD Sales Team Sales",    clickable: true, isGoal: true },
-    { key: "Resale PSAs",     label: "Resale PSAs",             clickable: true },
     { key: "All-Time PSAs",   label: "All-Time PSAs",           clickable: false, noTrend: true },
   ];
 
@@ -950,10 +949,6 @@ export default function NaukaDashboard() {
         const avgLine = salesTeamAvgDays ? ` · Avg. ${salesTeamAvgDays} days on hold` : "";
         subtitle = `${money(salesTeamTotal)} of $270M goal (${salesTeamPct.toFixed(1)}%)${avgLine}`;
       }
-      else if (stage === "Resale PSAs") {
-        records = resalePSAs;
-        subtitle = "Tracked separately from primary developer inventory";
-      }
       return (
         <Modal title={stage === "YTD Signed PSAs" ? "YTD Sales Team Sales" : stage} subtitle={subtitle} onClose={() => setOpenModal(null)}>
           <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
@@ -966,7 +961,7 @@ export default function NaukaDashboard() {
           </div>
           {records.length === 0
             ? <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>No deals to show.</div>
-            : records.map((d, i) => (stage === "YTD Signed PSAs" || stage === "Resale PSAs") ? <PSACard key={i} deal={d} /> : <DealCard key={i} deal={d} />)
+            : records.map((d, i) => stage === "YTD Signed PSAs" ? <PSACard key={i} deal={d} /> : <DealCard key={i} deal={d} />)
           }
           {subtitle && <div style={{ textAlign: "center", padding: "0.75rem", background: C.teal, borderRadius: 8, fontSize: 12, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, marginTop: 8 }}>{subtitle}</div>}
         </Modal>

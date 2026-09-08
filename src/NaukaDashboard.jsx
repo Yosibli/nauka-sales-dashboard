@@ -828,12 +828,14 @@ export default function NaukaDashboard() {
   // = all YTD Signed PSAs, minus related-party/insider deals that don't
   // count toward the team's production goal, plus qualifying re-sale
   // inventory PSAs (tracked separately in the YTD_Resale_PSAs tab).
+  // Sheet tabs end with a summary row (e.g. "AVERAGE (33 deals) · Min: 0 days · Max:
+  // 368 days" or "TOTAL (1 deal)") — that's a stat, not a deal, so it must never be
+  // treated as one: no card, no inclusion in counts/totals/day averages.
+  const isSummaryRow = d => !d["Deal Name"] || /^(AVERAGE|TOTAL)\b/i.test(String(d["Deal Name"]).trim());
   const salesTeamPrimaryDeals = ytdPSAs.filter(
-    d => d["Deal Name"] && !SALES_TEAM_GOAL_EXCLUSIONS.includes(d["Deal Name"])
+    d => !isSummaryRow(d) && !SALES_TEAM_GOAL_EXCLUSIONS.includes(d["Deal Name"])
   );
-  const salesTeamResaleDeals = resalePSAs.filter(
-    d => d["Deal Name"] && !String(d["Deal Name"]).toUpperCase().startsWith("TOTAL")
-  );
+  const salesTeamResaleDeals = resalePSAs.filter(d => !isSummaryRow(d));
   const salesTeamDeals = [...salesTeamPrimaryDeals, ...salesTeamResaleDeals];
   const salesTeamTotal = sumAmount(salesTeamDeals);
   const salesTeamPct = SALES_TEAM_GOAL_AMOUNT > 0 ? (salesTeamTotal / SALES_TEAM_GOAL_AMOUNT) * 100 : 0;
@@ -907,13 +909,6 @@ export default function NaukaDashboard() {
       default:         return records.map((d, i) => <DealCard key={i} deal={d} />);
     }
   };
-
-  // YTD avg days — include legitimate 0-day values (HubSpot's "Days To PSA" property
-  // clamps at 0 instead of going negative); only exclude truly missing/unparseable cells.
-  const avgDays = (() => {
-    const days = ytdPSAs.map(r => parseInt(r["Days on Hold"])).filter(d => !isNaN(d));
-    return days.length ? Math.round(days.reduce((a,b) => a+b, 0) / days.length) : null;
-  })();
 
   const renderModal = () => {
     if (!openModal) return null;

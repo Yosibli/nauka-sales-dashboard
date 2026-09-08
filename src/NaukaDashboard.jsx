@@ -19,6 +19,25 @@ const C = {
 const FONT_DISPLAY = "'Larken', Georgia, serif";
 const FONT_BODY    = "'FreightSans Pro', 'Trebuchet MS', sans-serif";
 
+// ── YTD Sales Team Sales goal ───────────────────────────────────────
+// The "YTD Signed PSAs" pipeline stat includes related-party / insider
+// sales (deals to owners, owner family, or their referrals) that don't
+// count toward the sales team's annual production goal. This list is a
+// manually maintained set of exact "Deal Name" values (as they appear in
+// the YTD_PSAs sheet tab) to exclude from that goal figure. Update it
+// whenever Ops flags another deal as related-party/non-market.
+const SALES_TEAM_GOAL_EXCLUSIONS = [
+  "RCRR 5201/5203 Alejandro Aboumrad",
+  "RCRR 5102/5104 Alfredo Miguel",
+  "RCRR 5301/5303 Brent Handler",
+  "SIari RCRR 6201/6203 | COSE Servicios",
+  "RCRR 5202/5204 Jaime Ysita",
+  "SIari RCRR 6202/6204 | Vertiente SA",
+];
+// Qualifying re-sale inventory PSAs (from the YTD_Resale_PSAs tab) DO count
+// toward the sales team goal, in addition to primary-inventory YTD PSAs.
+const SALES_TEAM_GOAL_AMOUNT = 270000000; // $270M full-year 2026 target
+
 async function fetchSheet(tab) {
   const url = `${BASE}/${encodeURIComponent(tab)}?key=${API_KEY}`;
   try {
@@ -274,7 +293,7 @@ const Modal = ({ title, subtitle, onClose, children }) => (
 // API yet, so this list is hand-updated from what advisors log).
 // ══════════════════════════════════════════════════════════════════════
 
-const CAL_TODAY = new Date("2026-09-01T00:00:00");
+const CAL_TODAY = new Date("2026-09-07T00:00:00");
 
 function cd(s) { return new Date(s + "T00:00:00"); }
 function calFmt(dt) { return dt.toLocaleDateString("en-US", { day: "2-digit", month: "short" }); }
@@ -805,6 +824,24 @@ export default function NaukaDashboard() {
     return !isNaN(exp) && exp < todayStart;
   });
 
+  // ── YTD Sales Team Sales (vs. $270M goal) ─────────────────────────
+  // = all YTD Signed PSAs, minus related-party/insider deals that don't
+  // count toward the team's production goal, plus qualifying re-sale
+  // inventory PSAs (tracked separately in the YTD_Resale_PSAs tab).
+  const salesTeamPrimaryDeals = ytdPSAs.filter(
+    d => d["Deal Name"] && !SALES_TEAM_GOAL_EXCLUSIONS.includes(d["Deal Name"])
+  );
+  const salesTeamResaleDeals = resalePSAs.filter(
+    d => d["Deal Name"] && !String(d["Deal Name"]).toUpperCase().startsWith("TOTAL")
+  );
+  const salesTeamDeals = [...salesTeamPrimaryDeals, ...salesTeamResaleDeals];
+  const salesTeamTotal = sumAmount(salesTeamDeals);
+  const salesTeamPct = SALES_TEAM_GOAL_AMOUNT > 0 ? (salesTeamTotal / SALES_TEAM_GOAL_AMOUNT) * 100 : 0;
+  const salesTeamAvgDays = (() => {
+    const days = salesTeamDeals.map(r => parseInt(r["Days on Hold"])).filter(d => !isNaN(d));
+    return days.length ? Math.round(days.reduce((a, b) => a + b, 0) / days.length) : null;
+  })();
+
   const tabStyle = active => ({
     padding: "6px 14px", fontSize: 12, borderRadius: 20, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap",
     background: active ? C.gray : "rgba(54,67,74,0.07)",
@@ -848,12 +885,12 @@ export default function NaukaDashboard() {
   ];
 
   const activeChips = [
-    { key: "Pending OTP",     label: "Pending OTP",           clickable: true },
-    { key: "Signed OTP",      label: "Signed OTP",            clickable: true },
-    { key: "Expired DD",      label: "Expired Due Diligence", clickable: true },
-    { key: "YTD Signed PSAs", label: "YTD Signed PSAs",       clickable: true },
-    { key: "Resale PSAs",     label: "Resale PSAs",           clickable: true },
-    { key: "All-Time PSAs",   label: "All-Time PSAs",         clickable: false, noTrend: true },
+    { key: "Pending OTP",     label: "Pending OTP",             clickable: true },
+    { key: "Signed OTP",      label: "Signed OTP",              clickable: true },
+    { key: "Expired DD",      label: "Expired Due Diligence",   clickable: true },
+    { key: "YTD Signed PSAs", label: "YTD Sales Team Sales",    clickable: true, isGoal: true },
+    { key: "Resale PSAs",     label: "Resale PSAs",             clickable: true },
+    { key: "All-Time PSAs",   label: "All-Time PSAs",           clickable: false, noTrend: true },
   ];
 
   const renderModalContent = (records, type, extra) => {
@@ -908,18 +945,24 @@ export default function NaukaDashboard() {
       else if (stage === "Signed OTP") records = deals.filter(d => d["Stage"] === "Signed OTP");
       else if (stage === "Expired DD") records = expiredDeals;
       else if (stage === "YTD Signed PSAs") {
-        records = ytdPSAs;
-        subtitle = avgDays ? `YTD Average Days on Hold: ${avgDays} days` : null;
+        // Sales-team goal view: excludes related-party PSAs, includes qualifying re-sales.
+        records = salesTeamDeals;
+        const avgLine = salesTeamAvgDays ? ` · Avg. ${salesTeamAvgDays} days on hold` : "";
+        subtitle = `${money(salesTeamTotal)} of $270M goal (${salesTeamPct.toFixed(1)}%)${avgLine}`;
       }
       else if (stage === "Resale PSAs") {
         records = resalePSAs;
         subtitle = "Tracked separately from primary developer inventory";
       }
       return (
-        <Modal title={`${stage}`} subtitle={subtitle} onClose={() => setOpenModal(null)}>
+        <Modal title={stage === "YTD Signed PSAs" ? "YTD Sales Team Sales" : stage} subtitle={subtitle} onClose={() => setOpenModal(null)}>
           <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-            <div style={{ background: C.gray, borderRadius: 8, padding: "0.5rem 1rem", fontFamily: FONT_DISPLAY, fontSize: 20, color: C.teal }}>{info["Count"] || records.length}</div>
-            <div style={{ background: C.gray, borderRadius: 8, padding: "0.5rem 1rem", fontFamily: FONT_DISPLAY, fontSize: 20, color: C.white }}>{money(info["Value ($)"])}</div>
+            <div style={{ background: C.gray, borderRadius: 8, padding: "0.5rem 1rem", fontFamily: FONT_DISPLAY, fontSize: 20, color: C.teal }}>
+              {stage === "YTD Signed PSAs" ? salesTeamDeals.length : (info["Count"] || records.length)}
+            </div>
+            <div style={{ background: C.gray, borderRadius: 8, padding: "0.5rem 1rem", fontFamily: FONT_DISPLAY, fontSize: 20, color: C.white }}>
+              {stage === "YTD Signed PSAs" ? money(salesTeamTotal) : money(info["Value ($)"])}
+            </div>
           </div>
           {records.length === 0
             ? <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>No deals to show.</div>
@@ -1037,16 +1080,23 @@ export default function NaukaDashboard() {
 
           {activeChips.map(chip => {
             const info = pipe(chip.key);
+            const count = chip.isGoal ? salesTeamDeals.length : (info["Count"] || "0");
+            const value = chip.isGoal ? salesTeamTotal : info["Value ($)"];
             return (
               <div key={chip.key} onClick={chip.clickable ? () => setOpenModal({ type: "active", key: chip.key }) : undefined}
                 style={{ cursor: chip.clickable ? "pointer" : "default", opacity: chip.clickable ? 1 : 0.6, background: C.white, border: "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "18px 22px", marginBottom: 12, display: "flex", alignItems: "center", gap: 18 }}>
                 <div style={{ minWidth: 42 }}>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 34, color: C.gray }}>{info["Count"] || "0"}</div>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 34, color: C.gray }}>{count}</div>
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{chip.label}</div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 4 }}>
-                    <div style={{ fontSize: 12, color: "rgba(54,67,74,0.64)", fontFamily: FONT_BODY }}>{money(info["Value ($)"])}</div>
+                    <div style={{ fontSize: 12, color: "rgba(54,67,74,0.64)", fontFamily: FONT_BODY }}>{money(value)}</div>
+                    {chip.isGoal && (
+                      <div style={{ fontSize: 11, fontWeight: "bold", color: C.teal, fontFamily: FONT_BODY }}>
+                        {salesTeamPct.toFixed(1)}% of $270M goal
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

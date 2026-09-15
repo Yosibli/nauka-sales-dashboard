@@ -283,7 +283,7 @@ function parseHomesites(rows) {
       if (typeof lot === "string" && /Phase\s*\d/i.test(lot)) break;
       if (!invIsNumericCell(lot)) continue; // skips blanks, section labels, and repeated headers
       const { status, buyer, price } = invClassify(row[ownerCol], row[statusCol]);
-      units.push({ unit: `Lot ${lot}`, status, buyer, price });
+      units.push({ unit: `Homesite ${lot}`, status, buyer, price });
     }
     if (units.length) groups.push({ name, units });
   });
@@ -299,7 +299,7 @@ function parseHomesites(rows) {
       const lot = row[9];
       if (!invIsNumericCell(lot)) break;
       const { status, buyer, price } = invClassify(row[10], row[11]);
-      units.push({ unit: `Lot ${lot}`, status, buyer, price });
+      units.push({ unit: `Homesite ${lot}`, status, buyer, price });
     }
     if (units.length) groups.push({ name: "Cliff Estates — Phase 4", units });
     break;

@@ -54,6 +54,23 @@ async function fetchSheet(tab) {
   }
 }
 
+// Fetches a tab as a raw 2D grid (array of row arrays), with no header-row
+// mapping. Used for the Inventory tabs ("Built Product" / "Homesites"),
+// which are laid out as several side-by-side mini-tables per sheet rather
+// than one clean header + rows block, so fetchSheet's header-zip approach
+// doesn't apply.
+async function fetchRawSheet(tab) {
+  const url = `${BASE}/${encodeURIComponent(tab)}?key=${API_KEY}`;
+  try {
+    const res = await fetch(url);
+    const json = await res.json();
+    return json.values || [];
+  } catch (err) {
+    console.error(`[fetchRawSheet: ${tab}] error`, err);
+    return [];
+  }
+}
+
 const money = v => {
   const n = parseFloat(String(v).replace(/[$,]/g, ""));
   if (isNaN(n)) return "—";
@@ -64,6 +81,220 @@ const sumAmount = records => (records || []).reduce((sum, r) => {
   const n = parseFloat(String(r["Amount ($)"] ?? r["Amount"] ?? "").replace(/[$,]/g, ""));
   return sum + (isNaN(n) ? 0 : n);
 }, 0);
+
+// ══════════════════════════════════════════════════════════════════════
+// ── INVENTORY (Built Product / Homesites) ───────────────────────────
+// Parsed from raw sheet grids rather than fetchSheet's header-zip helper,
+// since each tab lays out several mini-tables side by side per row
+// (grouped by building or estate) instead of one flat table.
+// ══════════════════════════════════════════════════════════════════════
+
+const INV_STATUS_COLOR = {
+  available: C.green,
+  sold: "rgba(54,67,74,0.45)",
+  hold: C.amber,
+  pending: C.amber,
+  off_market: C.red,
+  unknown: "rgba(54,67,74,0.3)",
+};
+const INV_STATUS_LABEL = {
+  available: "Available",
+  sold: "Sold",
+  hold: "On Hold",
+  pending: "Pending",
+  off_market: "Off Market",
+  unknown: "Unlisted",
+};
+
+// Strips a trailing "(...)" note off a name, e.g. "Jorge Fernandez (On Hold)"
+// → { clean: "Jorge Fernandez", note: "On Hold" }.
+function invSplitNote(raw) {
+  const s = raw != null ? String(raw).trim() : "";
+  const m = s.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+  return m ? { clean: m[1].trim(), note: m[2].trim() } : { clean: s, note: null };
+}
+
+// For a "sold" entry, shortens a single personal name down to its family
+// name for a quick scan (e.g. "Andres Conesa" → "Conesa"). Leaves company
+// names, joint/multi-party owners, and anything already short as-is.
+function invFamilyName(raw) {
+  if (!raw) return raw;
+  const isEntity = /(SA de CV|LLC|Corp\.?|Inc\.?|Servicios|Empresariales|Ownership)/i.test(raw);
+  const isMulti = /[/&]|\band\b/i.test(raw);
+  if (isEntity || isMulti) return raw;
+  const parts = raw.split(/\s+/).filter(Boolean);
+  return parts.length > 1 ? parts[parts.length - 1] : raw;
+}
+
+const INV_PLACEHOLDER_RE = /^(on hold|off market|unavailable|pending)$/i;
+
+// Classifies a single (owner, status) cell pair — the recurring shape used
+// throughout both sheets — into a normalized inventory-unit status. A
+// number is read as an asking price (available); "Sold" / "Hold" /
+// "Pending" text in either cell sets that status; text placeholders
+// ("OFF MARKET", "ON HOLD", "Unavailable") stand in for an owner name
+// when a lot isn't sellable. For sheet regions with a single combined
+// value cell instead of separate owner/status columns (the Beach and
+// Cliff Residences floor-plan matrices), pass that value as statusRaw
+// with ownerRaw set to null — a plain name there is read as sold.
+function invClassify(ownerRaw, statusRaw) {
+  const { clean: ownerClean, note: ownerNote } = invSplitNote(ownerRaw);
+  const statusStr = statusRaw != null ? String(statusRaw).trim() : "";
+  const statusNum = typeof statusRaw === "number"
+    ? statusRaw
+    : (statusStr && /^[\d$,.]+$/.test(statusStr) ? parseFloat(statusStr.replace(/[$,]/g, "")) : null);
+
+  if (INV_PLACEHOLDER_RE.test(ownerClean)) {
+    const low = ownerClean.toLowerCase();
+    return { status: low.includes("off") || low.includes("unavail") ? "off_market" : "hold", buyer: null, price: statusNum };
+  }
+  if (ownerNote && /on hold/i.test(ownerNote)) {
+    return { status: "hold", buyer: ownerClean, price: statusNum };
+  }
+  if (/^sold$/i.test(statusStr)) return { status: "sold", buyer: ownerClean || null, price: null };
+  if (/^hold$/i.test(statusStr)) return { status: "hold", buyer: ownerClean || null, price: statusNum };
+  if (/^pending$/i.test(statusStr)) return { status: "pending", buyer: ownerClean || null, price: statusNum };
+  if (INV_PLACEHOLDER_RE.test(statusStr)) {
+    const low = statusStr.toLowerCase();
+    return { status: low.includes("off") || low.includes("unavail") ? "off_market" : "hold", buyer: ownerClean || null, price: null };
+  }
+  if (statusNum != null && statusNum >= 100000) {
+    return { status: "available", buyer: ownerClean || null, price: statusNum };
+  }
+  // Single combined-value cell (matrix layouts): a leftover plain-text
+  // value that isn't a recognized keyword is a name, meaning sold.
+  if (statusStr) return { status: "sold", buyer: ownerClean || statusStr, price: null };
+  if (ownerClean) return { status: "sold", buyer: ownerClean, price: null };
+  return { status: "unknown", buyer: null, price: null };
+}
+
+// Reads a raw "Built Product" grid (array of row arrays from the Sheets
+// API) into [{ name, units: [...] }]. Column positions are fixed to match
+// the tab's layout: Siari Ritz-Carlton Residences (B–E), Golf Villas
+// (H–J), Beach Residences (L–P), and the Cliff Residences per-building
+// floor-plan blocks (starting in column R).
+function parseBuiltProduct(rows) {
+  if (!rows || rows.length < 6) return [];
+  const groups = [];
+
+  // Siari - Ritz-Carlton Residences: unit label / unit number / owner / status
+  const siari = [];
+  for (let r = 5; r < rows.length; r++) {
+    const row = rows[r] || [];
+    const label = row[1], unitNo = row[2];
+    if (!label || unitNo === undefined || unitNo === "") continue;
+    const { status, buyer, price } = invClassify(row[3], row[4]);
+    siari.push({ unit: `${label} · ${unitNo}`, status, buyer, price });
+  }
+  if (siari.length) groups.push({ name: "Siari — Ritz-Carlton Residences", units: siari });
+
+  // Golf Villas: # / owner / status
+  const golf = [];
+  for (let r = 5; r < rows.length; r++) {
+    const row = rows[r] || [];
+    const n = row[7];
+    if (typeof n !== "number") continue;
+    const { status, buyer, price } = invClassify(row[8], row[9]);
+    golf.push({ unit: `Villa ${n}`, status, buyer, price });
+  }
+  if (golf.length) groups.push({ name: "Golf Villas", units: golf });
+
+  // Beach Residences: one column per building (M–P); only the two floor
+  // rows that carry a real owner/price value are used — the sheet's other
+  // two floor rows show a bare unit number with no recorded status yet.
+  const beachBuildingCols = [12, 13, 14, 15];
+  const beachBuildingNames = ["Building 1", "Building 2", "Building 3", "Building 4"];
+  const beach = [];
+  for (let r = 5; r < Math.min(rows.length, 10); r++) {
+    const row = rows[r] || [];
+    const floorLabel = row[11];
+    if (!floorLabel) continue;
+    beachBuildingCols.forEach((col, i) => {
+      const val = row[col];
+      if (val === undefined || val === "") return;
+      if (typeof val === "number" && val < 100000) return; // bare unit number, no real status
+      const { status, buyer, price } = invClassify(null, val);
+      beach.push({ unit: `${beachBuildingNames[i]} · ${floorLabel}`, status, buyer, price });
+    });
+  }
+  if (beach.length) groups.push({ name: "Beach Residences", units: beach });
+
+  // Cliff Residences: per-building floor-plan blocks starting wherever
+  // column R reads "CLIFF RESIDENCES ..." — two units per floor row
+  // (North in S/T, South in V/W).
+  for (let r = 0; r < rows.length; r++) {
+    const marker = (rows[r] || [])[17];
+    if (!marker || !/CLIFF RESIDENCES/i.test(String(marker))) continue;
+    const bNum = (String(marker).match(/(\d+)/) || [])[1] || "?";
+    const units = [];
+    for (let rr = r + 2; rr < rows.length; rr++) {
+      const row = rows[rr] || [];
+      const floorN = row[17], unitN = row[18], valN = row[19];
+      const floorS = row[20], unitS = row[21], valS = row[22];
+      if (!floorN && !floorS) break; // blank separator row → end of this building's block
+      if (floorN && unitN !== undefined) {
+        const { status, buyer, price } = invClassify(null, valN);
+        units.push({ unit: `${floorN} (N) · ${unitN}`, status, buyer, price });
+      }
+      if (floorS && unitS !== undefined) {
+        const { status, buyer, price } = invClassify(null, valS);
+        units.push({ unit: `${floorS} (S) · ${unitS}`, status, buyer, price });
+      }
+    }
+    if (units.length) groups.push({ name: `Cliff Residences — Building ${bNum}`, units });
+  }
+
+  return groups;
+}
+
+// Reads a raw "Homesites" grid into [{ name, units: [...] }]. Beach
+// Estates / Bluff Estates / Cliff Estates each have their own LOT# /
+// OWNER / STATUS column triplet; Cliff Estates has a second "Phase 4"
+// mini-table further down the same three columns, kept as its own group.
+function parseHomesites(rows) {
+  if (!rows || rows.length < 6) return [];
+  const groups = [];
+  const blocks = [
+    { name: "Beach Estates", cols: [1, 2, 3] },
+    { name: "Bluff Estates", cols: [5, 6, 7] },
+    { name: "Cliff Estates", cols: [9, 10, 11] },
+  ];
+  blocks.forEach(({ name, cols }) => {
+    const [lotCol, ownerCol, statusCol] = cols;
+    const units = [];
+    for (let r = 5; r < rows.length; r++) {
+      const row = rows[r] || [];
+      const lot = row[lotCol];
+      // A "Phase N" sub-header marks a separate mini-table further down
+      // this same column triplet — stop here so its lots are only
+      // counted once, under their own group (parsed separately below).
+      if (typeof lot === "string" && /Phase\s*\d/i.test(lot)) break;
+      if (typeof lot !== "number") continue; // skips blanks, section labels, and repeated headers
+      const { status, buyer, price } = invClassify(row[ownerCol], row[statusCol]);
+      units.push({ unit: `Lot ${lot}`, status, buyer, price });
+    }
+    if (units.length) groups.push({ name, units });
+  });
+
+  // Cliff Estates — Phase 4: same J/K/L columns, further down the sheet,
+  // after its own "Cliff Estates Phase 4" / "LOT #" mini-header.
+  for (let r = 0; r < rows.length; r++) {
+    const marker = (rows[r] || [])[9];
+    if (typeof marker !== "string" || !/Phase 4/i.test(marker)) continue;
+    const units = [];
+    for (let rr = r + 2; rr < rows.length; rr++) {
+      const row = rows[rr] || [];
+      const lot = row[9];
+      if (typeof lot !== "number") break;
+      const { status, buyer, price } = invClassify(row[10], row[11]);
+      units.push({ unit: `Lot ${lot}`, status, buyer, price });
+    }
+    if (units.length) groups.push({ name: "Cliff Estates — Phase 4", units });
+    break;
+  }
+
+  return groups;
+}
 
 const rateColor = v => {
   const n = parseFloat(String(v).replace("%",""));
@@ -266,6 +497,56 @@ const PSACard = ({ deal }) => {
       <RowMeta>
         {[deal["Advisor"], deal["Source"], deal["Referral Source"] ? `via ${deal["Referral Source"]}` : null, psaDate ? `PSA: ${psaDate}` : null, days ? `${days} days on hold` : null].filter(Boolean).join(" · ")}
       </RowMeta>
+    </div>
+  );
+};
+
+// ── Inventory Unit Row ──────────────────────────────────────────────
+const InventoryUnitRow = ({ u }) => {
+  const color = INV_STATUS_COLOR[u.status] || INV_STATUS_COLOR.unknown;
+  const label = INV_STATUS_LABEL[u.status] || INV_STATUS_LABEL.unknown;
+
+  let subLabel = null;
+  if (u.status === "sold" && u.buyer) subLabel = `${invFamilyName(u.buyer)} Family`;
+  else if (u.status === "available" && u.buyer) subLabel = `In discussion — ${u.buyer}`;
+  else if ((u.status === "hold" || u.status === "pending") && u.buyer) subLabel = u.buyer;
+
+  return (
+    <div style={ROW_STYLE}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+        <div>
+          <Eyebrow color={color}>{u.unit}</Eyebrow>
+          {subLabel && <Subhead>{subLabel}</Subhead>}
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          {u.price != null && (
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.gray, marginBottom: 4 }}>{money(u.price)}</div>
+          )}
+          <span style={{
+            fontSize: 10, fontWeight: "bold", color: "#fff", background: color,
+            borderRadius: 999, padding: "3px 10px", whiteSpace: "nowrap", fontFamily: FONT_BODY,
+          }}>
+            {label}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Inventory Group Section ──────────────────────────────────────────
+const InventoryGroupSection = ({ group }) => {
+  const availableCount = group.units.filter(u => u.status === "available").length;
+  const soldCount = group.units.filter(u => u.status === "sold").length;
+  return (
+    <div style={{ marginBottom: 26 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 2 }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontStyle: "italic", color: C.gray }}>{group.name}</div>
+        <div style={{ fontSize: 11, color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>
+          {group.units.length} units · {availableCount} available · {soldCount} sold
+        </div>
+      </div>
+      {group.units.map((u, i) => <InventoryUnitRow key={i} u={u} />)}
     </div>
   );
 };
@@ -767,6 +1048,9 @@ export default function NaukaDashboard() {
   const [funnelAllTime, setFunnelAllTime] = useState([]);
   const [funnelByYear, setFunnelByYear]   = useState([]);
   const [calendarRows, setCalendarRows]   = useState([]);
+  const [builtProduct, setBuiltProduct]   = useState([]);
+  const [homesites, setHomesites]         = useState([]);
+  const [inventoryTab, setInventoryTab]   = useState("built"); // "built" | "homesites"
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
   const [lastUpdated, setLastUpdated] = useState("");
@@ -775,7 +1059,7 @@ export default function NaukaDashboard() {
   useEffect(() => {
     async function load() {
       try {
-        const [k, p, d, t, l, a, ld, sotp, notp, sp, ytd, resale, fa, fy, cal] = await Promise.all([
+        const [k, p, d, t, l, a, ld, sotp, notp, sp, ytd, resale, fa, fy, cal, bp, hs] = await Promise.all([
           fetchSheet("Weekly_KPIs"),
           fetchSheet("Pipeline"),
           fetchSheet("Pending Transactions"),
@@ -791,6 +1075,8 @@ export default function NaukaDashboard() {
           fetchSheet("Funnel_AllTime"),
           fetchSheet("Funnel_ByYear"),
           fetchSheet("Prospect_Calendar"),
+          fetchRawSheet("Built Product"),
+          fetchRawSheet("Homesites"),
         ]);
         setKpis(k); setPipeline(p); setDeals(d); setTours(t);
         setLeads(l); setArrivals(a); setLostDeals(ld);
@@ -798,6 +1084,8 @@ export default function NaukaDashboard() {
         setResalePSAs(resale);
         setFunnelAllTime(fa); setFunnelByYear(fy);
         setCalendarRows(cal);
+        setBuiltProduct(parseBuiltProduct(bp));
+        setHomesites(parseHomesites(hs));
         const yrs = [...new Set(fy.map(r => r["Year"]).filter(Boolean))].sort((a, b) => b - a);
         if (yrs.length) setSelectedYear(yrs[0]);
         setLastUpdated(new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }));
@@ -987,10 +1275,11 @@ export default function NaukaDashboard() {
       </div>
 
       {/* Main tabs */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: "1rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: "1rem" }}>
         <button style={mainTabStyle(view === "weekly")} onClick={() => setView("weekly")}>Weekly Snapshot</button>
         <button style={mainTabStyle(view === "calendar")} onClick={() => setView("calendar")}>Prospect Calendar</button>
         <button style={mainTabStyle(view === "active")} onClick={() => setView("active")}>Active Transactions</button>
+        <button style={mainTabStyle(view === "inventories")} onClick={() => setView("inventories")}>Inventories</button>
         <button style={mainTabStyle(view === "conversions")} onClick={() => setView("conversions")}>Conversions</button>
       </div>
 
@@ -1094,6 +1383,33 @@ export default function NaukaDashboard() {
           })}
         </div>
       )}
+
+      {/* ── INVENTORIES ───────────────────────────────────────────── */}
+      {view === "inventories" && (() => {
+        const groups = inventoryTab === "built" ? builtProduct : homesites;
+        const allUnits = groups.flatMap(g => g.units);
+        const totalAvailable = allUnits.filter(u => u.status === "available").length;
+        const totalSold = allUnits.filter(u => u.status === "sold").length;
+        const totalOther = allUnits.length - totalAvailable - totalSold;
+        return (
+          <div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+              <button style={tabStyle(inventoryTab === "built")} onClick={() => setInventoryTab("built")}>Built Product</button>
+              <button style={tabStyle(inventoryTab === "homesites")} onClick={() => setInventoryTab("homesites")}>Homesites</button>
+            </div>
+            <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", margin: "14px 0 18px", fontFamily: FONT_BODY }}>
+              {allUnits.length} units · {totalAvailable} available · {totalSold} sold{totalOther > 0 ? ` · ${totalOther} on hold / pending` : ""}
+            </div>
+            {groups.length === 0 ? (
+              <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>
+                No inventory data available for this tab yet.
+              </div>
+            ) : (
+              groups.map((g, i) => <InventoryGroupSection key={i} group={g} />)
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── CONVERSIONS VIEW · ALL-TIME + BY-YEAR LEAD CONVERSION ─── */}
       {view === "conversions" && (() => {

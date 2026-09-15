@@ -520,7 +520,6 @@ const InventoryUnitRow = ({ u }) => {
 
   let subLabel = null;
   if (u.status === "sold" && u.buyer) subLabel = invFamilyName(u.buyer);
-  else if (u.status === "available" && u.buyer) subLabel = `In discussion — ${u.buyer}`;
   else if ((u.status === "hold" || u.status === "pending") && u.buyer) subLabel = u.buyer;
 
   return (

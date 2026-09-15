@@ -507,7 +507,7 @@ const InventoryUnitRow = ({ u }) => {
   const label = INV_STATUS_LABEL[u.status] || INV_STATUS_LABEL.unknown;
 
   let subLabel = null;
-  if (u.status === "sold" && u.buyer) subLabel = `${invFamilyName(u.buyer)} Family`;
+  if (u.status === "sold" && u.buyer) subLabel = invFamilyName(u.buyer);
   else if (u.status === "available" && u.buyer) subLabel = `In discussion — ${u.buyer}`;
   else if ((u.status === "hold" || u.status === "pending") && u.buyer) subLabel = u.buyer;
 

@@ -535,21 +535,16 @@ const InventoryUnitRow = ({ u }) => {
 };
 
 // ── Inventory Group Section ──────────────────────────────────────────
-const InventoryGroupSection = ({ group }) => {
-  const availableCount = group.units.filter(u => u.status === "available").length;
-  const soldCount = group.units.filter(u => u.status === "sold").length;
-  return (
-    <div style={{ marginBottom: 26 }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 2 }}>
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontStyle: "italic", color: C.gray }}>{group.name}</div>
-        <div style={{ fontSize: 11, color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY }}>
-          {group.units.length} units · {availableCount} available · {soldCount} sold
-        </div>
+const InventoryGroupSection = ({ group }) => (
+  <div style={{ marginBottom: 30 }}>
+    <div style={{ background: C.gray, borderRadius: 8, padding: "11px 16px", marginBottom: 2 }}>
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontStyle: "italic", color: C.teal }}>
+        {group.name}
       </div>
-      {group.units.map((u, i) => <InventoryUnitRow key={i} u={u} />)}
     </div>
-  );
-};
+    {group.units.map((u, i) => <InventoryUnitRow key={i} u={u} />)}
+  </div>
+);
 
 // ── Modal ─────────────────────────────────────────────────────────────
 const Modal = ({ title, subtitle, onClose, children }) => (
@@ -1051,6 +1046,7 @@ export default function NaukaDashboard() {
   const [builtProduct, setBuiltProduct]   = useState([]);
   const [homesites, setHomesites]         = useState([]);
   const [inventoryTab, setInventoryTab]   = useState("built"); // "built" | "homesites"
+  const [onlyAvailable, setOnlyAvailable] = useState(false);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
   const [lastUpdated, setLastUpdated] = useState("");
@@ -1386,23 +1382,24 @@ export default function NaukaDashboard() {
 
       {/* ── INVENTORIES ───────────────────────────────────────────── */}
       {view === "inventories" && (() => {
-        const groups = inventoryTab === "built" ? builtProduct : homesites;
-        const allUnits = groups.flatMap(g => g.units);
-        const totalAvailable = allUnits.filter(u => u.status === "available").length;
-        const totalSold = allUnits.filter(u => u.status === "sold").length;
-        const totalOther = allUnits.length - totalAvailable - totalSold;
+        const rawGroups = inventoryTab === "built" ? builtProduct : homesites;
+        const groups = onlyAvailable
+          ? rawGroups
+              .map(g => ({ ...g, units: g.units.filter(u => u.status === "available") }))
+              .filter(g => g.units.length > 0)
+          : rawGroups;
         return (
           <div>
-            <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+            <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
               <button style={tabStyle(inventoryTab === "built")} onClick={() => setInventoryTab("built")}>Built Product</button>
               <button style={tabStyle(inventoryTab === "homesites")} onClick={() => setInventoryTab("homesites")}>Homesites</button>
-            </div>
-            <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", margin: "14px 0 18px", fontFamily: FONT_BODY }}>
-              {allUnits.length} units · {totalAvailable} available · {totalSold} sold{totalOther > 0 ? ` · ${totalOther} on hold / pending` : ""}
+              <button style={{ ...tabStyle(onlyAvailable), marginLeft: "auto" }} onClick={() => setOnlyAvailable(v => !v)}>
+                {onlyAvailable ? "✓ Available Only" : "Show Available Only"}
+              </button>
             </div>
             {groups.length === 0 ? (
               <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>
-                No inventory data available for this tab yet.
+                {onlyAvailable ? "No available units right now." : "No inventory data available for this tab yet."}
               </div>
             ) : (
               groups.map((g, i) => <InventoryGroupSection key={i} group={g} />)

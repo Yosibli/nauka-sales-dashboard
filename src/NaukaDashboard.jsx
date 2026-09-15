@@ -128,6 +128,18 @@ function invFamilyName(raw) {
 
 const INV_PLACEHOLDER_RE = /^(on hold|off market|unavailable|pending)$/i;
 
+// The Sheets API's default render mode returns numeric cells as formatted
+// strings (e.g. "20,000,000"), not JS numbers — these two helpers let the
+// row-detection logic below treat either shape as numeric.
+function invIsNumericCell(v) {
+  if (typeof v === "number") return Number.isFinite(v);
+  if (typeof v === "string") return /^-?[\d,]+(\.\d+)?$/.test(v.trim()) && v.trim() !== "";
+  return false;
+}
+function invNumericValue(v) {
+  return typeof v === "number" ? v : parseFloat(String(v).replace(/,/g, ""));
+}
+
 // Classifies a single (owner, status) cell pair — the recurring shape used
 // throughout both sheets — into a normalized inventory-unit status. A
 // number is read as an asking price (available); "Sold" / "Hold" /
@@ -193,7 +205,7 @@ function parseBuiltProduct(rows) {
   for (let r = 5; r < rows.length; r++) {
     const row = rows[r] || [];
     const n = row[7];
-    if (typeof n !== "number") continue;
+    if (!invIsNumericCell(n)) continue;
     const { status, buyer, price } = invClassify(row[8], row[9]);
     golf.push({ unit: `Villa ${n}`, status, buyer, price });
   }
@@ -212,7 +224,7 @@ function parseBuiltProduct(rows) {
     beachBuildingCols.forEach((col, i) => {
       const val = row[col];
       if (val === undefined || val === "") return;
-      if (typeof val === "number" && val < 100000) return; // bare unit number, no real status
+      if (invIsNumericCell(val) && invNumericValue(val) < 100000) return; // bare unit number, no real status
       const { status, buyer, price } = invClassify(null, val);
       beach.push({ unit: `${beachBuildingNames[i]} · ${floorLabel}`, status, buyer, price });
     });
@@ -269,7 +281,7 @@ function parseHomesites(rows) {
       // this same column triplet — stop here so its lots are only
       // counted once, under their own group (parsed separately below).
       if (typeof lot === "string" && /Phase\s*\d/i.test(lot)) break;
-      if (typeof lot !== "number") continue; // skips blanks, section labels, and repeated headers
+      if (!invIsNumericCell(lot)) continue; // skips blanks, section labels, and repeated headers
       const { status, buyer, price } = invClassify(row[ownerCol], row[statusCol]);
       units.push({ unit: `Lot ${lot}`, status, buyer, price });
     }
@@ -285,7 +297,7 @@ function parseHomesites(rows) {
     for (let rr = r + 2; rr < rows.length; rr++) {
       const row = rows[rr] || [];
       const lot = row[9];
-      if (typeof lot !== "number") break;
+      if (!invIsNumericCell(lot)) break;
       const { status, buyer, price } = invClassify(row[10], row[11]);
       units.push({ unit: `Lot ${lot}`, status, buyer, price });
     }

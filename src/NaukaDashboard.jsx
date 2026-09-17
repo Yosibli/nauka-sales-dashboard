@@ -889,10 +889,11 @@ function buildMonthGrid(year, month) {
 }
 
 // Months the slider can page through. Add another { year, month, label } entry
-// here when October opens up — nothing else needs to change.
+// here when November opens up — nothing else needs to change.
 const CAL_MONTHS = [
   { year: 2026, month: 7, label: "August 2026" },
   { year: 2026, month: 8, label: "September 2026" },
+  { year: 2026, month: 9, label: "October 2026" },
 ];
 
 const CalendarView = ({ records }) => {

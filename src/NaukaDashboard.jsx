@@ -19,7 +19,7 @@ const C = {
 const FONT_DISPLAY = "'Larken', Georgia, serif";
 const FONT_BODY    = "'FreightSans Pro', 'Trebuchet MS', sans-serif";
 
-// ── YTD Sales Team Sales goal ───────────────────────────────────────
+// ── Sales Team YTD goal ───────────────────────────────────────
 // The "YTD Signed PSAs" pipeline stat includes related-party / insider
 // sales (deals to owners, owner family, or their referrals) that don't
 // count toward the sales team's annual production goal. This list is a
@@ -1757,7 +1757,7 @@ export default function NaukaDashboard() {
     return !isNaN(exp) && exp < todayStart;
   });
 
-  // ── YTD Sales Team Sales (vs. $270M goal) ─────────────────────────
+  // ── Sales Team YTD (vs. $270M goal) ─────────────────────────
   // = all YTD Signed PSAs, minus related-party/insider deals that don't
   // count toward the team's production goal, plus qualifying re-sale
   // inventory PSAs (tracked separately in the YTD_Resale_PSAs tab).
@@ -1816,7 +1816,7 @@ export default function NaukaDashboard() {
     { key: "Pending OTP",     label: "Pending OTP",             clickable: true },
     { key: "Signed OTP",      label: "Signed OTP",              clickable: true },
     { key: "Expired DD",      label: "Expired Due Diligence",   clickable: true },
-    { key: "YTD Signed PSAs", label: "YTD Sales Team Sales",    clickable: true, isGoal: true },
+    { key: "YTD Signed PSAs", label: "Sales Team YTD",    clickable: true, isGoal: true },
     { key: "All-Time PSAs",   label: "All-Time PSAs",           clickable: false, noTrend: true },
   ];
 
@@ -1871,7 +1871,7 @@ export default function NaukaDashboard() {
         subtitle = `${money(salesTeamTotal)} of $270M goal (${salesTeamPct.toFixed(1)}%)${avgLine}`;
       }
       return (
-        <Modal title={stage === "YTD Signed PSAs" ? "YTD Sales Team Sales" : stage} subtitle={subtitle} onClose={() => setOpenModal(null)}>
+        <Modal title={stage === "YTD Signed PSAs" ? "Sales Team YTD" : stage} subtitle={subtitle} onClose={() => setOpenModal(null)}>
           <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
             <div style={{ background: C.gray, borderRadius: 8, padding: "0.5rem 1rem", fontFamily: FONT_DISPLAY, fontSize: 20, color: C.teal }}>
               {stage === "YTD Signed PSAs" ? salesTeamDeals.length : (info["Count"] || records.length)}

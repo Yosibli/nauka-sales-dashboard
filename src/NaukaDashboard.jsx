@@ -347,7 +347,7 @@ const TrendBadge = ({ text }) => {
   const detail = m ? m[2].replace(/^prev:\s*/i, "") : null;
   const color = main.startsWith("▲") ? C.green : main.startsWith("▼") ? C.red : "rgba(54,67,74,0.45)";
   return (
-    <span style={{ position: "relative", display: "inline-block" }}>
+    <span style={{ position: "relative", display: "inline-block", whiteSpace: "nowrap" }}>
       <span
         title={detail ? `Previous period: ${detail}` : undefined}
         onClick={e => { if (detail) { e.stopPropagation(); setShow(s => !s); } }}
@@ -1322,6 +1322,91 @@ const ThisWeekView = ({ entries, now }) => {
   );
 };
 
+// ══════════════════════════════════════════════════════════════════════
+// ── MAIN MENU ────────────────────────────────────────────────────────
+// Desktop / tablet: one row of big icon tabs that sticks to the top while
+// scrolling. Phones (≤700px): an app-style bar pinned to the bottom of the
+// screen, in thumb reach. Same six destinations, same order.
+// ══════════════════════════════════════════════════════════════════════
+
+const NAV_ITEMS = [
+  { key: "weekly",      label: "Last Week", cap: "Full snapshot", icon: "bars" },
+  { key: "thisweek",    label: "This Week", cap: "Live",          icon: "pulse", live: true },
+  { key: "calendar",    label: "Calendar",  icon: "calendar" },
+  { key: "active",      label: "Pipeline",  icon: "briefcase" },
+  { key: "inventories", label: "Inventory", icon: "building" },
+  { key: "conversions", label: "Funnel",    icon: "funnel" },
+];
+
+const NavIcon = ({ name, size = 22 }) => {
+  const p = { fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" };
+  const shapes = {
+    bars: <><rect x="3" y="12" width="4" height="8" rx="1" {...p} /><rect x="10" y="8" width="4" height="12" rx="1" {...p} /><rect x="17" y="4" width="4" height="16" rx="1" {...p} /></>,
+    pulse: <path d="M3 12h4l3-8 4 16 3-8h4" {...p} />,
+    calendar: <><rect x="4" y="5" width="16" height="16" rx="2" {...p} /><path d="M16 3v4M8 3v4M4 11h16" {...p} /></>,
+    briefcase: <><rect x="3" y="7" width="18" height="13" rx="2" {...p} /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18" {...p} /></>,
+    building: <path d="M3 21h18M5 21V8l7-5 7 5v13M9 10v.01M15 10v.01M9 14v.01M15 14v.01M10 21v-3h4v3" {...p} />,
+    funnel: <path d="M4 4h16v2.2a2 2 0 0 1-.6 1.4L15 12v7l-6 2v-8.5L4.5 7.6A2 2 0 0 1 4 6.2V4z" {...p} />,
+  };
+  return <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" style={{ display: "block" }}>{shapes[name]}</svg>;
+};
+
+const NAV_CSS = `
+.nk-topnav{position:sticky;top:8px;z-index:50;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;background:${C.gray};padding:6px;border-radius:12px;margin-bottom:1rem;box-shadow:0 2px 10px rgba(54,67,74,0.18)}
+.nk-tab{appearance:none;border:none;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:64px;padding:8px 4px;border-radius:8px;color:#C9D3D6;cursor:pointer;font-family:${FONT_BODY};font-size:13px;font-weight:bold;position:relative;transition:background .15s,color .15s;text-align:center;line-height:1.15}
+.nk-tab:hover{background:rgba(136,209,209,0.14);color:#fff}
+.nk-tab.on{background:${C.teal};color:${C.gray}}
+.nk-cap{font-size:10px;font-weight:normal;opacity:.85;letter-spacing:.04em;display:flex;align-items:center;gap:4px}
+.nk-live{display:inline-block;width:7px;height:7px;border-radius:50%;background:${C.green};animation:nkpulse 1.8s ease-in-out infinite}
+.nk-tab.on .nk-live{background:${C.gray}}
+@keyframes nkpulse{0%,100%{opacity:1}50%{opacity:.3}}
+.nk-badge{position:absolute;top:5px;right:calc(50% - 26px);min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:${C.green};color:#fff;font-size:11px;font-weight:bold;line-height:18px;text-align:center;font-family:${FONT_BODY}}
+.nk-bottomnav{display:none}
+@media (max-width:700px){
+  .nk-root{padding:0.75rem 0.9rem calc(96px + env(safe-area-inset-bottom)) !important}
+  .nk-topnav{display:none}
+  .nk-bottomnav{display:grid;position:fixed;left:0;right:0;bottom:0;z-index:900;grid-template-columns:repeat(6,minmax(0,1fr));background:${C.gray};padding:7px 2px calc(9px + env(safe-area-inset-bottom));box-shadow:0 -4px 16px rgba(0,0,0,0.2)}
+  .nk-btab{appearance:none;border:none;background:transparent;display:flex;flex-direction:column;align-items:center;gap:4px;min-height:52px;padding:5px 0;color:#C9D3D6;font-family:${FONT_BODY};font-size:10.5px;font-weight:bold;cursor:pointer;position:relative;white-space:nowrap;-webkit-tap-highlight-color:transparent}
+  .nk-btab.on{color:${C.teal}}
+  .nk-btab.on::before{content:"";position:absolute;top:-7px;left:20%;right:20%;height:3px;border-radius:2px;background:${C.teal}}
+  .nk-btab .nk-badge{top:0;right:calc(50% - 22px)}
+  .nk-btab .nk-live{position:absolute;top:3px;right:calc(50% - 16px)}
+  .nk-header{padding:0.8rem 1rem !important;margin-bottom:0.75rem !important}
+  .nk-logo{height:34px !important}
+  .nk-tagline{display:none}
+}
+`;
+
+const MainNav = ({ view, onGo, todayCount }) => {
+  const extra = item => item.key === "thisweek" && todayCount > 0
+    ? <span className="nk-badge" aria-label={`${todayCount} new today`}>{todayCount}</span>
+    : null;
+  return (
+    <>
+      <style>{NAV_CSS}</style>
+      <nav className="nk-topnav" aria-label="Main menu">
+        {NAV_ITEMS.map(item => (
+          <button key={item.key} className={`nk-tab${view === item.key ? " on" : ""}`} aria-current={view === item.key ? "page" : undefined} onClick={() => onGo(item.key)}>
+            <NavIcon name={item.icon} />
+            <span>{item.label}</span>
+            {item.cap && <span className="nk-cap">{item.live && <span className="nk-live" />}{item.cap}</span>}
+            {extra(item)}
+          </button>
+        ))}
+      </nav>
+      <nav className="nk-bottomnav" aria-label="Main menu">
+        {NAV_ITEMS.map(item => (
+          <button key={item.key} className={`nk-btab${view === item.key ? " on" : ""}`} aria-current={view === item.key ? "page" : undefined} onClick={() => onGo(item.key)}>
+            <NavIcon name={item.icon} size={23} />
+            <span>{item.label}</span>
+            {extra(item) || (item.live && <span className="nk-live" />)}
+          </button>
+        ))}
+      </nav>
+    </>
+  );
+};
+
 // ── Main ──────────────────────────────────────────────────────────────
 export default function NaukaDashboard() {
   const [view, setView]               = useState("weekly");
@@ -1461,15 +1546,6 @@ export default function NaukaDashboard() {
     transition: "all 0.15s", fontFamily: FONT_BODY,
   });
 
-  const mainTabStyle = active => ({
-    padding: "10px 8px", fontSize: 12, fontWeight: "bold", borderRadius: 8, cursor: "pointer",
-    textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-    background: active ? C.gray : C.white,
-    color: active ? C.teal : C.gray,
-    border: `0.5px solid ${active ? C.gray : "rgba(54,67,74,0.15)"}`,
-    transition: "all 0.15s", fontFamily: FONT_BODY,
-  });
-
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", fontFamily: FONT_BODY, color: C.gray }}>
       <div style={{ textAlign: "center" }}>
@@ -1486,13 +1562,13 @@ export default function NaukaDashboard() {
   );
 
   const weeklyChips = [
-    { key: "New Leads",       label: "New Leads",        field: "New Leads",        accent: C.teal,  records: leads,      title: "New Leads This Week",   type: "leads",    trendField: "New Leads Trend" },
-    { key: "Tours",           label: "Tours",            field: "Tours",            accent: C.gray,  records: tours,      title: "Tours This Week",       type: "tours",    trendField: "Tours Trend" },
-    { key: "New OTPs",        label: "New Pending OTPs", field: "New Pending OTPs", accent: C.teal,  records: pendingOTPs, title: "New Pending OTPs",      type: "deals",    trendField: "New Pending OTPs Trend", value: sumAmount(pendingOTPs) },
-    { key: "Signed OTPs",     label: "New Signed OTPs",  field: "New Signed OTPs",  accent: C.teal,  records: signedOTPs, title: "New Signed OTPs",       type: "deals",    trendField: "New Signed OTPs Trend", trendField2: "New Signed OTPs $ Trend", value: sumAmount(signedOTPs) },
-    { key: "New PSAs",        label: "Signed PSAs",      field: "New Signed PSAs",  accent: C.teal,  records: signedPSAs, title: "Signed PSAs This Week", type: "psas",     trendField: "New Signed PSAs Trend", value: sumAmount(signedPSAs) },
-    { key: "Arrivals",        label: "Member Arrivals",  field: "Member Arrivals",  accent: C.gray,  records: arrivals,   title: "Member Arrivals",       type: "arrivals" },
-    { key: "Lost Deals",      label: "Lost Deals",       field: "Lost Deals",       accent: C.red,   records: lostDeals,  title: "Lost Deals",            type: "lost",     trendField: "Lost Deals Trend", value: sumAmount(lostDeals) },
+    { key: "New Leads",       label: "New Leads",        field: "New Leads",        accent: C.teal,  records: leads,      title: "New Leads Last Week",   type: "leads",    trendField: "New Leads Trend" },
+    { key: "Tours",           label: "Tours",            field: "Tours",            accent: C.gray,  records: tours,      title: "Tours Last Week",       type: "tours",    trendField: "Tours Trend" },
+    { key: "New OTPs",        label: "New Pending OTPs", field: "New Pending OTPs", accent: C.teal,  records: pendingOTPs, title: "New Pending OTPs Last Week", type: "deals",    trendField: "New Pending OTPs Trend", value: sumAmount(pendingOTPs) },
+    { key: "Signed OTPs",     label: "New Signed OTPs",  field: "New Signed OTPs",  accent: C.teal,  records: signedOTPs, title: "New Signed OTPs Last Week",  type: "deals",    trendField: "New Signed OTPs Trend", trendField2: "New Signed OTPs $ Trend", value: sumAmount(signedOTPs) },
+    { key: "New PSAs",        label: "Signed PSAs",      field: "New Signed PSAs",  accent: C.teal,  records: signedPSAs, title: "Signed PSAs Last Week", type: "psas",     trendField: "New Signed PSAs Trend", value: sumAmount(signedPSAs) },
+    { key: "Arrivals",        label: "Member Arrivals",  field: "Member Arrivals",  accent: C.gray,  records: arrivals,   title: "Member Arrivals Last Week", type: "arrivals" },
+    { key: "Lost Deals",      label: "Lost Deals",       field: "Lost Deals",       accent: C.red,   records: lostDeals,  title: "Lost Deals Last Week",  type: "lost",     trendField: "Lost Deals Trend", value: sumAmount(lostDeals) },
   ];
 
   const activeChips = [
@@ -1505,7 +1581,7 @@ export default function NaukaDashboard() {
 
   const renderModalContent = (records, type, extra) => {
     if (!records || records.length === 0)
-      return <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>No records this week.</div>;
+      return <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>No records last week.</div>;
     switch (type) {
       case "tours":    return records.map((t, i) => <TourCard key={i} tour={t} />);
       case "leads":    return records.map((l, i) => <LeadCard key={i} lead={l} />);
@@ -1527,7 +1603,7 @@ export default function NaukaDashboard() {
       // For Lost Deals, show the total lost amount as a header banner in the modal,
       // same pattern used for the YTD-average banner on Signed PSAs.
       const extra = chip.key === "Lost Deals" && chip.value > 0
-        ? `Total Lost This Week: ${money(chip.value)}`
+        ? `Total Lost Last Week: ${money(chip.value)}`
         : null;
       return (
         <Modal title={chip.title} subtitle={extra && chip.key !== "Lost Deals" ? null : null} onClose={() => setOpenModal(null)}>
@@ -1581,29 +1657,33 @@ export default function NaukaDashboard() {
   const yearRows        = yearRowsAll.filter(r => r["Source"] && r["Source"] !== "TOTAL");
   const yearTotalRow    = yearRowsAll.find(r => r["Source"] === "TOTAL") ?? {};
 
+  const weekEntries = buildWeekEntries(
+    masterLeads,
+    masterDeals,
+    calendarRows.length ? parseCalendarSheet(calendarRows) : FALLBACK_CALENDAR_RECORDS,
+  );
+  const todayCount = weekEntries.filter(e => calSameDay(e.date, now)).length;
+  const go = key => {
+    setView(key);
+    try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch { /* old browsers */ }
+  };
+
   return (
-    <div style={{ fontFamily: FONT_BODY, color: C.gray, padding: "1rem 1.25rem", maxWidth: 960, margin: "0 auto" }}>
+    <div className="nk-root" style={{ fontFamily: FONT_BODY, color: C.gray, padding: "1rem 1.25rem", maxWidth: 960, margin: "0 auto" }}>
 
       {/* Header */}
-      <div style={{ background: C.gray, padding: "1.25rem 1.5rem", borderRadius: 10, marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
+      <div className="nk-header" style={{ background: C.gray, padding: "1.25rem 1.5rem", borderRadius: 10, marginBottom: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
         <div>
-          <img src="/Nauka_Horizontal_Logo.png" alt="Nauka" style={{ height: 56, width: "auto", display: "block" }} />
-          <div style={{ fontSize: 11, color: C.teal, letterSpacing: "0.1em", textTransform: "uppercase", marginTop: 10, fontFamily: FONT_BODY }}>Weekly Sales Snapshot</div>
+          <img className="nk-logo" src="/Nauka_Horizontal_Logo.png" alt="Nauka" style={{ height: 56, width: "auto", display: "block" }} />
+          <div className="nk-tagline" style={{ fontSize: 11, color: C.teal, letterSpacing: "0.1em", textTransform: "uppercase", marginTop: 10, fontFamily: FONT_BODY }}>Weekly Sales Snapshot</div>
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", fontFamily: FONT_BODY }}>Updated {lastUpdated}</div>
         </div>
       </div>
 
-      {/* Main tabs */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: "1rem" }}>
-        <button style={mainTabStyle(view === "thisweek")} onClick={() => setView("thisweek")}>This Week</button>
-        <button style={mainTabStyle(view === "weekly")} onClick={() => setView("weekly")}>Weekly Snapshot</button>
-        <button style={mainTabStyle(view === "calendar")} onClick={() => setView("calendar")}>Prospect Calendar</button>
-        <button style={mainTabStyle(view === "active")} onClick={() => setView("active")}>Active Transactions</button>
-        <button style={mainTabStyle(view === "inventories")} onClick={() => setView("inventories")}>Inventories</button>
-        <button style={mainTabStyle(view === "conversions")} onClick={() => setView("conversions")}>Conversions</button>
-      </div>
+      {/* Main menu — top bar on desktop, bottom bar on phones */}
+      <MainNav view={view} onGo={go} todayCount={todayCount} />
 
       {/* ── WEEKLY VIEW ───────────────────────────────────────────── */}
       {view === "weekly" && (() => {
@@ -1613,7 +1693,7 @@ export default function NaukaDashboard() {
         return (
           <div>
             <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, marginBottom: 14, fontFamily: FONT_BODY }}>
-              This Week · Tap any card for details
+              Last Week{latest["Week"] ? ` · ${latest["Week"]}` : ""} · Tap any card for details
             </div>
 
             {/* Hero: New Leads */}
@@ -1623,7 +1703,7 @@ export default function NaukaDashboard() {
                   <span style={{ width: 7, height: 7, borderRadius: "50%", background: heroChip.accent, display: "inline-block" }} />
                   <span style={{ fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY }}>{heroChip.label}</span>
                 </div>
-                <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", marginTop: 10, maxWidth: 220, lineHeight: 1.5, fontFamily: FONT_BODY }}>Fresh inbound interest captured this week</div>
+                <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", marginTop: 10, maxWidth: 220, lineHeight: 1.5, fontFamily: FONT_BODY }}>Fresh inbound interest captured last week</div>
               </div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontFamily: FONT_DISPLAY, fontSize: 68, lineHeight: 0.9, color: C.gray }}>{latest[heroChip.field] || "0"}</div>
@@ -1643,7 +1723,7 @@ export default function NaukaDashboard() {
                     <div style={{ fontFamily: FONT_DISPLAY, fontSize: 42, lineHeight: 1, color: C.gray }}>{latest[chip.field] || "0"}</div>
                     {chip.value > 0 && <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: "bold", color: C.teal }}>{money(chip.value)}</div>}
                   </div>
-                  <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
+                  <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <TrendBadge text={latest[chip.trendField]} />
                     {chip.trendField2 && <TrendBadge text={latest[chip.trendField2]} />}
                   </div>
@@ -1652,7 +1732,7 @@ export default function NaukaDashboard() {
             </div>
 
             {/* Also this week */}
-            <div style={{ fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", marginBottom: 12, fontFamily: FONT_BODY }}>Also This Week</div>
+            <div style={{ fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", marginBottom: 12, fontFamily: FONT_BODY }}>Also Last Week</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               {otherChips.map(chip => (
                 <div key={chip.key} onClick={() => setOpenModal({ type: "weekly", key: chip.key })} style={{ cursor: "pointer", background: chip.key === "Arrivals" ? "#E7F6F6" : C.white, border: chip.key === "Arrivals" ? "none" : "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "18px 22px" }}>
@@ -1845,14 +1925,7 @@ export default function NaukaDashboard() {
 
       {/* ── THIS WEEK (from the masters, grows Monday → Sunday) ─────── */}
       {view === "thisweek" && (
-        <ThisWeekView
-          entries={buildWeekEntries(
-            masterLeads,
-            masterDeals,
-            calendarRows.length ? parseCalendarSheet(calendarRows) : FALLBACK_CALENDAR_RECORDS,
-          )}
-          now={now}
-        />
+        <ThisWeekView entries={weekEntries} now={now} />
       )}
 
       {/* ── PROSPECT CALENDAR ───────────────────────────────────────── */}

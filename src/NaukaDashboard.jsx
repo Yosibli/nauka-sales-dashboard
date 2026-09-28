@@ -1429,13 +1429,19 @@ const rateColorLP = v => {
 const funnelNum = v => { const n = parseInt(String(v ?? "").replace(/,/g, ""), 10); return isNaN(n) ? 0 : n; };
 const funnelFmt = v => funnelNum(v).toLocaleString("en-US");
 
+// Colours by HubSpot Lead Status value, grouped by family: working
+// (greens/teals), gone quiet (ambers), won (slate), out (reds), unset (grey).
 const LEAD_STATUS_COLOR = {
-  "Working now": C.green,
-  "Nurturing / timing": C.teal,
-  "Dormant — no response": C.amber,
-  "Closed won": C.slate,
-  "Disqualified / opted out": C.red,
-  "No status set": "rgba(54,67,74,0.3)",
+  "Active": C.green,
+  "Timing": "#4FB3A9",
+  "Nurture": C.teal,
+  "Unresponsive": C.amber,
+  "Gone Dark": "#B8763F",
+  "Closed Won": C.slate,
+  "Unqualified": C.red,
+  "Not Interested": "#D68B80",
+  "Unsubscribed": "#9E4B41",
+  "(No Status Set)": "rgba(54,67,74,0.3)",
 };
 
 const SectionLabel = ({ children, style }) => (
@@ -1472,7 +1478,7 @@ const FunnelView = ({ allTime, byYear, advAllTime, advByYear, leadStatus, tabSty
 
   // Year-group comparison strip (All-Time only) — the TOTAL row of each year.
   const cohorts = years.map(y => ({ year: y, ...(byYear.find(r => String(r["Year"]) === String(y) && r["Source"] === "TOTAL") ?? {}) }));
-  const statusRows = leadStatus.filter(r => r["Group"] && r["Group"] !== "TOTAL");
+  const statusRows = leadStatus.filter(r => r["Lead Status"] && r["Lead Status"] !== "TOTAL");
   const statusTotal = statusRows.reduce((s, r) => s + funnelNum(r["Leads"]), 0);
 
   const card = { background: C.white, borderRadius: 8, border: "0.5px solid rgba(54,67,74,0.12)", overflow: "hidden" };
@@ -1605,26 +1611,25 @@ const FunnelView = ({ allTime, byYear, advAllTime, advByYear, leadStatus, tabSty
             {/* Current lead status snapshot (All-Time only) */}
             {isAllTime && statusRows.length > 0 && statusTotal > 0 && (
               <>
-                <SectionLabel>Current Lead Status · today's snapshot</SectionLabel>
+                <SectionLabel>Current Lead Status (HubSpot) · today's snapshot</SectionLabel>
                 <div style={{ ...card, padding: "14px 16px" }}>
                   <div style={{ display: "flex", height: 12, borderRadius: 6, overflow: "hidden", marginBottom: 14, gap: 2 }}>
                     {statusRows.map((s, i) => (
-                      <div key={i} title={`${s["Group"]}: ${s["% of Leads"]}`} style={{ width: `${(funnelNum(s["Leads"]) / statusTotal) * 100}%`, background: LEAD_STATUS_COLOR[s["Group"]] || "rgba(54,67,74,0.3)" }} />
+                      <div key={i} title={`${s["Lead Status"]}: ${s["% of Leads"]}`} style={{ width: `${(funnelNum(s["Leads"]) / statusTotal) * 100}%`, background: LEAD_STATUS_COLOR[s["Lead Status"]] || "rgba(54,67,74,0.3)" }} />
                     ))}
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "10px 18px" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "10px 22px" }}>
                     {statusRows.map((s, i) => (
                       <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 8, fontFamily: FONT_BODY }}>
-                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: LEAD_STATUS_COLOR[s["Group"]] || "rgba(54,67,74,0.3)", flexShrink: 0, transform: "translateY(-1px)" }} />
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: LEAD_STATUS_COLOR[s["Lead Status"]] || "rgba(54,67,74,0.3)", flexShrink: 0, transform: "translateY(-1px)" }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                            <span style={{ fontSize: 12, fontWeight: "bold", color: C.gray }}>{s["Group"]}</span>
+                            <span style={{ fontSize: 12, fontWeight: "bold", color: C.gray }}>{s["Lead Status"]}</span>
                             <span style={{ fontSize: 12, color: C.gray, whiteSpace: "nowrap" }}>
                               <span style={{ fontFamily: FONT_DISPLAY, fontSize: 15 }}>{funnelFmt(s["Leads"])}</span>
                               <span style={{ color: "rgba(54,67,74,0.55)" }}> · {s["% of Leads"]}</span>
                             </span>
                           </div>
-                          <div style={{ fontSize: 10.5, color: "rgba(54,67,74,0.6)" }}>{s["What it means"]}</div>
                         </div>
                       </div>
                     ))}

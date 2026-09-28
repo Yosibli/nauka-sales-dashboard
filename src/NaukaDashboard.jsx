@@ -1056,7 +1056,7 @@ const CalendarView = ({ records }) => {
 // ── THIS WEEK (grows day by day, Monday → Sunday) ───────────────────
 // Built straight from the two master tabs, by date:
 //   Master_Leads  — Create Date                → New Leads
-//   Master_Deals  — Create Date                → New Holds
+//   Master_Deals  — Create Date                → New Inventory on Hold
 //                   OTP Sent Date              → New Pending OTPs
 //                   OTP Signed Date            → New Signed OTPs
 //                   PSA Date Signed            → New Signed Deals (PSAs)
@@ -1164,7 +1164,7 @@ const TW_DEAL_STATS = [
 const TW_ACTIVITY_STATS = [
   { key: "lead", label: "New Leads",      title: "New Leads This Week" },
   { key: "tour", label: "Tours & Visits", title: "Tours & Visits This Week" },
-  { key: "hold", label: "New Holds",      title: "New Holds This Week" },
+  { key: "hold", label: "New Inventory on Hold", title: "New Inventory on Hold This Week" },
   { key: "lost", label: "Lost Deals",     title: "Lost Deals This Week", money: true, danger: true },
 ];
 
@@ -1175,37 +1175,37 @@ function twRangeLabel(start, end) {
     : `${twDayFmt(start)} – ${twDayFmt(end)}, ${end.getFullYear()}`;
 }
 
-// One number: label, count, "+N today", and ($) total for deals / lost.
-// No box around it — just the figures, clickable to open the list.
-const TWStat = ({ stat, items, today, big, onOpen }) => {
-  const [hover, setHover] = useState(false);
+// One column, phone-first — same layout as Last Week. Each metric is a
+// tappable row (opens the day-by-day list); "+N today" sits under the
+// label; metrics still at zero are dimmed so the eye lands on what moved.
+const TWRow = ({ stat, items, today, first, onOpen }) => {
+  const n = items.length;
+  const zero = n === 0;
   const todayN = items.filter(e => calSameDay(e.date, today)).length;
   const total = items.reduce((s, e) => s + e.amount, 0);
-  const showMoney = big || stat.money;
+  const isLost = stat.danger && !zero;
   return (
     <div
       role="button" tabIndex={0}
       onClick={onOpen}
       onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}
-      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-      style={{ cursor: "pointer", padding: "16px 12px 18px 0", outline: "none", minWidth: 0 }}
+      style={{ cursor: "pointer", outline: "none", display: "flex", alignItems: "center", gap: 14, padding: zero ? "12px 0" : "16px 0", borderTop: first ? "none" : "1px solid rgba(54,67,74,0.12)" }}
     >
-      <div style={{ fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.62)", lineHeight: 1.3, fontFamily: FONT_BODY }}>
-        {stat.label}{stat.sub && <span style={{ fontWeight: "normal" }}> ({stat.sub})</span>}
-      </div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-        <span style={{ fontFamily: FONT_DISPLAY, fontSize: big ? 44 : 34, lineHeight: 1, color: hover ? C.slate : (stat.danger && items.length > 0 ? C.red : C.gray), transition: "color 0.15s" }}>
-          {items.length}
-        </span>
+      <div style={{ flex: 1, minWidth: 0, opacity: zero ? 0.5 : 1 }}>
+        <div style={{ fontSize: 15, fontWeight: "bold", color: isLost ? C.red : C.gray, fontFamily: FONT_BODY }}>
+          {stat.label}{stat.sub && <span style={{ fontWeight: "normal" }}> ({stat.sub})</span>}
+        </div>
         {todayN > 0 && (
-          <span style={{ fontSize: 11, fontWeight: "bold", color: C.green, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>+{todayN} today</span>
+          <div style={{ marginTop: 4, fontSize: 11, fontWeight: "bold", color: C.green, fontFamily: FONT_BODY }}>+{todayN} today</div>
         )}
       </div>
-      {showMoney && (
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: big ? 19 : 16, fontWeight: "bold", marginTop: 4, color: stat.danger ? C.red : (total > 0 ? C.green : "rgba(54,67,74,0.35)") }}>
-          {money(total)}
-        </div>
-      )}
+      <div style={{ textAlign: "right", opacity: zero ? 0.45 : 1 }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: zero ? 28 : 40, lineHeight: 1, color: isLost ? C.red : C.gray }}>{n}</div>
+        {total > 0 && (stat.money || TW_DEAL_STATS.includes(stat)) && (
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: "bold", color: isLost ? C.red : C.teal, marginTop: 2 }}>{money(total)}</div>
+        )}
+      </div>
+      <span style={{ fontSize: 22, color: "rgba(54,67,74,0.3)", lineHeight: 1, marginLeft: -4 }}>›</span>
     </div>
   );
 };
@@ -1242,7 +1242,12 @@ const ThisWeekView = ({ entries, now }) => {
   const allStats = [...TW_DEAL_STATS, ...TW_ACTIVITY_STATS];
   const open = allStats.find(s => s.key === openKey);
 
-  const sectionLabel = { fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", marginTop: 14, fontFamily: FONT_BODY };
+  const sectionHead = (text, right, first) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, padding: first ? "0 0 10px" : "26px 0 10px", borderBottom: `1.5px solid ${C.gray}` }}>
+      <span style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", fontFamily: FONT_BODY }}>{text}</span>
+      {right && <span style={{ fontSize: 11, color: "rgba(54,67,74,0.55)", fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{right}</span>}
+    </div>
+  );
 
   // Pop-up list, newest day first.
   const renderList = () => {
@@ -1282,34 +1287,27 @@ const ThisWeekView = ({ entries, now }) => {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-        <div>
-          <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, fontFamily: FONT_BODY }}>
-            This Week · Builds up Monday to Sunday
-          </div>
-          <div style={{ fontFamily: FONT_DISPLAY, fontStyle: "italic", fontSize: 24, color: C.gray, marginTop: 4 }}>{twRangeLabel(start, end)}</div>
-        </div>
-        <div style={{ fontSize: 12, color: "rgba(54,67,74,0.64)", fontFamily: FONT_BODY }}>
-          Day {dayNum} of 7 · {week.length} update{week.length === 1 ? "" : "s"} so far
-        </div>
+      {/* Header: week range + how far into it we are */}
+      <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", fontFamily: FONT_BODY }}>
+        This week · {twRangeLabel(start, end)}
       </div>
-      <div style={{ height: 4, background: "rgba(54,67,74,0.08)", borderRadius: 2, overflow: "hidden", marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginTop: 4 }}>
+        <span style={{ fontSize: 13, color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY }}>Day {dayNum} of 7</span>
+        <span style={{ fontSize: 13, color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY }}>{week.length} update{week.length === 1 ? "" : "s"} so far</span>
+      </div>
+      <div style={{ height: 3, background: "rgba(54,67,74,0.1)", borderRadius: 2, overflow: "hidden", margin: "8px 0 22px" }}>
         <div style={{ height: "100%", width: `${(dayNum / 7) * 100}%`, background: C.teal, borderRadius: 2, transition: "width 0.5s ease" }} />
       </div>
 
-      <div style={sectionLabel}>Deals This Week</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 16, borderBottom: "1px solid rgba(54,67,74,0.12)" }}>
-        {TW_DEAL_STATS.map(s => (
-          <TWStat key={s.key} stat={s} items={ofType(s.key)} today={today} big onOpen={() => setOpenKey(s.key)} />
-        ))}
-      </div>
+      {sectionHead("Deals this week", null, true)}
+      {TW_DEAL_STATS.map((s, i) => (
+        <TWRow key={s.key} stat={s} items={ofType(s.key)} today={today} first={i === 0} onOpen={() => setOpenKey(s.key)} />
+      ))}
 
-      <div style={{ ...sectionLabel, marginTop: 18 }}>Activity This Week</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 16 }}>
-        {TW_ACTIVITY_STATS.map(s => (
-          <TWStat key={s.key} stat={s} items={ofType(s.key)} today={today} onOpen={() => setOpenKey(s.key)} />
-        ))}
-      </div>
+      {sectionHead("Activity this week", null, false)}
+      {TW_ACTIVITY_STATS.map((s, i) => (
+        <TWRow key={s.key} stat={s} items={ofType(s.key)} today={today} first={i === 0} onOpen={() => setOpenKey(s.key)} />
+      ))}
 
       {entries.length === 0 && (
         <div style={{ fontSize: 12, color: "rgba(54,67,74,0.55)", marginTop: 14, fontStyle: "italic", fontFamily: FONT_BODY }}>

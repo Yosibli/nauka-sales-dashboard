@@ -97,6 +97,8 @@ const INV_STATUS_COLOR = {
   sold: "rgba(54,67,74,0.45)",
   hold: C.amber,
   pending: C.amber,
+  pending_otp: C.amber,
+  signed_otp: C.slate,
   off_market: C.red,
   unknown: "rgba(54,67,74,0.3)",
 };
@@ -105,6 +107,8 @@ const INV_STATUS_LABEL = {
   sold: "Sold",
   hold: "On Hold",
   pending: "Pending",
+  pending_otp: "Pending OTP",
+  signed_otp: "Signed OTP",
   off_market: "Off Market",
   unknown: "Unlisted",
 };
@@ -166,7 +170,10 @@ function invClassify(ownerRaw, statusRaw) {
   if (ownerNote && /on hold/i.test(ownerNote)) {
     return { status: "hold", buyer: ownerClean, price: statusNum };
   }
-  if (/^sold$/i.test(statusStr)) return { status: "sold", buyer: ownerClean || null, price: null };
+  if (/^(sold|signed psa|psa signed)$/i.test(statusStr)) return { status: "sold", buyer: ownerClean || null, price: null };
+  // Deal stages typed into the Status cell (same words as Master_Deals Stage)
+  if (/^(signed otp|otp signed)$/i.test(statusStr)) return { status: "signed_otp", buyer: ownerClean || null, price: null };
+  if (/^(pending otp|otp pending|otp sent)$/i.test(statusStr)) return { status: "pending_otp", buyer: ownerClean || null, price: statusNum };
   if (/^hold$/i.test(statusStr)) return { status: "hold", buyer: ownerClean || null, price: statusNum };
   if (/^pending$/i.test(statusStr)) return { status: "pending", buyer: ownerClean || null, price: statusNum };
   if (INV_PLACEHOLDER_RE.test(statusStr)) {
@@ -527,7 +534,7 @@ const InventoryUnitRow = ({ u }) => {
 
   let subLabel = null;
   if (u.status === "sold" && u.buyer) subLabel = invFamilyName(u.buyer);
-  else if ((u.status === "hold" || u.status === "pending") && u.buyer) subLabel = u.buyer;
+  else if (["hold", "pending", "pending_otp", "signed_otp"].includes(u.status) && u.buyer) subLabel = u.buyer;
 
   return (
     <div style={ROW_STYLE}>

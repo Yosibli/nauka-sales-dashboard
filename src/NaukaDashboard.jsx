@@ -347,6 +347,10 @@ const TrendBadge = ({ text }) => {
         style={{ fontSize: 10, fontWeight: "bold", color, fontFamily: FONT_BODY, cursor: detail ? "help" : "default", borderBottom: detail ? "1px dotted currentColor" : "none" }}
       >
         {main}
+        {/* "New" means last week was 0, so there's no % — say what it's compared to */}
+        {/New/i.test(main) && detail && (
+          <span style={{ fontWeight: "normal" }}> · {detail} last week</span>
+        )}
       </span>
       {show && detail && (
         <span

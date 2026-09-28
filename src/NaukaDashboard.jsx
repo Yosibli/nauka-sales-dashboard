@@ -1921,69 +1921,43 @@ export default function NaukaDashboard() {
       <MainNav view={view} onGo={go} todayCount={todayCount} />
 
       {/* ── WEEKLY VIEW ───────────────────────────────────────────── */}
+      {/* One column, phone-first. Same order as always; each metric is a
+          tappable row, and the ones that stayed at zero are dimmed so the
+          eye lands on what moved. */}
       {view === "weekly" && (() => {
-        const heroChip = weeklyChips[0];
-        const gridChips = weeklyChips.slice(1, 5);
+        const mainChips  = weeklyChips.slice(0, 5);
         const otherChips = weeklyChips.slice(5);
+        const sectionHead = (text, first) => (
+          <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", padding: first ? "0 0 10px" : "26px 0 10px", borderBottom: `1.5px solid ${C.gray}`, fontFamily: FONT_BODY }}>{text}</div>
+        );
+        const row = (chip, first) => {
+          const zero   = num(latest[chip.field]) === 0;
+          const isLost = chip.key === "Lost Deals" && !zero;
+          return (
+            <div key={chip.key} onClick={() => setOpenModal({ type: "weekly", key: chip.key })}
+              style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 14, padding: zero ? "12px 0" : "16px 0", borderTop: first ? "none" : "1px solid rgba(54,67,74,0.12)" }}>
+              <div style={{ flex: 1, minWidth: 0, opacity: zero ? 0.5 : 1 }}>
+                <div style={{ fontSize: 15, fontWeight: "bold", color: isLost ? C.red : C.gray, fontFamily: FONT_BODY }}>{chip.label}</div>
+                {chip.trendField && latest[chip.trendField] && (
+                  <div style={{ marginTop: 4, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <TrendBadge text={latest[chip.trendField]} />
+                  </div>
+                )}
+              </div>
+              <div style={{ textAlign: "right", opacity: zero ? 0.45 : 1 }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontSize: zero ? 28 : 40, lineHeight: 1, color: isLost ? C.red : C.gray }}>{latest[chip.field] || "0"}</div>
+                {chip.value > 0 && <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: "bold", color: isLost ? C.red : C.teal, marginTop: 2 }}>{money(chip.value)}</div>}
+              </div>
+              <span style={{ fontSize: 22, color: "rgba(54,67,74,0.3)", lineHeight: 1, marginLeft: -4 }}>›</span>
+            </div>
+          );
+        };
         return (
           <div>
-            <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, marginBottom: 14, fontFamily: FONT_BODY }}>
-              Last Week{latest["Week"] ? ` · ${latest["Week"]}` : ""} · Tap any card for details
-            </div>
-
-            {/* Hero: New Leads */}
-            <div onClick={() => setOpenModal({ type: "weekly", key: heroChip.key })} style={{ cursor: "pointer", background: C.white, border: "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "24px 26px", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: heroChip.accent, display: "inline-block" }} />
-                  <span style={{ fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY }}>{heroChip.label}</span>
-                </div>
-                <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", marginTop: 10, maxWidth: 220, lineHeight: 1.5, fontFamily: FONT_BODY }}>Fresh inbound interest captured last week</div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontFamily: FONT_DISPLAY, fontSize: 68, lineHeight: 0.9, color: C.gray }}>{latest[heroChip.field] || "0"}</div>
-                <div style={{ marginTop: 6 }}><TrendBadge text={latest[heroChip.trendField]} /></div>
-              </div>
-            </div>
-
-            {/* Funnel grid */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 22 }}>
-              {gridChips.map(chip => (
-                <div key={chip.key} onClick={() => setOpenModal({ type: "weekly", key: chip.key })} style={{ cursor: "pointer", background: C.white, border: "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "20px 22px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: chip.accent, display: "inline-block", flexShrink: 0 }} />
-                    <span style={{ fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.62)", lineHeight: 1.3, fontFamily: FONT_BODY }}>{chip.label}</span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 14 }}>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontSize: 42, lineHeight: 1, color: C.gray }}>{latest[chip.field] || "0"}</div>
-                    {chip.value > 0 && <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: "bold", color: C.teal }}>{money(chip.value)}</div>}
-                  </div>
-                  <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <TrendBadge text={latest[chip.trendField]} />
-                    {chip.trendField2 && <TrendBadge text={latest[chip.trendField2]} />}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Also this week */}
-            <div style={{ fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", marginBottom: 12, fontFamily: FONT_BODY }}>Also Last Week</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              {otherChips.map(chip => (
-                <div key={chip.key} onClick={() => setOpenModal({ type: "weekly", key: chip.key })} style={{ cursor: "pointer", background: chip.key === "Arrivals" ? "#E7F6F6" : C.white, border: chip.key === "Arrivals" ? "none" : "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "18px 22px" }}>
-                  <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: chip.key === "Arrivals" ? C.gray : "rgba(54,67,74,0.72)", fontFamily: FONT_BODY }}>{chip.label}</div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 8 }}>
-                    <div style={{ fontFamily: FONT_DISPLAY, fontSize: 40, lineHeight: 1, color: chip.key === "Lost Deals" && num(latest[chip.field]) > 0 ? C.red : C.gray }}>{latest[chip.field] || "0"}</div>
-                    {chip.value > 0 && (
-                      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: "bold", color: chip.key === "Lost Deals" ? C.red : C.teal }}>
-                        {money(chip.value)}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ marginTop: 6 }}><TrendBadge text={latest[chip.trendField]} /></div>
-                </div>
-              ))}
-            </div>
+            {sectionHead(`Last week${latest["Week"] ? ` · ${latest["Week"]}` : ""}`, true)}
+            {mainChips.map((c, i) => row(c, i === 0))}
+            {sectionHead("Also last week", false)}
+            {otherChips.map((c, i) => row(c, i === 0))}
           </div>
         );
       })()}

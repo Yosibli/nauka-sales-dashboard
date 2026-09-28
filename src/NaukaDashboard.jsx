@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 const SHEET_ID = "1hFqEicg5meAdf_VJoDQ3XCNCD6HOa_sSCeKSDRkLrYc";
 const API_KEY  = "AIzaSyAcRftC0ZLiwFiBKFnBxnXV5CD1eob6BMU";
@@ -24,8 +24,9 @@ const FONT_BODY    = "'FreightSans Pro', 'Trebuchet MS', sans-serif";
 // sales (deals to owners, owner family, or their referrals) that don't
 // count toward the sales team's annual production goal. This list is a
 // manually maintained set of exact "Deal Name" values (as they appear in
-// the YTD_PSAs sheet tab) to exclude from that goal figure. Update it
-// whenever Ops flags another deal as related-party/non-market.
+// the YTD_PSAs sheet tab) to exclude from that goal figure. Deals marked
+// Related Party = Yes in Master_Deals (shown in YTD_PSAs' "Related Party"
+// column) are excluded too, so new ones only need flagging in the sheet.
 const SALES_TEAM_GOAL_EXCLUSIONS = [
   "RCRR 5201/5203 | Alejandro Aboumrad",
   "RCRR 5102/5104 | Alfredo Miguel",
@@ -45,9 +46,11 @@ async function fetchSheet(tab) {
     const json = await res.json();
     if (!json.values || json.values.length < 2) return [];
     const [, headers, ...rows] = json.values;
-    return rows.map(row =>
-      Object.fromEntries(headers.map((h, i) => [h.trim(), row[i] ?? ""]))
-    );
+    return rows
+      .filter(row => row.some(v => String(v ?? "").trim() !== ""))
+      .map(row =>
+        Object.fromEntries(headers.map((h, i) => [h.trim(), row[i] ?? ""]))
+      );
   } catch (err) {
     console.error(`[fetchSheet: ${tab}] error`, err);
     return [];
@@ -616,6 +619,9 @@ function parseCalendarSheet(rows) {
       name: r["Name"],
       arrival: parseDate(r["Arrival Date"]),
       departure: parseDate(r["Departure Date"]),
+      // Meeting date from HubSpot's "contacts with meetings" report. A visit
+      // counts as a tour (weekly counts, This Week tab) only when it's set.
+      tourDate: parseDate(r["Tour Date"]),
       stage: r["Stage"],
       coveredBy: r["Covered By"] || null,
       owner: r["Owner"] || null,
@@ -1035,6 +1041,276 @@ const CalendarView = ({ records }) => {
   );
 };
 
+// ══════════════════════════════════════════════════════════════════════
+// ── THIS WEEK (grows day by day, Monday → Sunday) ───────────────────
+// Built straight from the two master tabs, by date:
+//   Master_Leads  — Create Date                → New Leads
+//   Master_Deals  — Create Date                → New Holds
+//                   OTP Sent Date              → New Pending OTPs
+//                   OTP Signed Date            → New Signed OTPs
+//                   PSA Date Signed            → New Signed Deals (PSAs)
+//                   Lost Date                  → Lost Deals
+//   Prospect_Calendar — Tour Date = meeting date (not Canceled) → Tours & Visits
+// Only dates inside the current Monday–Sunday week (up to today) count, so
+// the section starts at 0 each Monday and fills up through Sunday. When the
+// week ends, the sheet's calculated tabs (Weekly_KPIs, New_Leads, …) report
+// those same rows as "last week" — nothing is copied or re-typed.
+// ══════════════════════════════════════════════════════════════════════
+
+const REFRESH_MS = 15 * 60 * 1000;             // re-pull the sheet every 15 min while open
+const REFRESH_ON_FOCUS_MIN_MS = 5 * 60 * 1000; // …and on returning to the page, if older than 5 min
+
+// Accepts the sheet's formatted dates ("9/21/2026"), ISO ("2026-09-21")
+// or text ("Sep 21, 2026"). Returns a local-midnight Date or null.
+function twParseDate(raw) {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (m) { let y = +m[3]; if (y < 100) y += 2000; return new Date(y, +m[1] - 1, +m[2]); }
+  let d = new Date(s);
+  if (isNaN(d) && !/\d{4}/.test(s)) d = new Date(`${s}, ${new Date().getFullYear()}`);
+  return isNaN(d) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function twAmount(v) {
+  if (v == null || v === "") return 0;
+  const n = parseFloat(String(v).replace(/[$,\s]/g, ""));
+  return isNaN(n) ? 0 : n;
+}
+
+// Monday 00:00 of the week containing `ref`.
+function twWeekStart(ref) {
+  const d = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d;
+}
+
+// Turns the master tabs into dated "update" entries for the This Week tab.
+// A deal contributes one entry per milestone date it has, so a deal that was
+// put on hold Monday and sent an OTP Thursday shows up under both.
+function buildWeekEntries(masterLeads, masterDeals, calendarRecords) {
+  const out = [];
+  const clean = v => String(v ?? "").trim();
+  (masterLeads || []).forEach(r => {
+    const name = clean(r["Name"]);
+    const date = twParseDate(r["Create Date"]);
+    if (!name || !date) return;
+    out.push({
+      date, type: "lead", name,
+      details: [clean(r["Lifecycle Stage"]), clean(r["Lead Status"]), clean(r["Notes"])].filter(Boolean).join(" · "),
+      amount: 0,
+      advisor: clean(r["Advisor"]),
+      source: [clean(r["Lead Source"]), clean(r["Referral Source"]) ? `via ${clean(r["Referral Source"])}` : ""].filter(Boolean).join(" · "),
+    });
+  });
+  const milestones = [
+    ["Create Date", "hold"], ["OTP Sent Date", "potp"], ["OTP Signed Date", "sotp"],
+    ["PSA Date Signed", "psa"], ["Lost Date", "lost"],
+  ];
+  (masterDeals || []).forEach(r => {
+    const name = clean(r["Deal Name"]);
+    if (!name) return;
+    milestones.forEach(([field, type]) => {
+      const date = twParseDate(r[field]);
+      if (!date) return;
+      out.push({
+        date, type, name,
+        details: type === "lost"
+          ? [clean(r["Loss Reason"]), clean(r["Notes"])].filter(Boolean).join(" — ")
+          : clean(r["Notes"]),
+        amount: twAmount(r["Amount ($)"]),
+        advisor: clean(r["Advisor"]),
+        source: [clean(r["Source"]), clean(r["Referral Source"]) ? `via ${clean(r["Referral Source"])}` : ""].filter(Boolean).join(" · "),
+      });
+    });
+  });
+  (calendarRecords || []).forEach(r => {
+    // A visit counts as a tour only once its meeting is logged (Tour Date,
+    // from HubSpot's "contacts with meetings" report) — same rule as the sheet.
+    if (!r.name || !r.tourDate || r.stage === "Canceled") return;
+    const sameDay = r.arrival && r.departure ? calSameDay(r.arrival, r.departure) : true;
+    const d = r.tourDate;
+    out.push({
+      date: new Date(d.getFullYear(), d.getMonth(), d.getDate()),
+      type: "tour", name: r.name,
+      details: `${sameDay || !r.arrival ? "Day visit" : `On property ${calFmt(r.arrival)} – ${calFmt(r.departure)}`} · ${r.stage}`,
+      amount: 0,
+      advisor: r.coveredBy || r.owner || "",
+      source: [r.source, r.referral ? `via ${r.referral}` : null].filter(Boolean).join(" · "),
+    });
+  });
+  return out.map((e, i) => ({ ...e, i }));
+}
+
+const TW_DEAL_STATS = [
+  { key: "potp", label: "New Pending OTPs", title: "New Pending OTPs This Week" },
+  { key: "sotp", label: "New Signed OTPs",  title: "New Signed OTPs This Week" },
+  { key: "psa",  label: "New Signed Deals", sub: "PSAs", title: "New Signed Deals (PSAs) This Week" },
+];
+const TW_ACTIVITY_STATS = [
+  { key: "lead", label: "New Leads",      title: "New Leads This Week" },
+  { key: "tour", label: "Tours & Visits", title: "Tours & Visits This Week" },
+  { key: "hold", label: "New Holds",      title: "New Holds This Week" },
+  { key: "lost", label: "Lost Deals",     title: "Lost Deals This Week", money: true, danger: true },
+];
+
+const twDayFmt = d => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+function twRangeLabel(start, end) {
+  return start.getMonth() === end.getMonth()
+    ? `${twDayFmt(start)} – ${end.getDate()}, ${end.getFullYear()}`
+    : `${twDayFmt(start)} – ${twDayFmt(end)}, ${end.getFullYear()}`;
+}
+
+// One number: label, count, "+N today", and ($) total for deals / lost.
+// No box around it — just the figures, clickable to open the list.
+const TWStat = ({ stat, items, today, big, onOpen }) => {
+  const [hover, setHover] = useState(false);
+  const todayN = items.filter(e => calSameDay(e.date, today)).length;
+  const total = items.reduce((s, e) => s + e.amount, 0);
+  const showMoney = big || stat.money;
+  return (
+    <div
+      role="button" tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      style={{ cursor: "pointer", padding: "16px 12px 18px 0", outline: "none", minWidth: 0 }}
+    >
+      <div style={{ fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.62)", lineHeight: 1.3, fontFamily: FONT_BODY }}>
+        {stat.label}{stat.sub && <span style={{ fontWeight: "normal" }}> ({stat.sub})</span>}
+      </div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+        <span style={{ fontFamily: FONT_DISPLAY, fontSize: big ? 44 : 34, lineHeight: 1, color: hover ? C.slate : (stat.danger && items.length > 0 ? C.red : C.gray), transition: "color 0.15s" }}>
+          {items.length}
+        </span>
+        {todayN > 0 && (
+          <span style={{ fontSize: 11, fontWeight: "bold", color: C.green, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>+{todayN} today</span>
+        )}
+      </div>
+      {showMoney && (
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: big ? 19 : 16, fontWeight: "bold", marginTop: 4, color: stat.danger ? C.red : (total > 0 ? C.green : "rgba(54,67,74,0.35)") }}>
+          {money(total)}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// A single logged update inside the pop-up list.
+const TWEntryRow = ({ e }) => {
+  const isDeal = ["potp", "sotp", "psa", "lost"].includes(e.type);
+  const { property, buyer } = isDeal ? splitDealName(e.name) : { property: e.name, buyer: null };
+  const color = e.type === "lost" ? C.red : e.type === "hold" ? C.amber : C.teal;
+  return (
+    <div style={ROW_STYLE}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+        <div style={{ minWidth: 0 }}>
+          <Eyebrow color={color}>{property}</Eyebrow>
+          {buyer && <Subhead>{buyer}</Subhead>}
+        </div>
+        {e.amount > 0 && <span style={{ fontFamily: FONT_DISPLAY, fontSize: 19, color: C.gray, whiteSpace: "nowrap" }}>{money(e.amount)}</span>}
+      </div>
+      {(e.advisor || e.source) && <RowMeta>{[e.advisor, e.source].filter(Boolean).join(" · ")}</RowMeta>}
+      {e.details && <RowNotes preLine>{e.details}</RowNotes>}
+    </div>
+  );
+};
+
+const ThisWeekView = ({ entries, now }) => {
+  const [openKey, setOpenKey] = useState(null);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const start = twWeekStart(today);
+  const end = new Date(start); end.setDate(end.getDate() + 6);
+  const dayNum = ((today.getDay() + 6) % 7) + 1; // Mon = 1 … Sun = 7
+
+  const week = entries.filter(e => e.date >= start && e.date <= end && e.date <= today);
+  const ofType = key => week.filter(e => e.type === key);
+  const allStats = [...TW_DEAL_STATS, ...TW_ACTIVITY_STATS];
+  const open = allStats.find(s => s.key === openKey);
+
+  const sectionLabel = { fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", marginTop: 14, fontFamily: FONT_BODY };
+
+  // Pop-up list, newest day first.
+  const renderList = () => {
+    const items = ofType(open.key);
+    const total = items.reduce((s, e) => s + e.amount, 0);
+    const days = Array.from({ length: dayNum }, (_, i) => {
+      const d = new Date(start); d.setDate(d.getDate() + i); return d;
+    }).reverse();
+    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+    return (
+      <Modal
+        title={open.title}
+        subtitle={`${twRangeLabel(start, end)} · ${items.length} so far${total > 0 ? ` · ${money(total)}` : ""}`}
+        onClose={() => setOpenKey(null)}
+      >
+        {items.length === 0 ? (
+          <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>None yet this week.</div>
+        ) : days.map(d => {
+          const dayItems = items.filter(e => calSameDay(e.date, d));
+          if (!dayItems.length) return null;
+          const weekday = d.toLocaleDateString("en-US", { weekday: "long" });
+          const label = calSameDay(d, today) ? `Today · ${weekday}, ${twDayFmt(d)}`
+            : calSameDay(d, yesterday) ? `Yesterday · ${weekday}, ${twDayFmt(d)}`
+            : `${weekday}, ${twDayFmt(d)}`;
+          return (
+            <div key={d.toISOString()} style={{ marginBottom: 6 }}>
+              <div style={{ fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", marginTop: 14, fontFamily: FONT_BODY }}>
+                {label}
+              </div>
+              {dayItems.map(e => <TWEntryRow key={e.i} e={e} />)}
+            </div>
+          );
+        })}
+      </Modal>
+    );
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, fontFamily: FONT_BODY }}>
+            This Week · Builds up Monday to Sunday
+          </div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontStyle: "italic", fontSize: 24, color: C.gray, marginTop: 4 }}>{twRangeLabel(start, end)}</div>
+        </div>
+        <div style={{ fontSize: 12, color: "rgba(54,67,74,0.64)", fontFamily: FONT_BODY }}>
+          Day {dayNum} of 7 · {week.length} update{week.length === 1 ? "" : "s"} so far
+        </div>
+      </div>
+      <div style={{ height: 4, background: "rgba(54,67,74,0.08)", borderRadius: 2, overflow: "hidden", marginBottom: 8 }}>
+        <div style={{ height: "100%", width: `${(dayNum / 7) * 100}%`, background: C.teal, borderRadius: 2, transition: "width 0.5s ease" }} />
+      </div>
+
+      <div style={sectionLabel}>Deals This Week</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 16, borderBottom: "1px solid rgba(54,67,74,0.12)" }}>
+        {TW_DEAL_STATS.map(s => (
+          <TWStat key={s.key} stat={s} items={ofType(s.key)} today={today} big onOpen={() => setOpenKey(s.key)} />
+        ))}
+      </div>
+
+      <div style={{ ...sectionLabel, marginTop: 18 }}>Activity This Week</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 16 }}>
+        {TW_ACTIVITY_STATS.map(s => (
+          <TWStat key={s.key} stat={s} items={ofType(s.key)} today={today} onOpen={() => setOpenKey(s.key)} />
+        ))}
+      </div>
+
+      {entries.length === 0 && (
+        <div style={{ fontSize: 12, color: "rgba(54,67,74,0.55)", marginTop: 14, fontStyle: "italic", fontFamily: FONT_BODY }}>
+          Nothing in the masters yet — add rows to Master_Leads / Master_Deals and they'll show up here.
+        </div>
+      )}
+
+      {open && renderList()}
+    </div>
+  );
+};
+
 // ── Main ──────────────────────────────────────────────────────────────
 export default function NaukaDashboard() {
   const [view, setView]               = useState("weekly");
@@ -1063,11 +1339,19 @@ export default function NaukaDashboard() {
   const [error, setError]         = useState(null);
   const [lastUpdated, setLastUpdated] = useState("");
   const [openModal, setOpenModal] = useState(null);
+  const [masterLeads, setMasterLeads] = useState([]);
+  const [masterDeals, setMasterDeals] = useState([]);
+  const [now, setNow]             = useState(() => new Date());
+  const lastLoadRef               = useRef(0);
 
-  useEffect(() => {
-    async function load() {
+  // Loads every tab. Runs on open, then again every 15 minutes and whenever
+  // the page comes back into view, so the This Week section picks up each
+  // day's new master rows without a manual reload. Background refreshes
+  // keep the current data on screen if a request fails.
+  const load = useCallback(async (silent = false) => {
+      lastLoadRef.current = Date.now();
       try {
-        const [k, p, d, t, l, a, ld, sotp, notp, sp, ytd, resale, fa, fy, cal, bp, hs] = await Promise.all([
+        const [k, p, d, t, l, a, ld, sotp, notp, sp, ytd, resale, fa, fy, cal, bp, hs, mLeads, mDeals] = await Promise.all([
           fetchSheet("Weekly_KPIs"),
           fetchSheet("Pipeline"),
           fetchSheet("Pending Transactions"),
@@ -1085,7 +1369,13 @@ export default function NaukaDashboard() {
           fetchSheet("Prospect_Calendar"),
           fetchRawSheet("Built Product"),
           fetchRawSheet("Homesites"),
+          fetchSheet("Master_Leads"),
+          fetchSheet("Master_Deals"),
         ]);
+        // fetchSheet returns [] on a network error, so a background refresh
+        // that came back with nothing in the core tabs is treated as a failed
+        // attempt — keep what's already on screen and try again next time.
+        if (silent && k.length === 0 && p.length === 0) return;
         setKpis(k); setPipeline(p); setDeals(d); setTours(t);
         setLeads(l); setArrivals(a); setLostDeals(ld);
         setSignedOTPs(sotp); setPendingOTPs(notp); setSignedPSAs(sp); setYtdPSAs(ytd);
@@ -1094,14 +1384,24 @@ export default function NaukaDashboard() {
         setCalendarRows(cal);
         setBuiltProduct(parseBuiltProduct(bp));
         setHomesites(parseHomesites(hs));
+        setMasterLeads(mLeads); setMasterDeals(mDeals);
+        setNow(new Date());
         const yrs = [...new Set(fy.map(r => r["Year"]).filter(Boolean))].sort((a, b) => b - a);
-        if (yrs.length) setSelectedYear(yrs[0]);
+        if (yrs.length) setSelectedYear(prev => prev ?? yrs[0]);
         setLastUpdated(new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }));
-      } catch { setError("Could not load data."); }
+      } catch { if (!silent) setError("Could not load data."); }
       finally { setLoading(false); }
-    }
-    load();
   }, []);
+
+  useEffect(() => {
+    load(false);
+    const timer = setInterval(() => load(true), REFRESH_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && Date.now() - lastLoadRef.current > REFRESH_ON_FOCUS_MIN_MS) load(true);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, [load]);
 
   const latest = kpis[0] ?? {};
   const pipe = stage => pipeline.find(r => r["Stage"] === stage) ?? {};
@@ -1129,7 +1429,9 @@ export default function NaukaDashboard() {
   // treated as one: no card, no inclusion in counts/totals/day averages.
   const isSummaryRow = d => !d["Deal Name"] || /^(AVERAGE|TOTAL)\b/i.test(String(d["Deal Name"]).trim());
   const salesTeamPrimaryDeals = ytdPSAs.filter(
-    d => !isSummaryRow(d) && !SALES_TEAM_GOAL_EXCLUSIONS.includes(d["Deal Name"])
+    d => !isSummaryRow(d)
+      && !SALES_TEAM_GOAL_EXCLUSIONS.includes(d["Deal Name"])
+      && String(d["Related Party"] ?? "").trim().toLowerCase() !== "yes"
   );
   const salesTeamResaleDeals = resalePSAs.filter(d => !isSummaryRow(d));
   const salesTeamDeals = [...salesTeamPrimaryDeals, ...salesTeamResaleDeals];
@@ -1284,6 +1586,7 @@ export default function NaukaDashboard() {
 
       {/* Main tabs */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: "1rem" }}>
+        <button style={mainTabStyle(view === "thisweek")} onClick={() => setView("thisweek")}>This Week</button>
         <button style={mainTabStyle(view === "weekly")} onClick={() => setView("weekly")}>Weekly Snapshot</button>
         <button style={mainTabStyle(view === "calendar")} onClick={() => setView("calendar")}>Prospect Calendar</button>
         <button style={mainTabStyle(view === "active")} onClick={() => setView("active")}>Active Transactions</button>
@@ -1528,6 +1831,18 @@ export default function NaukaDashboard() {
           </div>
         );
       })()}
+
+      {/* ── THIS WEEK (from the masters, grows Monday → Sunday) ─────── */}
+      {view === "thisweek" && (
+        <ThisWeekView
+          entries={buildWeekEntries(
+            masterLeads,
+            masterDeals,
+            calendarRows.length ? parseCalendarSheet(calendarRows) : FALLBACK_CALENDAR_RECORDS,
+          )}
+          now={now}
+        />
+      )}
 
       {/* ── PROSPECT CALENDAR ───────────────────────────────────────── */}
       {view === "calendar" && (

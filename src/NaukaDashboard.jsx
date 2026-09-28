@@ -1961,37 +1961,55 @@ export default function NaukaDashboard() {
       })()}
 
       {/* ── ACTIVE TRANSACTIONS ───────────────────────────────────── */}
-      {view === "active" && (
-        <div>
-          <div style={{ fontSize: 11, letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, marginBottom: 6, fontFamily: FONT_BODY }}>Pipeline In Motion</div>
-          <div style={{ fontSize: 13, color: "rgba(54,67,74,0.55)", lineHeight: 1.55, marginBottom: 20, fontFamily: FONT_BODY }}>Deals currently advancing through the sales pipeline, by stage.</div>
-
-          {activeChips.map(chip => {
-            const info = pipe(chip.key);
-            const count = chip.isGoal ? salesTeamDeals.length : (info["Count"] || "0");
-            const value = chip.isGoal ? salesTeamTotal : info["Value ($)"];
-            return (
-              <div key={chip.key} onClick={chip.clickable ? () => setOpenModal({ type: "active", key: chip.key }) : undefined}
-                style={{ cursor: chip.clickable ? "pointer" : "default", opacity: chip.clickable ? 1 : 0.6, background: C.white, border: "0.5px solid rgba(54,67,74,0.08)", borderRadius: 8, padding: "18px 22px", marginBottom: 12, display: "flex", alignItems: "center", gap: 18 }}>
-                <div style={{ minWidth: 42 }}>
-                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 34, color: C.gray }}>{count}</div>
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{chip.label}</div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 4 }}>
-                    <div style={{ fontSize: 12, color: "rgba(54,67,74,0.64)", fontFamily: FONT_BODY }}>{money(value)}</div>
-                    {chip.isGoal && (
-                      <div style={{ fontSize: 11, fontWeight: "bold", color: C.teal, fontFamily: FONT_BODY }}>
-                        {salesTeamPct.toFixed(1)}% of $270M goal
-                      </div>
-                    )}
+      {/* Same one-column, phone-first rows as Last Week / This Week: count
+          on the right with its $ value under it; zeros dimmed; Expired Due
+          Diligence turns red when anything has expired. */}
+      {view === "active" && (() => {
+        const sectionHead = (text, first) => (
+          <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", padding: first ? "0 0 10px" : "26px 0 10px", borderBottom: `1.5px solid ${C.gray}`, fontFamily: FONT_BODY }}>{text}</div>
+        );
+        const row = (chip, first) => {
+          const info  = pipe(chip.key);
+          const count = chip.isGoal ? salesTeamDeals.length : num(info["Count"]);
+          const value = chip.isGoal ? salesTeamTotal : parseFloat(String(info["Value ($)"] ?? "").replace(/[$,]/g, "")) || 0;
+          const zero  = count === 0;
+          const alert = chip.key === "Expired DD" && !zero;
+          const open  = chip.clickable ? () => setOpenModal({ type: "active", key: chip.key }) : undefined;
+          return (
+            <div key={chip.key} onClick={open}
+              style={{ cursor: open ? "pointer" : "default", display: "flex", alignItems: "center", gap: 14, padding: zero ? "12px 0" : "16px 0", borderTop: first ? "none" : "1px solid rgba(54,67,74,0.12)" }}>
+              <div style={{ flex: 1, minWidth: 0, opacity: zero ? 0.5 : 1 }}>
+                <div style={{ fontSize: 15, fontWeight: "bold", color: alert ? C.red : C.gray, fontFamily: FONT_BODY }}>{chip.label}</div>
+                {chip.isGoal && (
+                  <div style={{ marginTop: 8, maxWidth: 260 }}>
+                    <div style={{ height: 4, background: "rgba(54,67,74,0.1)", borderRadius: 2, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${Math.min(salesTeamPct, 100)}%`, background: C.teal, borderRadius: 2 }} />
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: "bold", color: C.teal, marginTop: 5, fontFamily: FONT_BODY }}>
+                      {salesTeamPct.toFixed(1)}% of $270M goal
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
-            );
-          })}
-        </div>
-      )}
+              <div style={{ textAlign: "right", opacity: zero ? 0.45 : (chip.clickable ? 1 : 0.7) }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontSize: zero ? 28 : 40, lineHeight: 1, color: alert ? C.red : C.gray }}>{count}</div>
+                {value > 0 && <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: "bold", color: alert ? C.red : C.teal, marginTop: 2 }}>{money(value)}</div>}
+              </div>
+              <span style={{ fontSize: 22, color: open ? "rgba(54,67,74,0.3)" : "transparent", lineHeight: 1, marginLeft: -4 }}>›</span>
+            </div>
+          );
+        };
+        const motion = activeChips.slice(0, 3);
+        const sales  = activeChips.slice(3);
+        return (
+          <div>
+            {sectionHead("Pipeline in motion", true)}
+            {motion.map((c, i) => row(c, i === 0))}
+            {sectionHead("Sales", false)}
+            {sales.map((c, i) => row(c, i === 0))}
+          </div>
+        );
+      })()}
 
       {/* ── INVENTORIES ───────────────────────────────────────────── */}
       {view === "inventories" && (() => {

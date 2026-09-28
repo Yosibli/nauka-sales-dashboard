@@ -1407,11 +1407,244 @@ const MainNav = ({ view, onGo, todayCount }) => {
   );
 };
 
+// ══════════════════════════════════════════════════════════════════════
+// ── FUNNEL (Leads → Toured → Signed PSA) ────────────────────────────
+// Reads five sheet tabs built from the HubSpot "NKN Conversions by
+// Source, Advisor and Year" workbook: Funnel_AllTime / Funnel_ByYear
+// (by Source), Funnel_Advisor_AllTime / Funnel_Advisor_ByYear (by
+// Advisor, credited to the owner of the deal signed) and
+// Funnel_LeadStatus (present-day status snapshot). Every table has a
+// "TOTAL" row.
+// ══════════════════════════════════════════════════════════════════════
+
+// Lead → PSA runs in single digits for most groups, so it gets its own
+// colour bands instead of the 40% / 15% ones used for stage-to-stage rates.
+const rateColorLP = v => {
+  const n = parseFloat(String(v).replace("%", ""));
+  if (isNaN(n) || v === "—") return { color: "rgba(54,67,74,0.35)" };
+  if (n >= 10) return { color: C.green, fontWeight: "bold" };
+  if (n >= 3) return { color: C.amber, fontWeight: "bold" };
+  return { color: C.red, fontWeight: "bold" };
+};
+const funnelNum = v => { const n = parseInt(String(v ?? "").replace(/,/g, ""), 10); return isNaN(n) ? 0 : n; };
+const funnelFmt = v => funnelNum(v).toLocaleString("en-US");
+
+const LEAD_STATUS_COLOR = {
+  "Working now": C.green,
+  "Nurturing / timing": C.teal,
+  "Dormant — no response": C.amber,
+  "Closed won": C.slate,
+  "Disqualified / opted out": C.red,
+  "No status set": "rgba(54,67,74,0.3)",
+};
+
+const SectionLabel = ({ children, style }) => (
+  <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, margin: "24px 0 10px", fontFamily: FONT_BODY, ...style }}>{children}</div>
+);
+
+const FunnelView = ({ allTime, byYear, advAllTime, advByYear, leadStatus, tabStyle, tab, setTab, dim, setDim, year, setYear }) => {
+  const years = [...new Set(byYear.map(r => r["Year"]).filter(Boolean))].sort((a, b) => b - a);
+  const selectedYear = year ?? years[0] ?? null;
+  const isAllTime = tab === "alltime";
+
+  const table = dim === "Source"
+    ? (isAllTime ? allTime : byYear)
+    : (isAllTime ? advAllTime : advByYear);
+  const scoped = isAllTime ? table : table.filter(r => String(r["Year"]) === String(selectedYear));
+  const totalRow = scoped.find(r => r[dim] === "TOTAL") ?? {};
+  const rows = scoped
+    .filter(r => r[dim] && r[dim] !== "TOTAL")
+    .sort((a, b) => funnelNum(b["PSAs"]) - funnelNum(a["PSAs"]) || funnelNum(b["Leads"]) - funnelNum(a["Leads"]));
+
+  const L = funnelNum(totalRow["Leads"]), T = funnelNum(totalRow["Toured"]), P = funnelNum(totalRow["PSAs"]);
+  const maxV = Math.max(L, T, P, 1);
+  const stages = [
+    { label: "Total Leads",  value: L },
+    { label: "Toured Leads", value: T },
+    { label: "Signed PSA",   value: P },
+  ];
+  const rates = [
+    { label: "Lead → Tour", pct: totalRow["L→T%"] || "—", color: rateColor },
+    { label: "Tour → PSA",  pct: totalRow["T→P%"] || "—", color: rateColor },
+    { label: "Lead → PSA",  pct: totalRow["L→P%"] || "—", color: rateColorLP },
+  ];
+  const hasData = L + T + P > 0;
+
+  // Year-group comparison strip (All-Time only) — the TOTAL row of each year.
+  const cohorts = years.map(y => ({ year: y, ...(byYear.find(r => String(r["Year"]) === String(y) && r["Source"] === "TOTAL") ?? {}) }));
+  const statusRows = leadStatus.filter(r => r["Group"] && r["Group"] !== "TOTAL");
+  const statusTotal = statusRows.reduce((s, r) => s + funnelNum(r["Leads"]), 0);
+
+  const card = { background: C.white, borderRadius: 8, border: "0.5px solid rgba(54,67,74,0.12)", overflow: "hidden" };
+  const headCell = { padding: "10px 14px", background: "rgba(54,67,74,0.04)", fontSize: 9, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY };
+  const grid = "minmax(0,1.6fr) repeat(3, minmax(0,0.7fr)) repeat(2, minmax(0,0.8fr))";
+  const gap = { columnGap: 10 };
+
+  return (
+    <div>
+      {/* Section toggle: All-Time vs By Year */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+        <button style={tabStyle(isAllTime)} onClick={() => setTab("alltime")}>All-Time Analysis</button>
+        <button style={tabStyle(!isAllTime)} onClick={() => setTab("byyear")}>By Year</button>
+      </div>
+
+      {/* Methodology note */}
+      <div style={{ fontSize: 11, lineHeight: 1.6, color: "rgba(54,67,74,0.65)", background: "rgba(136,209,209,0.18)", border: "0.5px solid rgba(54,67,74,0.1)", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontFamily: FONT_BODY }}>
+        <strong style={{ color: C.gray }}>Methodology:</strong> Each lead is assigned to the year it was created in HubSpot and stays in that group for its entire journey — a lead created in 2022 that signs a PSA in 2025 still counts toward 2022.
+      </div>
+
+      <div style={{ background: C.beige, borderRadius: 10, padding: "1rem 1.25rem", border: "0.5px solid rgba(54,67,74,0.12)" }}>
+        {/* Header + year selector (By Year only) */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
+          <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, fontFamily: FONT_BODY }}>
+            {isAllTime ? "All-Time Lead Conversion Analysis" : `Lead Conversion Analysis · ${selectedYear ?? "—"} Group`}
+          </div>
+          {!isAllTime && years.length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {years.map(y => (
+                <button key={y} style={tabStyle(String(selectedYear) === String(y))} onClick={() => setYear(y)}>{y}</button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {!hasData ? (
+          <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>No funnel data available.</div>
+        ) : (
+          <>
+            {/* Funnel bars */}
+            {stages.map((s, i) => (
+              <div key={i} style={{ marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{s.label}</span>
+                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.gray }}>{s.value.toLocaleString("en-US")}</span>
+                </div>
+                <div style={{ height: 12, borderRadius: 6, background: "rgba(54,67,74,0.07)", overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${Math.max((s.value / maxV) * 100, s.value > 0 ? 5 : 0)}%`, background: C.teal, borderRadius: 6, transition: "width 0.5s ease" }} />
+                </div>
+              </div>
+            ))}
+
+            {/* Conversion rate cards */}
+            <SectionLabel>Conversion Rates</SectionLabel>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+              {rates.map((r, i) => (
+                <div key={i} style={{ background: C.white, borderRadius: 8, padding: "14px 16px", border: "0.5px solid rgba(54,67,74,0.12)" }}>
+                  <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, ...r.color(r.pct) }}>{r.pct}</div>
+                  <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", marginTop: 6, fontFamily: FONT_BODY }}>{r.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Year-group comparison (All-Time only) */}
+            {isAllTime && cohorts.length > 0 && (
+              <>
+                <SectionLabel>By Year Group · tap a year to open it</SectionLabel>
+                <div style={card}>
+                  <div style={{ display: "grid", gridTemplateColumns: grid, ...gap, ...headCell }}>
+                    <span>Year</span>
+                    <span style={{ textAlign: "right" }}>Leads</span>
+                    <span style={{ textAlign: "right" }}>Toured</span>
+                    <span style={{ textAlign: "right" }}>PSAs</span>
+                    <span style={{ textAlign: "right" }}>L→T%</span>
+                    <span style={{ textAlign: "right" }}>L→P%</span>
+                  </div>
+                  {cohorts.map(c => (
+                    <div key={c.year} onClick={() => { setYear(c.year); setTab("byyear"); }}
+                      style={{ display: "grid", gridTemplateColumns: grid, ...gap, padding: "11px 14px", borderTop: "0.5px solid rgba(54,67,74,0.08)", fontSize: 12, color: C.gray, fontFamily: FONT_BODY, alignItems: "baseline", cursor: "pointer" }}>
+                      <span style={{ fontWeight: "bold" }}>{c.year}</span>
+                      <span style={{ textAlign: "right" }}>{funnelFmt(c["Leads"])}</span>
+                      <span style={{ textAlign: "right" }}>{funnelFmt(c["Toured"])}</span>
+                      <span style={{ textAlign: "right", fontFamily: FONT_DISPLAY, fontSize: 15 }}>{funnelFmt(c["PSAs"])}</span>
+                      <span style={{ textAlign: "right", ...rateColor(c["L→T%"] || "—") }}>{c["L→T%"] || "—"}</span>
+                      <span style={{ textAlign: "right", ...rateColorLP(c["L→P%"] || "—") }}>{c["L→P%"] || "—"}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Breakdown by Source / Advisor */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, margin: "24px 0 10px" }}>
+              <SectionLabel style={{ margin: 0 }}>By {dim}</SectionLabel>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button style={tabStyle(dim === "Source")} onClick={() => setDim("Source")}>Source</button>
+                <button style={tabStyle(dim === "Advisor")} onClick={() => setDim("Advisor")}>Advisor</button>
+              </div>
+            </div>
+            {rows.length === 0 ? (
+              <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "0.5rem 0", fontFamily: FONT_BODY }}>No rows for this view.</div>
+            ) : (
+              <div style={card}>
+                <div style={{ display: "grid", gridTemplateColumns: grid, ...gap, ...headCell }}>
+                  <span>{dim}</span>
+                  <span style={{ textAlign: "right" }}>Leads</span>
+                  <span style={{ textAlign: "right" }}>Toured</span>
+                  <span style={{ textAlign: "right" }}>PSAs</span>
+                  <span style={{ textAlign: "right" }}>L→T%</span>
+                  <span style={{ textAlign: "right" }}>L→P%</span>
+                </div>
+                {rows.map((r, i) => (
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: grid, ...gap, padding: "11px 14px", borderTop: "0.5px solid rgba(54,67,74,0.08)", fontSize: 12, color: C.gray, fontFamily: FONT_BODY, alignItems: "baseline" }}>
+                    <span style={{ fontWeight: "bold", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r[dim]}</span>
+                    <span style={{ textAlign: "right" }}>{funnelFmt(r["Leads"])}</span>
+                    <span style={{ textAlign: "right" }}>{funnelFmt(r["Toured"])}</span>
+                    <span style={{ textAlign: "right", fontFamily: FONT_DISPLAY, fontSize: 15 }}>{funnelFmt(r["PSAs"])}</span>
+                    <span style={{ textAlign: "right", ...rateColor(r["L→T%"] || "—") }}>{r["L→T%"] || "—"}</span>
+                    <span style={{ textAlign: "right", ...rateColorLP(r["L→P%"] || "—") }}>{r["L→P%"] || "—"}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {dim === "Advisor" && (
+              <div style={{ fontSize: 10.5, color: "rgba(54,67,74,0.6)", marginTop: 8, lineHeight: 1.5, fontFamily: FONT_BODY }}>
+                Signed PSAs are credited to the deal owner at the time of sale, so deactivated advisors keep what they closed.
+              </div>
+            )}
+
+            {/* Current lead status snapshot (All-Time only) */}
+            {isAllTime && statusRows.length > 0 && statusTotal > 0 && (
+              <>
+                <SectionLabel>Current Lead Status · today's snapshot</SectionLabel>
+                <div style={{ ...card, padding: "14px 16px" }}>
+                  <div style={{ display: "flex", height: 12, borderRadius: 6, overflow: "hidden", marginBottom: 14, gap: 2 }}>
+                    {statusRows.map((s, i) => (
+                      <div key={i} title={`${s["Group"]}: ${s["% of Leads"]}`} style={{ width: `${(funnelNum(s["Leads"]) / statusTotal) * 100}%`, background: LEAD_STATUS_COLOR[s["Group"]] || "rgba(54,67,74,0.3)" }} />
+                    ))}
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "10px 18px" }}>
+                    {statusRows.map((s, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 8, fontFamily: FONT_BODY }}>
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: LEAD_STATUS_COLOR[s["Group"]] || "rgba(54,67,74,0.3)", flexShrink: 0, transform: "translateY(-1px)" }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                            <span style={{ fontSize: 12, fontWeight: "bold", color: C.gray }}>{s["Group"]}</span>
+                            <span style={{ fontSize: 12, color: C.gray, whiteSpace: "nowrap" }}>
+                              <span style={{ fontFamily: FONT_DISPLAY, fontSize: 15 }}>{funnelFmt(s["Leads"])}</span>
+                              <span style={{ color: "rgba(54,67,74,0.55)" }}> · {s["% of Leads"]}</span>
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 10.5, color: "rgba(54,67,74,0.6)" }}>{s["What it means"]}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ── Main ──────────────────────────────────────────────────────────────
 export default function NaukaDashboard() {
   const [view, setView]               = useState("weekly");
-  const [conversionTab, setConversionTab] = useState("alltime"); // "alltime" | "byyear"
-  const [selectedYear, setSelectedYear]   = useState(null);
+  const [funnelTab, setFunnelTab]   = useState("alltime"); // "alltime" | "byyear"
+  const [funnelDim, setFunnelDim]   = useState("Source");  // "Source" | "Advisor"
+  const [funnelYear, setFunnelYear] = useState(null);      // null → newest year group
   const [kpis, setKpis]           = useState([]);
   const [pipeline, setPipeline]   = useState([]);
   const [deals, setDeals]         = useState([]);
@@ -1426,6 +1659,9 @@ export default function NaukaDashboard() {
   const [resalePSAs, setResalePSAs] = useState([]);
   const [funnelAllTime, setFunnelAllTime] = useState([]);
   const [funnelByYear, setFunnelByYear]   = useState([]);
+  const [funnelAdvAllTime, setFunnelAdvAllTime] = useState([]);
+  const [funnelAdvByYear, setFunnelAdvByYear]   = useState([]);
+  const [funnelLeadStatus, setFunnelLeadStatus] = useState([]);
   const [calendarRows, setCalendarRows]   = useState([]);
   const [builtProduct, setBuiltProduct]   = useState([]);
   const [homesites, setHomesites]         = useState([]);
@@ -1447,7 +1683,7 @@ export default function NaukaDashboard() {
   const load = useCallback(async (silent = false) => {
       lastLoadRef.current = Date.now();
       try {
-        const [k, p, d, t, l, a, ld, sotp, notp, sp, ytd, resale, fa, fy, cal, bp, hs, mLeads, mDeals] = await Promise.all([
+        const [k, p, d, t, l, a, ld, sotp, notp, sp, ytd, resale, fa, fy, faa, fay, fls, cal, bp, hs, mLeads, mDeals] = await Promise.all([
           fetchSheet("Weekly_KPIs"),
           fetchSheet("Pipeline"),
           fetchSheet("Pending Transactions"),
@@ -1462,6 +1698,9 @@ export default function NaukaDashboard() {
           fetchSheet("YTD_Resale_PSAs"),
           fetchSheet("Funnel_AllTime"),
           fetchSheet("Funnel_ByYear"),
+          fetchSheet("Funnel_Advisor_AllTime"),
+          fetchSheet("Funnel_Advisor_ByYear"),
+          fetchSheet("Funnel_LeadStatus"),
           fetchSheet("Prospect_Calendar"),
           fetchRawSheet("Built Product"),
           fetchRawSheet("Homesites"),
@@ -1477,13 +1716,12 @@ export default function NaukaDashboard() {
         setSignedOTPs(sotp); setPendingOTPs(notp); setSignedPSAs(sp); setYtdPSAs(ytd);
         setResalePSAs(resale);
         setFunnelAllTime(fa); setFunnelByYear(fy);
+        setFunnelAdvAllTime(faa); setFunnelAdvByYear(fay); setFunnelLeadStatus(fls);
         setCalendarRows(cal);
         setBuiltProduct(parseBuiltProduct(bp));
         setHomesites(parseHomesites(hs));
         setMasterLeads(mLeads); setMasterDeals(mDeals);
         setNow(new Date());
-        const yrs = [...new Set(fy.map(r => r["Year"]).filter(Boolean))].sort((a, b) => b - a);
-        if (yrs.length) setSelectedYear(prev => prev ?? yrs[0]);
         setLastUpdated(new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }));
       } catch { if (!silent) setError("Could not load data."); }
       finally { setLoading(false); }
@@ -1649,14 +1887,6 @@ export default function NaukaDashboard() {
     }
   };
 
-  // Funnel data — All-Time table, and By-Year table filtered to the selected year group
-  const allTimeRows     = funnelAllTime.filter(r => r["Source"] && r["Source"] !== "TOTAL");
-  const allTimeTotalRow = funnelAllTime.find(r => r["Source"] === "TOTAL") ?? {};
-  const availableYears  = [...new Set(funnelByYear.map(r => r["Year"]).filter(Boolean))].sort((a, b) => b - a);
-  const yearRowsAll     = funnelByYear.filter(r => String(r["Year"]) === String(selectedYear));
-  const yearRows        = yearRowsAll.filter(r => r["Source"] && r["Source"] !== "TOTAL");
-  const yearTotalRow    = yearRowsAll.find(r => r["Source"] === "TOTAL") ?? {};
-
   const weekEntries = buildWeekEntries(
     masterLeads,
     masterDeals,
@@ -1814,114 +2044,17 @@ export default function NaukaDashboard() {
         );
       })()}
 
-      {/* ── CONVERSIONS VIEW · ALL-TIME + BY-YEAR LEAD CONVERSION ─── */}
-      {view === "conversions" && (() => {
-        const isAllTime = conversionTab === "alltime";
-        const rows      = isAllTime ? allTimeRows : yearRows;
-        const totalRow  = isAllTime ? allTimeTotalRow : yearTotalRow;
-        const L = num(totalRow["Leads"]), T = num(totalRow["Toured"]), O = num(totalRow["OTPs"]), P = num(totalRow["PSAs"]);
-        const maxV = Math.max(L, T, O, P, 1);
-        const stages = [
-          { label: "Total Leads",  value: L },
-          { label: "Toured Leads", value: T },
-          { label: "Signed OTP",   value: O },
-          { label: "Signed PSA",   value: P },
-        ];
-        const rates = [
-          { label: "Lead → Tour", pct: totalRow["L→T%"] || "—" },
-          { label: "Tour → OTP",  pct: totalRow["T→O%"] || "—" },
-          { label: "OTP → PSA",   pct: totalRow["O→P%"] || "—" },
-        ];
-        const hasData = L + T + O + P > 0;
-
-        return (
-          <div>
-            {/* Section toggle: All-Time vs By Year */}
-            <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-              <button style={tabStyle(conversionTab === "alltime")} onClick={() => setConversionTab("alltime")}>All-Time Analysis</button>
-              <button style={tabStyle(conversionTab === "byyear")} onClick={() => setConversionTab("byyear")}>By Year</button>
-            </div>
-
-            {/* Methodology note */}
-            <div style={{ fontSize: 11, lineHeight: 1.6, color: "rgba(54,67,74,0.65)", background: "rgba(136,209,209,0.18)", border: "0.5px solid rgba(54,67,74,0.1)", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontFamily: FONT_BODY }}>
-              <strong style={{ color: C.gray }}>Methodology:</strong> Each lead is assigned to the year it was created in HubSpot and stays in that group for its entire journey — a lead created in 2022 that signs a PSA in 2025 still counts toward 2022. Leads that skip a stage (e.g. a Signed PSA with no Signed OTP) are counted at the highest stage reached. This measures long-term conversion performance, so recent year groups will show lower rates simply because they've had less time to mature.
-            </div>
-
-            <div style={{ background: C.beige, borderRadius: 10, padding: "1rem 1.25rem", border: "0.5px solid rgba(54,67,74,0.12)" }}>
-              {/* Header + year selector (By Year only) */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
-                <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, fontFamily: FONT_BODY }}>
-                  {isAllTime ? "All-Time Lead Conversion Analysis" : `Lead Conversion Analysis · ${selectedYear ?? "—"} Group`}
-                </div>
-                {!isAllTime && availableYears.length > 0 && (
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {availableYears.map(y => (
-                      <button key={y} style={tabStyle(String(selectedYear) === String(y))} onClick={() => setSelectedYear(y)}>{y}</button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {!hasData ? (
-                <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>No funnel data available.</div>
-              ) : (
-                <>
-                  {/* Funnel bars */}
-                  {stages.map((s, i) => (
-                    <div key={i} style={{ marginBottom: 16 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-                        <span style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{s.label}</span>
-                        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: C.gray }}>{s.value}</span>
-                      </div>
-                      <div style={{ height: 12, borderRadius: 6, background: "rgba(54,67,74,0.07)", overflow: "hidden" }}>
-                        <div style={{ height: "100%", width: `${Math.max((s.value / maxV) * 100, s.value > 0 ? 5 : 0)}%`, background: C.teal, borderRadius: 6, transition: "width 0.5s ease" }} />
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Conversion rate cards */}
-                  <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, margin: "24px 0 10px", fontFamily: FONT_BODY }}>Conversion Rates</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
-                    {rates.map((r, i) => (
-                      <div key={i} style={{ background: C.white, borderRadius: 8, padding: "14px 16px", border: "0.5px solid rgba(54,67,74,0.12)" }}>
-                        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, ...rateColor(r.pct) }}>{r.pct}</div>
-                        <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", marginTop: 6, fontFamily: FONT_BODY }}>{r.label}</div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* By-source breakdown */}
-                  {rows.length > 0 && (
-                    <>
-                      <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, margin: "24px 0 10px", fontFamily: FONT_BODY }}>By Source</div>
-                      <div style={{ background: C.white, borderRadius: 8, border: "0.5px solid rgba(54,67,74,0.12)", overflow: "hidden" }}>
-                        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 0.8fr 0.8fr 0.8fr 0.8fr 0.9fr", padding: "10px 14px", background: "rgba(54,67,74,0.04)", fontSize: 9, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY }}>
-                          <span>Source</span>
-                          <span style={{ textAlign: "right" }}>Leads</span>
-                          <span style={{ textAlign: "right" }}>Toured</span>
-                          <span style={{ textAlign: "right" }}>OTPs</span>
-                          <span style={{ textAlign: "right" }}>PSAs</span>
-                          <span style={{ textAlign: "right" }}>O→P%</span>
-                        </div>
-                        {rows.map((r, i) => (
-                          <div key={i} style={{ display: "grid", gridTemplateColumns: "1.5fr 0.8fr 0.8fr 0.8fr 0.8fr 0.9fr", padding: "11px 14px", borderTop: "0.5px solid rgba(54,67,74,0.08)", fontSize: 12, color: C.gray, fontFamily: FONT_BODY, alignItems: "baseline" }}>
-                            <span style={{ fontWeight: "bold" }}>{r["Source"]}</span>
-                            <span style={{ textAlign: "right" }}>{r["Leads"] || "—"}</span>
-                            <span style={{ textAlign: "right" }}>{r["Toured"] || "—"}</span>
-                            <span style={{ textAlign: "right" }}>{r["OTPs"] || "—"}</span>
-                            <span style={{ textAlign: "right", fontFamily: FONT_DISPLAY, fontSize: 15 }}>{r["PSAs"] || "—"}</span>
-                            <span style={{ textAlign: "right", ...rateColor(r["O→P%"] || "—") }}>{r["O→P%"] || "—"}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        );
-      })()}
+      {/* ── FUNNEL VIEW · LEADS → TOURED → SIGNED PSA (by Source / Advisor) ─── */}
+      {view === "conversions" && (
+        <FunnelView
+          allTime={funnelAllTime} byYear={funnelByYear}
+          advAllTime={funnelAdvAllTime} advByYear={funnelAdvByYear}
+          leadStatus={funnelLeadStatus} tabStyle={tabStyle}
+          tab={funnelTab} setTab={setFunnelTab}
+          dim={funnelDim} setDim={setFunnelDim}
+          year={funnelYear} setYear={setFunnelYear}
+        />
+      )}
 
       {/* ── THIS WEEK (from the masters, grows Monday → Sunday) ─────── */}
       {view === "thisweek" && (

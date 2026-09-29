@@ -594,7 +594,8 @@ const Modal = ({ title, subtitle, onClose, children }) => (
 // API yet, so this list is hand-updated from what advisors log).
 // ══════════════════════════════════════════════════════════════════════
 
-const CAL_TODAY = new Date("2026-09-07T00:00:00");
+// Local midnight of the day the page is opened — no weekly edit needed.
+const CAL_TODAY = (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); })();
 
 function cd(s) { return new Date(s + "T00:00:00"); }
 function calFmt(dt) { return dt.toLocaleDateString("en-US", { day: "2-digit", month: "short" }); }
@@ -915,7 +916,11 @@ const CAL_MONTHS = [
 
 const CalendarView = ({ records }) => {
   const [selected, setSelected] = useState(null);
-  const [monthIdx, setMonthIdx] = useState(0);
+  // Open on the current month when it's in the slider, otherwise the latest month.
+  const [monthIdx, setMonthIdx] = useState(() => {
+    const i = CAL_MONTHS.findIndex(m => m.year === CAL_TODAY.getFullYear() && m.month === CAL_TODAY.getMonth());
+    return i >= 0 ? i : CAL_MONTHS.length - 1;
+  });
   const { year, month, label } = CAL_MONTHS[monthIdx];
   const weeks = buildMonthGrid(year, month);
   const weekdayLabels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];

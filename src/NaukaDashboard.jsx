@@ -850,7 +850,7 @@ const CalendarRecordCard = ({ r, showIssues, advisorColors = CAL_ADVISOR_COLORS 
 
       {(r.source || r.lifecycle) && (
         <div style={{ fontSize: 12, color: "rgba(54,67,74,0.72)", marginBottom: 10, fontFamily: FONT_BODY }}>
-          {r.source || ""}{r.referral ? ` (ref: ${r.referral})` : ""}{r.lifecycle ? ` · ${r.lifecycle}` : ""}{r.leadStatus ? ` · ${r.leadStatus}` : ""}
+          {r.source ? `Source: ${r.source}` : ""}{r.referral ? ` (ref: ${r.referral})` : ""}{r.lifecycle ? ` · ${r.lifecycle}` : ""}{r.leadStatus ? ` · ${r.leadStatus}` : ""}
         </div>
       )}
 

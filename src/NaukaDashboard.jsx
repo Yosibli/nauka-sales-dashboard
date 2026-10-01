@@ -830,6 +830,44 @@ const CalStagePill = ({ stage }) => {
   );
 };
 
+// Writes a visit's details as short sentences for the calendar pop-up, in
+// this order: dates + who covers it, then lead source / lifecycle / status,
+// and the email last. Any field that's empty in the sheet is simply left out.
+function calJoinList(parts) {
+  if (parts.length <= 1) return parts.join("");
+  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+  return `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
+}
+function calNarrative(r) {
+  const sentences = [];
+  const dayVisit = calSameDay(r.arrival, r.departure);
+  const a = calFmt(r.arrival), d = calFmt(r.departure);
+  const covered = r.coveredBy ? `, covered by ${r.coveredBy}` : "";
+  if (r.stage === "Canceled") {
+    sentences.push(`${dayVisit ? `Visit planned for ${a}` : `Visit planned for ${a} to ${d}`} was cancelled${covered}.`);
+  } else if (dayVisit) {
+    sentences.push(`${r.arrival > CAL_TODAY ? "Day visit planned for" : "Day visit on"} ${a}${covered}.`);
+  } else {
+    const arr = r.arrival > CAL_TODAY ? "Arrives" : "Arrived";
+    const dep = r.departure >= CAL_TODAY ? "departs" : "departed";
+    sentences.push(`${arr} ${a} and ${dep} ${d}${covered}.`);
+  }
+  const lead = [];
+  if (r.source) lead.push(`the lead source is ${r.source}${r.referral ? ` (referred by ${r.referral})` : ""}`);
+  else if (r.referral) lead.push(`the lead was referred by ${r.referral}`);
+  if (r.lifecycle) lead.push(`the lifecycle stage is ${r.lifecycle}`);
+  if (r.leadStatus) lead.push(`the lead status is ${r.leadStatus}`);
+  if (lead.length) {
+    const t = calJoinList(lead);
+    sentences.push(`${t.charAt(0).toUpperCase()}${t.slice(1)}.`);
+  }
+  if (r.email) {
+    const e = String(r.email).trim();
+    sentences.push(/^on file$/i.test(e) ? "Email is on file." : `Email: ${e}`);
+  }
+  return sentences.join(" ");
+}
+
 const CalendarRecordCard = ({ r, showIssues, advisorColors = CAL_ADVISOR_COLORS }) => {
   const [open, setOpen] = useState(false);
   const issues = calGetIssues(r);
@@ -837,40 +875,26 @@ const CalendarRecordCard = ({ r, showIssues, advisorColors = CAL_ADVISOR_COLORS 
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10, marginBottom: 4 }}>
-        <div style={{ fontSize: 12, color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY }}>
-          Arrival: {calFmt(r.arrival)} · Departure: {calFmt(r.departure)}
-          {r.coveredBy ? ` · Covered by: ${r.coveredBy}` : ""}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <CalAdvisorChip name={advisor || CAL_UNASSIGNED_LABEL} color={calAdvisorColor(r, advisorColors)} />
-          <CalStagePill stage={r.stage} />
-        </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+        <CalAdvisorChip name={advisor || CAL_UNASSIGNED_LABEL} color={calAdvisorColor(r, advisorColors)} />
+        <CalStagePill stage={r.stage} />
       </div>
 
-      {(r.source || r.lifecycle) && (
-        <div style={{ fontSize: 12, color: "rgba(54,67,74,0.72)", marginBottom: 10, fontFamily: FONT_BODY }}>
-          {r.source ? `Source: ${r.source}` : ""}{r.referral ? ` (ref: ${r.referral})` : ""}{r.lifecycle ? ` · ${r.lifecycle}` : ""}{r.leadStatus ? ` · ${r.leadStatus}` : ""}
-        </div>
-      )}
+      {/* Visit summary written as sentences (dates → source → email). */}
+      <div style={{ fontSize: 13.5, color: C.gray, lineHeight: 1.6, marginBottom: 10, fontFamily: FONT_BODY }}>
+        {calNarrative(r)}
+      </div>
 
-      {showIssues && (
+      {/* Only real open items are listed — nothing is shown when there are none. */}
+      {showIssues && issues.length > 0 && (
         <div style={{ marginBottom: 10, display: "flex", flexDirection: "column", gap: 5 }}>
-          {issues.length === 0 ? (
-            <div style={{ display: "flex", alignItems: "center", fontSize: 13, color: C.gray, fontFamily: FONT_BODY }}>
-              <CalDot level="green" /> No open items
+          {issues.map((iss, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", fontSize: 13, color: C.gray, fontFamily: FONT_BODY }}>
+              <CalDot level={iss.level} /> {iss.label}
             </div>
-          ) : (
-            issues.map((iss, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", fontSize: 13, color: C.gray, fontFamily: FONT_BODY }}>
-                <CalDot level={iss.level} /> {iss.label}
-              </div>
-            ))
-          )}
+          ))}
         </div>
       )}
-
-      {r.email && <div style={{ fontSize: 12, color: "rgba(54,67,74,0.72)", marginBottom: 8, fontFamily: FONT_BODY }}>{r.email}</div>}
 
       {r.guests && (
         <div style={{ marginBottom: 8 }}>
@@ -948,6 +972,8 @@ const CAL_MONTHS = [
 
 const CalendarView = ({ records }) => {
   const [selected, setSelected] = useState(null);
+  // Advisor whose visit list is open (clicked in the color legend), or null.
+  const [listAdvisor, setListAdvisor] = useState(null);
   // Open on the current month when it's in the slider, otherwise the latest month.
   const [monthIdx, setMonthIdx] = useState(() => {
     const i = CAL_MONTHS.findIndex(m => m.year === CAL_TODAY.getFullYear() && m.month === CAL_TODAY.getMonth());
@@ -982,10 +1008,15 @@ const CalendarView = ({ records }) => {
       {/* Legend */}
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
         {[...legendAdvisors, CAL_UNASSIGNED_LABEL].map(a => (
-          <div key={a} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.gray, fontFamily: FONT_BODY }}>
+          <button
+            key={a}
+            onClick={() => setListAdvisor(a)}
+            title={`See all of ${a === CAL_UNASSIGNED_LABEL ? "the unassigned" : `${a}'s`} visits`}
+            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.gray, fontFamily: FONT_BODY, background: "transparent", border: "none", padding: 0, cursor: "pointer" }}
+          >
             <span style={{ width: 10, height: 10, borderRadius: 3, background: advisorColors[a] || CAL_UNASSIGNED_COLOR, display: "inline-block" }} />
-            {a}
-          </div>
+            <span style={{ borderBottom: "1px dotted rgba(54,67,74,0.45)" }}>{a}</span>
+          </button>
         ))}
         <div style={{ fontSize: 11, color: "rgba(54,67,74,0.64)", fontFamily: FONT_BODY }}>
           <span style={{ textDecoration: "line-through" }}>Name</span> = Cancelled
@@ -1090,6 +1121,52 @@ const CalendarView = ({ records }) => {
           </div>
         )}
       </div>
+
+      {/* Advisor visit list — opens from the legend, newest visit first.
+          Clicking a visit opens its card on top; closing the card returns here. */}
+      {listAdvisor && (() => {
+        const color = advisorColors[listAdvisor] || CAL_UNASSIGNED_COLOR;
+        const visits = records
+          .filter(r => (calAdvisor(r) || CAL_UNASSIGNED_LABEL) === listAdvisor)
+          .sort((x, y) => y.arrival - x.arrival || y.departure - x.departure);
+        const fmtY = dt => dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+        return (
+          <Modal
+            title={listAdvisor === CAL_UNASSIGNED_LABEL ? "Unassigned visits" : `${listAdvisor} · Visits`}
+            subtitle={`${visits.length} visit${visits.length === 1 ? "" : "s"} · newest first`}
+            onClose={() => setListAdvisor(null)}
+          >
+            {visits.length === 0 ? (
+              <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>No visits on the calendar.</div>
+            ) : visits.map((r, i) => {
+              const isCanceled = r.stage === "Canceled";
+              const dayVisit = calSameDay(r.arrival, r.departure);
+              return (
+                <div
+                  key={`${r.name}-${i}`}
+                  role="button" tabIndex={0}
+                  onClick={() => setSelected(r)}
+                  onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected(r); } }}
+                  style={{ ...ROW_STYLE, padding: "12px 0", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: "bold", letterSpacing: "0.07em", textTransform: "uppercase", color, fontFamily: FONT_BODY, textDecoration: isCanceled ? "line-through" : "none" }}>
+                      {r.name}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: "rgba(54,67,74,0.85)", marginTop: 3, fontFamily: FONT_BODY }}>
+                      {dayVisit ? `${fmtY(r.arrival)} · Day visit` : `${calFmt(r.arrival)} – ${fmtY(r.departure)}`}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                    <CalStagePill stage={r.stage} />
+                    <span style={{ fontSize: 20, color: "rgba(54,67,74,0.3)", lineHeight: 1 }}>›</span>
+                  </div>
+                </div>
+              );
+            })}
+          </Modal>
+        );
+      })()}
 
       {selected && (
         <Modal title={selected.name} onClose={() => setSelected(null)}>

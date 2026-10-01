@@ -750,30 +750,56 @@ const FALLBACK_CALENDAR_RECORDS = [
   },
 ];
 
-function calStatus(r) {
-  if (r.stage === "Canceled") return "canceled";
-  const isDayVisit = calSameDay(r.arrival, r.departure);
-  if (r.stage === "Departed from Property") return isDayVisit ? "dayvisit" : "completed";
-  if (r.stage === "Arrived On Property") {
-    if (r.arrival > CAL_TODAY) return "scheduled";
-    return isDayVisit ? "dayvisit" : "inprogress";
-  }
-  return "scheduled";
+// ── Calendar colors: one color per advisor ──────────────────────────
+// Each visit bar is colored by its advisor ("Covered By", falling back to
+// "Owner" when Covered By is blank). Status isn't color-coded — the date
+// already tells you whether a visit is past, current or upcoming — except
+// that Canceled visits keep the advisor color with the name crossed out.
+// The stage still shows in the pop-up when a visit is clicked.
+// To change an advisor's color, edit it here. A new advisor who isn't
+// listed gets the next spare color automatically.
+const CAL_ADVISOR_COLORS = {
+  "Eli Pacino":     "#2F8F8A", // deep teal
+  "Oscar Fraustro": "#4A6FA5", // slate blue
+  "Trip Morris":    "#C9803F", // warm ochre
+  "Brandon Oyler":  "#8E6FA8", // plum
+};
+const CAL_SPARE_COLORS = ["#B5566B", "#5E8C4A", "#6B6FB0", "#A0763A"];
+const CAL_UNASSIGNED_COLOR = "#8A9095";
+const CAL_UNASSIGNED_LABEL = "Unassigned";
+
+const calNormName = s => String(s || "").trim().replace(/\s+/g, " ").toLowerCase();
+const CAL_ADVISOR_LOOKUP = Object.fromEntries(
+  Object.entries(CAL_ADVISOR_COLORS).map(([name, color]) => [calNormName(name), { name, color }])
+);
+
+// Returns the advisor display name for a visit, or null if unassigned.
+function calAdvisor(r) {
+  const raw = (r.coveredBy && String(r.coveredBy).trim()) || (r.owner && String(r.owner).trim()) || "";
+  if (!raw) return null;
+  const known = CAL_ADVISOR_LOOKUP[calNormName(raw)];
+  return known ? known.name : raw.replace(/\s+/g, " ");
 }
-const CAL_STATUS_COLOR = {
-  completed: C.slate,
-  canceled: C.red,
-  scheduled: C.amber,
-  inprogress: C.green,
-  dayvisit: C.purple,
-};
-const CAL_STATUS_LABEL = {
-  completed: "Departed From Property",
-  canceled: "Cancelled",
-  scheduled: "Scheduled",
-  inprogress: "Arrived On Property",
-  dayvisit: "Day Visit",
-};
+
+// Builds { advisorName: color } for every advisor that appears in the records,
+// handing spare colors to anyone not in CAL_ADVISOR_COLORS (stable by name order).
+function calBuildAdvisorColors(records) {
+  const map = { ...CAL_ADVISOR_COLORS };
+  const extras = [...new Set(records.map(calAdvisor).filter(a => a && !map[a]))].sort();
+  extras.forEach((a, i) => { map[a] = CAL_SPARE_COLORS[i % CAL_SPARE_COLORS.length]; });
+  return map;
+}
+function calAdvisorColor(r, colorMap) {
+  const a = calAdvisor(r);
+  return a ? (colorMap[a] || CAL_UNASSIGNED_COLOR) : CAL_UNASSIGNED_COLOR;
+}
+
+const CalAdvisorChip = ({ name, color }) => (
+  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 11, fontWeight: "bold", color, border: `1px solid ${color}`, borderRadius: 999, padding: "2px 10px" }}>
+    <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, display: "inline-block" }} />
+    {name}
+  </span>
+);
 
 function calGetIssues(r) {
   const issues = [];
@@ -804,9 +830,10 @@ const CalStagePill = ({ stage }) => {
   );
 };
 
-const CalendarRecordCard = ({ r, showIssues }) => {
+const CalendarRecordCard = ({ r, showIssues, advisorColors = CAL_ADVISOR_COLORS }) => {
   const [open, setOpen] = useState(false);
   const issues = calGetIssues(r);
+  const advisor = calAdvisor(r);
 
   return (
     <div>
@@ -815,7 +842,10 @@ const CalendarRecordCard = ({ r, showIssues }) => {
           Arrival: {calFmt(r.arrival)} · Departure: {calFmt(r.departure)}
           {r.coveredBy ? ` · Covered by: ${r.coveredBy}` : ""}
         </div>
-        <CalStagePill stage={r.stage} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <CalAdvisorChip name={advisor || CAL_UNASSIGNED_LABEL} color={calAdvisorColor(r, advisorColors)} />
+          <CalStagePill stage={r.stage} />
+        </div>
       </div>
 
       {(r.source || r.lifecycle) && (
@@ -932,6 +962,12 @@ const CalendarView = ({ records }) => {
   const monthEnd = new Date(year, month + 1, 0);
   const monthHasEvents = records.some(r => r.arrival <= monthEnd && r.departure >= monthStart);
 
+  // Advisor → color for everyone on the calendar; the legend lists each advisor
+  // who has at least one visit, plus "Unassigned".
+  const advisorColors = calBuildAdvisorColors(records);
+  const advisorsInUse = new Set(records.map(calAdvisor).filter(Boolean));
+  const legendAdvisors = Object.keys(advisorColors).filter(a => advisorsInUse.has(a));
+
   const atFirst = monthIdx === 0;
   const atLast = monthIdx === CAL_MONTHS.length - 1;
   const arrowBtn = disabled => ({
@@ -944,13 +980,16 @@ const CalendarView = ({ records }) => {
   return (
     <div>
       {/* Legend */}
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 14 }}>
-        {["inprogress", "dayvisit", "completed", "canceled", "scheduled"].map(s => (
-          <div key={s} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.gray, fontFamily: FONT_BODY }}>
-            <span style={{ width: 10, height: 10, borderRadius: 3, background: CAL_STATUS_COLOR[s], display: "inline-block" }} />
-            {CAL_STATUS_LABEL[s]}
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+        {[...legendAdvisors, CAL_UNASSIGNED_LABEL].map(a => (
+          <div key={a} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.gray, fontFamily: FONT_BODY }}>
+            <span style={{ width: 10, height: 10, borderRadius: 3, background: advisorColors[a] || CAL_UNASSIGNED_COLOR, display: "inline-block" }} />
+            {a}
           </div>
         ))}
+        <div style={{ fontSize: 11, color: "rgba(54,67,74,0.64)", fontFamily: FONT_BODY }}>
+          <span style={{ textDecoration: "line-through" }}>Name</span> = Cancelled
+        </div>
       </div>
 
       {/* Fluid grid — no horizontal scroll, no fixed min-width. Columns shrink
@@ -1020,15 +1059,17 @@ const CalendarView = ({ records }) => {
 
               <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "6px 0" }}>
                 {weekEvents.map(({ r, startIdx, endIdx }) => {
-                  const status = calStatus(r);
+                  const advisor = calAdvisor(r) || CAL_UNASSIGNED_LABEL;
+                  const isCanceled = r.stage === "Canceled";
                   return (
                     <div key={r.name} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
                       <div
                         onClick={() => setSelected(r)}
-                        title={`${r.name} — ${CAL_STATUS_LABEL[status]}`}
+                        title={`${r.name} — ${advisor}${isCanceled ? " (Cancelled)" : ""}`}
                         style={{
                           gridColumn: `${startIdx + 1} / span ${endIdx - startIdx + 1}`,
-                          background: CAL_STATUS_COLOR[status], color: "#fff", fontSize: 11, fontWeight: "bold",
+                          background: calAdvisorColor(r, advisorColors), color: "#fff", fontSize: 11, fontWeight: "bold",
+                          textDecoration: isCanceled ? "line-through" : "none",
                           padding: "6px 5px", cursor: "pointer", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                           fontFamily: FONT_BODY,
                         }}
@@ -1052,7 +1093,7 @@ const CalendarView = ({ records }) => {
 
       {selected && (
         <Modal title={selected.name} onClose={() => setSelected(null)}>
-          <CalendarRecordCard r={selected} showIssues={true} />
+          <CalendarRecordCard r={selected} showIssues={true} advisorColors={advisorColors} />
         </Modal>
       )}
     </div>

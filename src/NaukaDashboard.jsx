@@ -622,7 +622,7 @@ function parseCalendarSheet(rows) {
     if (!s || !String(s).trim()) return [];
     return String(s).split("||").map(chunk => {
       const c = chunk.trim();
-      const m = c.match(/^([A-Za-z]+ \d{1,2}):\s*(.*)$/);
+      const m = c.match(/^([A-Za-z]+ \d{1,2}):\s*([\s\S]*)$/); // [\s\S] so multi-line notes keep their date label
       return m ? { date: m[1], text: m[2] } : { date: null, text: c };
     });
   };
@@ -901,7 +901,7 @@ const CalendarRecordCard = ({ r, showIssues, advisorColors = CAL_ADVISOR_COLORS 
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {r.notes.map((n, i) => (
-              <div key={i} style={{ fontSize: 13, color: C.gray, lineHeight: 1.5, fontFamily: FONT_BODY }}>
+              <div key={i} style={{ fontSize: 13, color: C.gray, lineHeight: 1.5, fontFamily: FONT_BODY, whiteSpace: "pre-line" }}>
                 {n.date && <span style={{ fontWeight: "bold", color: "rgba(54,67,74,0.55)" }}>Note added {n.date}: </span>}
                 {n.text}
               </div>
@@ -1199,6 +1199,8 @@ function buildWeekEntries(masterLeads, masterDeals, calendarRecords) {
       amount: 0,
       advisor: r.coveredBy || r.owner || "",
       source: [r.source, r.referral ? `via ${r.referral}` : null].filter(Boolean).join(" · "),
+      // Advisor notes from the Prospect_Calendar "Notes" column, shown under the visit.
+      notes: r.notes || [],
     });
   });
   return out.map((e, i) => ({ ...e, i }));
@@ -1274,6 +1276,21 @@ const TWEntryRow = ({ e }) => {
       </div>
       {(e.advisor || e.source) && <RowMeta>{[e.advisor, e.source].filter(Boolean).join(" · ")}</RowMeta>}
       {e.details && <RowNotes preLine>{e.details}</RowNotes>}
+      {e.notes && e.notes.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 10, fontWeight: "bold", color: "rgba(54,67,74,0.55)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, fontFamily: FONT_BODY }}>
+            Notes
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {e.notes.map((n, i) => (
+              <div key={i} style={{ fontSize: 12.5, color: "rgba(54,67,74,0.85)", lineHeight: 1.55, fontFamily: FONT_BODY, whiteSpace: "pre-line" }}>
+                {n.date && <span style={{ fontWeight: "bold", color: "rgba(54,67,74,0.55)" }}>{n.date}: </span>}
+                {n.text}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

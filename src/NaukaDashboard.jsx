@@ -1196,6 +1196,7 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
     if (rid) people.set(rid, {
       key: rid, rid, name, src: e.src, advisor: e.advisor, status,
       contactType: pdStr(r["Contact Type"]),
+      lifecycle: pdStr(r["Lifecycle Stage"]), // optional column in Funnel_Contacts
       hubspotTour: tourDate && tourDate <= today ? tourDate : null,
       tourDate: tourDate && tourDate <= today ? tourDate : null,
       psa: ["1", "yes", "true"].includes(pdStr(r["PSA"]).toLowerCase()) || pdStr(r["HubSpot PSA"]).toLowerCase() === "yes",
@@ -1222,6 +1223,7 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
       people.set(rid, {
         ...p, src: e.src || p.src, advisor: e.advisor || p.advisor,
         status: pdStr(r["Lead Status"]) || p.status || "",
+        lifecycle: pdStr(r["Lifecycle Stage"]) || p.lifecycle || "",
         lossReason: pdStr(r["Loss Reason"]) || p.lossReason,
         lostDate: twParseDate(r["Lost Date"]) || p.lostDate,
       });
@@ -1242,7 +1244,7 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
     // Lost Date / Loss Reason / Lead Status typed on the calendar row win over the baseline.
     if (!isConnector && (rid ? people.has(rid) : false)) {
       const p = people.get(rid);
-      people.set(rid, { ...p, status: pdStr(r.leadStatus) || p.status, lostDate: r.lostDate || p.lostDate, lossReason: pdStr(r.lossReason) || p.lossReason });
+      people.set(rid, { ...p, status: pdStr(r.leadStatus) || p.status, lifecycle: pdStr(r.lifecycle) || p.lifecycle, lostDate: r.lostDate || p.lostDate, lossReason: pdStr(r.lossReason) || p.lossReason });
     }
     if (!r.tourDate || r.stage === "Canceled") return;
     const d = pdDay(r.tourDate);
@@ -1263,6 +1265,7 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
       ...p,
       src: p.src || pdStr(r.source), advisor: r.coveredBy || r.owner || p.advisor,
       status: pdStr(r.leadStatus) || p.status,
+      lifecycle: pdStr(r.lifecycle) || p.lifecycle || "",
       tourDate: !p.tourDate || d > p.tourDate ? d : p.tourDate,
       lostDate: r.lostDate || p.lostDate, lossReason: pdStr(r.lossReason) || p.lossReason,
       notes: r.notes || [],
@@ -1897,6 +1900,7 @@ const ProspectStages = ({ model }) => {
   })();
   const maxReason = Math.max(...reasons.map(r => r[1]), 1);
   const tourInfo = p => `Visited ${twDayFmt(p.tourDate)}${p.tourDate.getFullYear() !== today.getFullYear() ? `, ${p.tourDate.getFullYear()}` : ""} · ${daysOpen(p)} day${daysOpen(p) === 1 ? "" : "s"}`;
+  const stageAndStatus = p => [p.lifecycle, p.status || "No lead status"].filter(Boolean).join(" · ");
   const agingMax = Math.max(aging.active || 0, aging.older || 0, aging.buyersAvg || 0, 1);
   const agingLine = (label, hint, days, color) => days != null && (
     <div style={{ padding: "5px 0" }}>
@@ -1925,14 +1929,14 @@ const ProspectStages = ({ model }) => {
   );
 
   const lists = {
-    visits: { title: "Visit Scheduled", sub: `${visits.length} upcoming`, empty: "No visits scheduled.",
+    visits: { title: "Upcoming Prospect Visits", sub: `${visits.length} upcoming`, empty: "No visits scheduled.",
       items: visits, render: (v, i) => <ProspectRow key={i} p={{ name: v.name, advisor: v.coveredBy || v.owner, src: v.source }} right={calSameDay(v.arrival, v.departure) ? twDayFmt(v.arrival) : pdShortRange(v.arrival, v.departure)} /> },
     active: { title: "Toured Prospects", sub: `Toured since ${twDayFmt(win.start)} · no deal yet · not Lost`, empty: "No open toured prospects from the last 60 days.",
-      items: prospects.active, render: (p, i) => <ProspectRow key={i} p={p} right={tourInfo(p)} sub={p.status || "No lead status"} /> },
+      items: prospects.active, render: (p, i) => <ProspectRow key={i} p={p} right={tourInfo(p)} sub={stageAndStatus(p)} /> },
     older: { title: "Older Toured Prospects Still Open", sub: `Toured before ${twDayFmt(win.start)} · no deal, not marked Lost`, empty: "None.",
-      items: prospects.older, render: (p, i) => <ProspectRow key={i} p={p} right={tourInfo(p)} sub={p.status || "No lead status"} /> },
+      items: prospects.older, render: (p, i) => <ProspectRow key={i} p={p} right={tourInfo(p)} sub={stageAndStatus(p)} /> },
     lost: { title: "Lost After the Tour", sub: `${twRangeLabel(win.start, win.end)}`, empty: "No toured prospects were marked Lost in the last 60 days.",
-      items: prospects.lost, render: (p, i) => <ProspectRow key={i} p={p} right={tourInfo(p)} sub={`${p.lossReason || "No reason recorded"} · Lead status: ${p.status || "—"}`} /> },
+      items: prospects.lost, render: (p, i) => <ProspectRow key={i} p={p} right={tourInfo(p)} sub={`${p.lossReason || "No reason recorded"} · ${stageAndStatus(p)}`} /> },
     toDeal: { title: "Moved to Pending OTP", sub: `Inventory assigned · ${twRangeLabel(win.start, win.end)}`, empty: "No inventory was assigned in the last 60 days.",
       items: prospects.toDeal, render: e => <TWEntryRow key={e.i} e={e} showDate /> },
   };
@@ -1940,8 +1944,8 @@ const ProspectStages = ({ model }) => {
 
   return (
     <div style={{ marginBottom: 26 }}>
-      <PdSectionHead text="Prospect pipeline" right="(Pre-transactions, no deal amount)" first />
-      {stageRow("visits", "Visit Scheduled", "Booked in the prospect calendar, not yet arrived", visits.length, true)}
+      <PdSectionHead text="Prospect pipeline" first />
+      {stageRow("visits", "Upcoming Prospect Visits", "Booked in the prospect calendar, not yet arrived", visits.length, true)}
       {stageRow("active", "Toured Prospects", `Toured in the last 60 days, no deal yet, not Lost`, prospects.active.length, false)}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 10, marginTop: 6 }}>

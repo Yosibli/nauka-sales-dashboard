@@ -1417,6 +1417,35 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
     // Moved to Pending OTP: inventory assigned (deal created) in the window.
     toDeal: list("hold", win.start, today).sort((a, b) => b.date - a.date),
   };
+  // Days since the prospect visit, for the ones that have not moved to Pending OTP.
+  const daysOpen = p => pdDiff(p.tourDate, today);
+  const avgOf = arr => arr.length ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : null;
+  const medianOf = arr => {
+    if (!arr.length) return null;
+    const s = [...arr].sort((a, b) => a - b), m = Math.floor(s.length / 2);
+    return Math.round(s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2);
+  };
+  // Benchmark from past buyers: days from their first prospect visit to the day
+  // inventory was assigned (deal Create Date). Only deals whose buyer has a visit
+  // date on or before the deal date can be measured; one per buyer and deal date.
+  const visitToDeal = [];
+  const seenDeal = new Set();
+  (masterDeals || []).forEach(r => {
+    const rid = pdId(r["Buyer HubSpot Record ID"]);
+    const created = twParseDate(r["Create Date"]);
+    const first = rid ? firstTour.get(rid) : null;
+    if (!created || !first || first > created) return;
+    const k = `${rid}|${created.getTime()}`;
+    if (seenDeal.has(k)) return;
+    seenDeal.add(k);
+    visitToDeal.push(pdDiff(first, created));
+  });
+  const aging = {
+    active: avgOf(prospects.active.map(daysOpen)),
+    older: avgOf(prospects.older.map(daysOpen)),
+    buyersAvg: avgOf(visitToDeal), buyersMedian: medianOf(visitToDeal), buyersN: visitToDeal.length,
+  };
+
   const visits = (calRecords || [])
     .filter(r => r.name && r.stage === "Scheduled" && r.arrival && r.arrival >= today && pdStr(r.contactType).toLowerCase() !== "connector")
     .sort((a, b) => a.arrival - b.arrival);
@@ -1425,7 +1454,7 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
     .filter(d => d.name && d.date && ["Pending OTP", "Signed OTP", "Decision"].includes(d.stage) && d.date >= today && d.date <= mEnd)
     .sort((a, b) => a.date - b.date);
 
-  return { today, entries, list, count, amount, hasDailyData, win, prev, weeks, month, mastersFrom, leadTourRate, prospects, visits, ddThisMonth };
+  return { today, entries, list, count, amount, hasDailyData, win, prev, weeks, month, mastersFrom, leadTourRate, prospects, visits, ddThisMonth, aging, daysOpen };
 }
 
 const PD_DEAL_STATS = [
@@ -1857,7 +1886,7 @@ const ThisMonthView = ({ model }) => {
 // (inventory assigned, deal amount starts) or Lost (with a reason).
 const ProspectStages = ({ model }) => {
   const [openKey, setOpenKey] = useState(null);
-  const { prospects, visits, win, today } = model;
+  const { prospects, visits, win, today, aging, daysOpen } = model;
   const reasons = (() => {
     const acc = new Map();
     prospects.lost.forEach(p => {
@@ -1867,7 +1896,17 @@ const ProspectStages = ({ model }) => {
     return [...acc.entries()].sort((a, b) => b[1] - a[1]);
   })();
   const maxReason = Math.max(...reasons.map(r => r[1]), 1);
-  const tourInfo = p => `Toured ${twDayFmt(p.tourDate)}${p.tourDate.getFullYear() !== today.getFullYear() ? `, ${p.tourDate.getFullYear()}` : ""}`;
+  const tourInfo = p => `Visited ${twDayFmt(p.tourDate)}${p.tourDate.getFullYear() !== today.getFullYear() ? `, ${p.tourDate.getFullYear()}` : ""} · ${daysOpen(p)} day${daysOpen(p) === 1 ? "" : "s"}`;
+  const agingMax = Math.max(aging.active || 0, aging.older || 0, aging.buyersAvg || 0, 1);
+  const agingLine = (label, hint, days, color) => days != null && (
+    <div style={{ padding: "5px 0" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, fontFamily: FONT_BODY }}>
+        <span style={{ fontSize: 13, color: C.gray }}>{label} <span style={{ fontSize: 12, color: PD_MUTED }}>{hint}</span></span>
+        <span style={{ fontSize: 13, fontWeight: "bold", color: C.gray, whiteSpace: "nowrap" }}>{days} days</span>
+      </div>
+      <div style={{ height: 9, width: `${Math.max((days / agingMax) * 100, 1)}%`, background: color, borderRadius: 5, marginTop: 4 }} />
+    </div>
+  );
 
   const stageRow = (key, label, hint, n, first) => (
     <PdRow key={key} stat={{ label }} n={n} first={first} onOpen={() => setOpenKey(key)}>
@@ -1924,6 +1963,19 @@ const ProspectStages = ({ model }) => {
             </div>
           ))}
         </div>
+      </div>
+      <div style={{ background: C.white, border: "1px solid rgba(54,67,74,0.14)", borderRadius: 8, padding: "12px 15px", marginTop: 10 }}>
+        <div style={{ fontSize: 13.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, marginBottom: 4 }}>
+          Days since prospect visit <span style={{ fontWeight: "normal", color: PD_MUTED, fontSize: 12 }}>· average, for those not yet in Pending OTP</span>
+        </div>
+        {agingLine("Toured prospects", `(${prospects.active.length}, last 60 days)`, aging.active, C.teal)}
+        {agingLine("Older, still open", `(${prospects.older.length})`, aging.older, C.red)}
+        {agingLine("Past buyers: visit to Pending OTP", `(average of ${aging.buyersN} deals)`, aging.buyersAvg, C.gray)}
+        {aging.buyersN > 0 && (
+          <div style={{ fontSize: 11.5, color: PD_MUTED, fontFamily: FONT_BODY, marginTop: 6, lineHeight: 1.5 }}>
+            Half of past buyers had inventory assigned within {aging.buyersMedian} days of their visit. Measured on the {aging.buyersN} deals where HubSpot has a visit date before the deal.
+          </div>
+        )}
       </div>
       {prospects.older.length > 0 && (
         <div role="button" tabIndex={0} onClick={() => setOpenKey("older")} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpenKey("older"); } }}

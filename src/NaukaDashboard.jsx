@@ -1647,6 +1647,7 @@ const ProspectRow = ({ p, right, sub }) => (
 // ── LAST 60 DAYS ─────────────────────────────────────────────────────
 const SixtyDayView = ({ model, arrivals, onGo }) => {
   const [openKey, setOpenKey] = useState(null);
+  const [showDeals, setShowDeals] = useState(false);
   const { win, prev, weeks, count, amount, list, today, prospects, visits, month } = model;
   const allStats = [...PD_DEAL_STATS, ...PD_ACTIVITY_STATS, PD_ARRIVALS];
   const open = allStats.find(s => s.key === openKey);
@@ -1731,7 +1732,7 @@ const SixtyDayView = ({ model, arrivals, onGo }) => {
       {/* The short answer: sales activity, what moved forward, what is coming */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginBottom: 24 }}>
         {answer("Sales activity", `${cur("lead")} new lead${cur("lead") === 1 ? "" : "s"}, ${cur("tour")} prospect visit${cur("tour") === 1 ? "" : "s"}`, "Last 60 days", () => setOpenKey("lead"))}
-        {answer("Moving forward", `${forward} moved up a stage`, "New holds, OTPs and PSAs · last 60 days", () => onGo("active"))}
+        {answer("Moving forward", `${forward} moved up a stage`, "New holds, OTPs and PSAs · last 60 days", () => setShowDeals(true))}
         {answer("Coming up", `${visitsThisMonth} visit${visitsThisMonth === 1 ? "" : "s"} booked`, `Rest of ${today.toLocaleDateString("en-US", { month: "long" })} · ${prospects.active.length} toured prospect${prospects.active.length === 1 ? "" : "s"} in play`, () => onGo("month"))}
       </div>
 
@@ -1792,6 +1793,31 @@ const SixtyDayView = ({ model, arrivals, onGo }) => {
       </PdNote>
 
       {open && renderList()}
+
+      {/* Pop-up for the "Moving forward" card: the detail by stage, plus the deals lost */}
+      {showDeals && (
+        <Modal title="Moving Forward" subtitle={`${forward} moved up a stage · ${twRangeLabel(win.start, win.end)}`} onClose={() => setShowDeals(false)}>
+          {[["hold", "New inventory on hold"], ["potp", "New pending OTPs"], ["sotp", "New signed OTPs"], ["psa", "New signed PSAs"], ["lost", "Lost deals (not counted above)"]].map(([key, label]) => {
+            const items = list(key, win.start, win.end).sort((a, b) => b.date - a.date);
+            const n = cur(key);
+            return (
+              <div key={key} style={{ marginBottom: 18 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "8px 0 6px", borderBottom: `1.5px solid ${key === "lost" ? C.red : C.gray}` }}>
+                  <span style={{ fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: "bold", color: key === "lost" ? C.red : PD_MUTED, fontFamily: FONT_BODY }}>{label}</span>
+                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: key === "lost" ? C.red : C.gray }}>{n}</span>
+                </div>
+                {items.map(e => <TWEntryRow key={e.i} e={e} showDate />)}
+                {n === 0 && <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "10px 0", fontFamily: FONT_BODY }}>None in the last 60 days.</div>}
+                {n > items.length && (
+                  <div style={{ fontSize: 12, color: PD_MUTED, fontFamily: FONT_BODY, padding: "10px 0", lineHeight: 1.5 }}>
+                    {n - items.length} more from the weekly counts before {twDayFmt(model.mastersFrom)}. No deal detail is recorded for those.
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </Modal>
+      )}
     </div>
   );
 };

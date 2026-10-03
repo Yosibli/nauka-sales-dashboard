@@ -1714,7 +1714,7 @@ const SixtyDayView = ({ model, arrivals, onGo }) => {
       className="pd-card pd-click">
       <div style={{ fontSize: 12.5, color: "rgba(54,67,74,0.68)", fontFamily: FONT_BODY }}>{q}</div>
       <div style={{ fontFamily: FONT_DISPLAY, fontSize: 23, lineHeight: 1.2, color: C.gray, marginTop: 4 }}>{a}</div>
-      <div style={{ fontSize: 12, color: "rgba(54,67,74,0.68)", fontFamily: FONT_BODY, marginTop: 3 }}>{w}</div>
+      {w && <div style={{ fontSize: 12, color: "rgba(54,67,74,0.68)", fontFamily: FONT_BODY, marginTop: 3 }}>{w}</div>}
       <span className="pd-link">{link} ›</span>
     </div>
   );
@@ -1795,7 +1795,7 @@ const SixtyDayView = ({ model, arrivals, onGo }) => {
             ))}
           </div>
         </div>
-        {answer("Pipeline updates in the last 60 days", `${updates} stage change${updates === 1 ? "" : "s"}`, "After the prospect visit", () => setShowDeals(true), "View by stage")}
+        {answer("Pipeline updates in the last 60 days", `${updates} stage change${updates === 1 ? "" : "s"}`, null, () => setShowDeals(true), "View by stage")}
         {answer("Coming up", `${visitsThisMonth} visit${visitsThisMonth === 1 ? "" : "s"} booked`, `Rest of ${today.toLocaleDateString("en-US", { month: "long" })} · ${prospects.active.length} toured prospect${prospects.active.length === 1 ? "" : "s"} in play`, () => onGo("month"), "View this month")}
       </div>
 

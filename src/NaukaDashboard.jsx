@@ -397,17 +397,6 @@ const DealCard = ({ deal }) => {
   );
 };
 
-// ── Arrival Card ──────────────────────────────────────────────────────
-const ArrivalCard = ({ arrival }) => (
-  <div style={ROW_STYLE}>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-      <Eyebrow>{arrival["Staying"]}</Eyebrow>
-      {arrival["Arrival Date"] && <span style={{ fontSize: 11, color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{arrival["Arrival Date"]}</span>}
-    </div>
-    <Subhead>{arrival["Names"]}</Subhead>
-  </div>
-);
-
 // ── PSA Card ──────────────────────────────────────────────────────────
 const PSACard = ({ deal }) => {
   const days = deal["Total Days on Hold"] || deal["Days on Hold"];
@@ -1096,7 +1085,7 @@ const CalendarView = ({ records }) => {
 // The masters only hold complete OTP / lost-deal dates from the "Masters
 // complete from" date in Report_Settings (Sep 7, 2026). For days before it,
 // New Pending OTPs, New Signed OTPs and Lost Deals use the weekly counts in
-// Weekly_KPIs_Archive. Member Arrivals always come from the weekly counts.
+// Weekly_KPIs_Archive.
 //
 // Last 60 days = rolling window ending today, compared with the 60 days
 // before it. This month = the 1st through today, compared with the same
@@ -1333,7 +1322,7 @@ function parseWeekLabel(label, today) {
   if (end < start) end = new Date(y + 1, m2, +m[4]);
   return { start, end };
 }
-const PD_WEEKLY_FIELDS = { potp: "New Pending OTPs", sotp: "New Signed OTPs", lost: "Lost Deals", arr: "Member Arrivals" };
+const PD_WEEKLY_FIELDS = { potp: "New Pending OTPs", sotp: "New Signed OTPs", lost: "Lost Deals" };
 function buildWeekly(kpis, archive, today) {
   const byStart = new Map();
   const add = r => {
@@ -1369,8 +1358,6 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
   // `mastersFrom` are shown as detail but the weekly count stays the reference
   // for that stretch (whichever is larger), so nothing is counted twice.
   const list = (type, a, b) => entries.filter(e => e.type === type && e.date >= a && e.date <= b);
-  const fromWeekly = (key, a, b, beforeOnly) => weekly.reduce((s, w) =>
-    w.vals[key] != null && w.mid >= a && w.mid <= b && (!beforeOnly || w.start < mastersFrom) ? s + w.vals[key] : s, 0);
   // Archived types before `mastersFrom`: a dated row in Master_Deals counts on its
   // own day. A weekly count only adds what the dated rows of that same week do
   // not already explain, and that remainder is placed by the week's midpoint.
@@ -1389,13 +1376,11 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
     // Dated rows that fall in no reported week still count on their own day.
     return n + early.filter(e => !used.has(e.i) && e.date >= a && e.date <= b).length;
   };
-  const count = (type, a, b) => type === "arr"
-    ? fromWeekly("arr", a, b, false)
-    : !ARCHIVED.includes(type) ? list(type, a, b).length
+  const count = (type, a, b) => !ARCHIVED.includes(type) ? list(type, a, b).length
     : countArchived(type, a, b);
   const amount = (type, a, b) => list(type, a, b).reduce((s, e) => s + e.amount, 0);
   // Day-level counts exist for [a, b] only if it starts on/after mastersFrom (or the type is always dated).
-  const hasDailyData = (type, a) => type !== "arr" && (!ARCHIVED.includes(type) || a >= mastersFrom);
+  const hasDailyData = (type, a) => !ARCHIVED.includes(type) || a >= mastersFrom;
 
   const win  = { start: pdAdd(today, -(WINDOW_DAYS - 1)), end: today };
   const prev = { start: pdAdd(win.start, -WINDOW_DAYS), end: pdAdd(win.start, -1) };
@@ -1494,7 +1479,6 @@ const PD_ACTIVITY_STATS = [
   { key: "hold", label: "New Inventory on Hold" },
   { key: "lost", label: "Lost Deals", money: true, danger: true },
 ];
-const PD_ARRIVALS = { key: "arr", label: "Member Arrivals" };
 
 const twDayFmt = d => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 function twRangeLabel(start, end) {
@@ -1678,11 +1662,11 @@ const ProspectRow = ({ p, right, sub }) => (
 );
 
 // ── LAST 60 DAYS ─────────────────────────────────────────────────────
-const SixtyDayView = ({ model, arrivals, onGo }) => {
+const SixtyDayView = ({ model, onGo }) => {
   const [openKey, setOpenKey] = useState(null);
   const [showDeals, setShowDeals] = useState(false);
   const { win, prev, weeks, count, amount, list, today, prospects, visits, month } = model;
-  const allStats = [...PD_DEAL_STATS, ...PD_ACTIVITY_STATS, PD_ARRIVALS];
+  const allStats = [...PD_DEAL_STATS, ...PD_ACTIVITY_STATS];
   const open = allStats.find(s => s.key === openKey);
 
   const cur = k => count(k, win.start, win.end);
@@ -1698,7 +1682,7 @@ const SixtyDayView = ({ model, arrivals, onGo }) => {
     const n = cur(s.key), p = old(s.key);
     // Show a $ total only when every counted item has a detail row with an amount
     // (the weekly counts from before the masters carry no amounts).
-    const detailed = s.key !== "arr" && list(s.key, win.start, win.end).length === n;
+    const detailed = list(s.key, win.start, win.end).length === n;
     return (
       <PdRow key={s.key} stat={s} n={n} total={detailed ? amount(s.key, win.start, win.end) : 0} first={i === 0} onOpen={() => setOpenKey(s.key)}>
         <div style={{ marginTop: 5 }}>
@@ -1730,16 +1714,6 @@ const SixtyDayView = ({ model, arrivals, onGo }) => {
   const leadTotal = cur("lead");
 
   const renderList = () => {
-    if (open.key === "arr") {
-      return (
-        <Modal title="Member Arrivals" subtitle={`${twRangeLabel(win.start, win.end)} · ${cur("arr")} reported`} onClose={() => setOpenKey(null)}>
-          {arrivals.length === 0
-            ? <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>No arrivals listed in the Member_Arrivals tab.</div>
-            : arrivals.map((a, i) => <ArrivalCard key={i} arrival={a} />)}
-          <PdNote>The 60-day count adds up the weekly arrival totals. The names above are the rows currently in the Member_Arrivals tab.</PdNote>
-        </Modal>
-      );
-    }
     const items = list(open.key, win.start, win.end).sort((a, b) => b.date - a.date);
     const total = items.reduce((s, e) => s + e.amount, 0);
     const n = cur(open.key);
@@ -1816,7 +1790,7 @@ const SixtyDayView = ({ model, arrivals, onGo }) => {
       {PD_DEAL_STATS.map(row)}
 
       <PdSectionHead text="Also in the last 60 days" />
-      {[...PD_ACTIVITY_STATS.slice(2), PD_ARRIVALS].map(row)}
+      {PD_ACTIVITY_STATS.slice(2).map(row)}
 
       <PdSectionHead text="New leads by group" right={pdShortRange(win.start, win.end)} />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginTop: 14 }}>
@@ -2417,7 +2391,6 @@ export default function NaukaDashboard() {
   const [kpis, setKpis]           = useState([]);
   const [pipeline, setPipeline]   = useState([]);
   const [deals, setDeals]         = useState([]);
-  const [arrivals, setArrivals]   = useState([]);
   const [kpiArchive, setKpiArchive] = useState([]);
   const [funnelContacts, setFunnelContacts] = useState([]);
   const [settings, setSettings]   = useState([]);
@@ -2449,11 +2422,10 @@ export default function NaukaDashboard() {
   const load = useCallback(async (silent = false) => {
       lastLoadRef.current = Date.now();
       try {
-        const [k, p, d, a, ka, fc, st, ytd, resale, fa, fy, faa, fay, fls, cal, bp, hs, mLeads, mDeals] = await Promise.all([
+        const [k, p, d, ka, fc, st, ytd, resale, fa, fy, faa, fay, fls, cal, bp, hs, mLeads, mDeals] = await Promise.all([
           fetchSheet("Weekly_KPIs"),
           fetchSheet("Pipeline"),
           fetchSheet("Pending Transactions"),
-          fetchSheet("Member_Arrivals"),
           fetchSheet("Weekly_KPIs_Archive"),
           fetchSheet("Funnel_Contacts"),
           fetchSheet("Report_Settings"),
@@ -2475,7 +2447,7 @@ export default function NaukaDashboard() {
         // attempt — keep what's already on screen and try again next time.
         if (silent && k.length === 0 && p.length === 0) return;
         setKpis(k); setPipeline(p); setDeals(d);
-        setArrivals(a); setKpiArchive(ka); setFunnelContacts(fc); setSettings(st);
+        setKpiArchive(ka); setFunnelContacts(fc); setSettings(st);
         setYtdPSAs(ytd);
         setResalePSAs(resale);
         setFunnelAllTime(fa); setFunnelByYear(fy);
@@ -2631,7 +2603,7 @@ export default function NaukaDashboard() {
 
       {/* ── LAST 60 DAYS (vs. the 60 days before) ───────────────────── */}
       {view === "weekly" && (
-        <SixtyDayView model={model} arrivals={arrivals} onGo={go} />
+        <SixtyDayView model={model} onGo={go} />
       )}
 
       {/* ── ACTIVE TRANSACTIONS ───────────────────────────────────── */}

@@ -1365,13 +1365,34 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
 
   // Types whose dates are only complete in the masters from `mastersFrom`.
   const ARCHIVED = ["potp", "sotp", "lost"];
-  const list = (type, a, b) => entries.filter(e =>
-    e.type === type && e.date >= a && e.date <= b && (!ARCHIVED.includes(type) || e.date >= mastersFrom));
+  // Every dated row in the range. For the archived types, rows dated before
+  // `mastersFrom` are shown as detail but the weekly count stays the reference
+  // for that stretch (whichever is larger), so nothing is counted twice.
+  const list = (type, a, b) => entries.filter(e => e.type === type && e.date >= a && e.date <= b);
   const fromWeekly = (key, a, b, beforeOnly) => weekly.reduce((s, w) =>
     w.vals[key] != null && w.mid >= a && w.mid <= b && (!beforeOnly || w.start < mastersFrom) ? s + w.vals[key] : s, 0);
+  // Archived types before `mastersFrom`: a dated row in Master_Deals counts on its
+  // own day. A weekly count only adds what the dated rows of that same week do
+  // not already explain, and that remainder is placed by the week's midpoint.
+  const countArchived = (type, a, b) => {
+    const dated = entries.filter(e => e.type === type);
+    let n = dated.filter(e => e.date >= mastersFrom && e.date >= a && e.date <= b).length;
+    const early = dated.filter(e => e.date < mastersFrom);
+    const used = new Set();
+    weekly.forEach(w => {
+      if (w.start >= mastersFrom || w.vals[type] == null) return;
+      const inWeek = early.filter(e => e.date >= w.start && e.date <= w.end);
+      inWeek.forEach(e => used.add(e.i));
+      n += inWeek.filter(e => e.date >= a && e.date <= b).length;
+      if (w.mid >= a && w.mid <= b) n += Math.max(w.vals[type] - inWeek.length, 0);
+    });
+    // Dated rows that fall in no reported week still count on their own day.
+    return n + early.filter(e => !used.has(e.i) && e.date >= a && e.date <= b).length;
+  };
   const count = (type, a, b) => type === "arr"
     ? fromWeekly("arr", a, b, false)
-    : list(type, a, b).length + (ARCHIVED.includes(type) ? fromWeekly(type, a, b, true) : 0);
+    : !ARCHIVED.includes(type) ? list(type, a, b).length
+    : countArchived(type, a, b);
   const amount = (type, a, b) => list(type, a, b).reduce((s, e) => s + e.amount, 0);
   // Day-level counts exist for [a, b] only if it starts on/after mastersFrom (or the type is always dated).
   const hasDailyData = (type, a) => type !== "arr" && (!ARCHIVED.includes(type) || a >= mastersFrom);
@@ -1669,7 +1690,8 @@ const SixtyDayView = ({ model, arrivals, onGo }) => {
   const bars = k => weeks.map(w => count(k, w.a, w.b));
   const rateNow = model.leadTourRate(win.start, win.end);
   const rateOld = model.leadTourRate(prev.start, prev.end);
-  const forward = cur("hold") + cur("potp") + cur("sotp") + cur("psa");
+  // Pipeline updates: every change of stage after the prospect visit, wins and losses alike.
+  const updates = cur("hold") + cur("potp") + cur("sotp") + cur("psa") + cur("lost");
   const visitsThisMonth = visits.filter(v => v.arrival <= month.end).length;
 
   const row = (s, i) => {
@@ -1687,12 +1709,13 @@ const SixtyDayView = ({ model, arrivals, onGo }) => {
     );
   };
 
-  const answer = (q, a, w, go) => (
+  const answer = (q, a, w, go, link) => (
     <div role="button" tabIndex={0} onClick={go} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } }}
-      style={{ background: C.white, borderTop: `3px solid ${C.teal}`, padding: "13px 15px", cursor: "pointer", minWidth: 0 }}>
+      className="pd-card pd-click">
       <div style={{ fontSize: 12.5, color: "rgba(54,67,74,0.68)", fontFamily: FONT_BODY }}>{q}</div>
       <div style={{ fontFamily: FONT_DISPLAY, fontSize: 23, lineHeight: 1.2, color: C.gray, marginTop: 4 }}>{a}</div>
       <div style={{ fontSize: 12, color: "rgba(54,67,74,0.68)", fontFamily: FONT_BODY, marginTop: 3 }}>{w}</div>
+      <span className="pd-link">{link} ›</span>
     </div>
   );
 
@@ -1742,10 +1765,38 @@ const SixtyDayView = ({ model, arrivals, onGo }) => {
       </div>
 
       {/* The short answer: sales activity, what moved forward, what is coming */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginBottom: 24 }}>
-        {answer("Sales activity", `${cur("lead")} new lead${cur("lead") === 1 ? "" : "s"}, ${cur("tour")} prospect visit${cur("tour") === 1 ? "" : "s"}`, "Last 60 days", () => setOpenKey("lead"))}
-        {answer("Moving forward", `${forward} moved up a stage`, "New holds, OTPs and PSAs · last 60 days", () => setShowDeals(true))}
-        {answer("Coming up", `${visitsThisMonth} visit${visitsThisMonth === 1 ? "" : "s"} booked`, `Rest of ${today.toLocaleDateString("en-US", { month: "long" })} · ${prospects.active.length} toured prospect${prospects.active.length === 1 ? "" : "s"} in play`, () => onGo("month"))}
+      <style>{`
+        .pd-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:3px solid ${C.teal};margin-bottom:24px}
+        .pd-card{padding:12px 18px 6px;min-width:0}
+        .pd-card:first-child{padding-left:2px}
+        .pd-card + .pd-card{border-left:1px solid rgba(54,67,74,0.16)}
+        .pd-click{cursor:pointer;border-radius:6px;transition:background .15s}
+        .pd-click:hover,.pd-click:focus-visible{background:rgba(136,209,209,0.22);outline:none}
+        .pd-link{display:inline-block;margin-top:7px;font-family:${FONT_BODY};font-size:12.5px;font-weight:bold;color:${C.gray};text-decoration:underline;text-decoration-color:${C.teal};text-decoration-thickness:2px;text-underline-offset:3px}
+        @media (max-width:700px){
+          .pd-cards{grid-template-columns:1fr}
+          .pd-card{padding:12px 2px}
+          .pd-card + .pd-card{border-left:none;border-top:1px solid rgba(54,67,74,0.16)}
+        }
+      `}</style>
+      <div className="pd-cards">
+        {/* Sales activity: two sections, each opens its own list */}
+        <div className="pd-card">
+          <div style={{ fontSize: 12.5, color: "rgba(54,67,74,0.68)", fontFamily: FONT_BODY }}>Sales activity · last 60 days</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, marginTop: 4 }}>
+            {[["lead", cur("lead") === 1 ? "new lead" : "new leads"], ["tour", cur("tour") === 1 ? "prospect visit" : "prospect visits"]].map(([key, label], ix) => (
+              <div key={key} role="button" tabIndex={0} aria-label={`${cur(key)} ${label}, open the list`}
+                onClick={() => setOpenKey(key)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpenKey(key); } }}
+                className="pd-click" style={{ minWidth: 0, padding: "2px 6px 4px", marginLeft: -6 }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontSize: 23, lineHeight: 1.2, color: C.gray }}>{cur(key)}</div>
+                <div style={{ fontSize: 12.5, color: C.gray, fontFamily: FONT_BODY }}>{label}</div>
+                <span className="pd-link" style={{ marginTop: 5 }}>View list ›</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        {answer("Pipeline updates in the last 60 days", `${updates} stage change${updates === 1 ? "" : "s"}`, "After the prospect visit", () => setShowDeals(true), "View by stage")}
+        {answer("Coming up", `${visitsThisMonth} visit${visitsThisMonth === 1 ? "" : "s"} booked`, `Rest of ${today.toLocaleDateString("en-US", { month: "long" })} · ${prospects.active.length} toured prospect${prospects.active.length === 1 ? "" : "s"} in play`, () => onGo("month"), "View this month")}
       </div>
 
       <PdSectionHead text="Activity" right="Each small bar is one week" first />
@@ -1806,10 +1857,10 @@ const SixtyDayView = ({ model, arrivals, onGo }) => {
 
       {open && renderList()}
 
-      {/* Pop-up for the "Moving forward" card: the detail by stage, plus the deals lost */}
+      {/* Pop-up for the "Pipeline updates" card: every stage change after the prospect visit, by stage */}
       {showDeals && (
-        <Modal title="Moving Forward" subtitle={`${forward} moved up a stage · ${twRangeLabel(win.start, win.end)}`} onClose={() => setShowDeals(false)}>
-          {[["hold", "New inventory on hold"], ["potp", "New pending OTPs"], ["sotp", "New signed OTPs"], ["psa", "New signed PSAs"], ["lost", "Lost deals (not counted above)"]].map(([key, label]) => {
+        <Modal title="Pipeline Updates" subtitle={`${updates} stage change${updates === 1 ? "" : "s"} after the prospect visit · ${twRangeLabel(win.start, win.end)}`} onClose={() => setShowDeals(false)}>
+          {[["hold", "New inventory on hold"], ["potp", "New pending OTPs"], ["sotp", "New signed OTPs"], ["psa", "New signed PSAs"], ["lost", "Lost deals"]].map(([key, label]) => {
             const items = list(key, win.start, win.end).sort((a, b) => b.date - a.date);
             const n = cur(key);
             return (

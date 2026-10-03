@@ -1308,6 +1308,8 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
         advisor: pdStr(r["Advisor"]),
         source: [pdStr(r["Source"]), pdStr(r["Referral Source"]) ? `via ${pdStr(r["Referral Source"])}` : ""].filter(Boolean).join(" · "),
         src: pdStr(r["Source"]), rid, reason: pdStr(r["Loss Reason"]),
+        stage: pdStr(r["Stage"]) === "Decision" ? "Pending OTP" : pdStr(r["Stage"]), // where the deal is today
+        daysOnHold: parseInt(pdStr(r["Days on Hold"]), 10), // from the sheet: hold date to PSA / lost date, or to today if still open
       });
     });
   });
@@ -1589,7 +1591,17 @@ const TWEntryRow = ({ e, showDate }) => {
           {showDate && <div style={{ fontSize: 11.5, color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{twDayFmt(e.date)}</div>}
         </div>
       </div>
-      {(e.advisor || e.source) && <RowMeta>{[e.advisor, e.source].filter(Boolean).join(" · ")}</RowMeta>}
+      {isDeal && e.stage && (
+        <div style={{ marginTop: 8, marginBottom: 6 }}>
+          <span style={{ display: "inline-block", fontSize: 11, fontWeight: "bold", fontFamily: FONT_BODY, borderRadius: 999, padding: "2px 10px",
+            color: e.stage === "Lost" ? C.red : C.gray, background: e.stage === "Lost" ? "rgba(192,102,90,0.12)" : "rgba(136,209,209,0.4)" }}>
+            Current stage: {e.stage}
+          </span>
+        </div>
+      )}
+      {(e.advisor || e.source || e.daysOnHold >= 0) && (
+        <RowMeta>{[e.advisor, e.source, e.daysOnHold >= 0 ? `${e.daysOnHold} day${e.daysOnHold === 1 ? "" : "s"} on hold` : null].filter(Boolean).join(" · ")}</RowMeta>
+      )}
       {e.details && <RowNotes preLine>{e.details}</RowNotes>}
       {e.notes && e.notes.length > 0 && (
         <div style={{ marginTop: 10 }}>

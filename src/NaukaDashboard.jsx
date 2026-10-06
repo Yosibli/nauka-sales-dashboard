@@ -1924,10 +1924,6 @@ const SixtyDayView = ({ model, onGo }) => {
           ))}
         </div>
       )}
-      <PdNote>
-        No source recorded or other: {gLeads.none} lead{gLeads.none === 1 ? "" : "s"}, {gTours.none} prospect visit{gTours.none === 1 ? "" : "s"}, {gPsas.none} signed PSA{gPsas.none === 1 ? "" : "s"}. Shown apart, not in any group.
-        {" "}Before {twDayFmt(model.mastersFrom)}, New Pending OTPs, New Signed OTPs and Lost Deals come from the weekly counts reported at the time.
-      </PdNote>
 
       {open && renderList()}
 

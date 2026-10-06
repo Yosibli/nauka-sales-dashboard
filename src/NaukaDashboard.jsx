@@ -1709,7 +1709,7 @@ const SixtyDayView = ({ model, onGo }) => {
   // Toured prospects, post visit status: everyone who visited in the window,
   // by what happened after the visit, by lead status and by lead source.
   const PV_OUTCOMES = [
-    { key: "open", label: "No OTP yet", color: C.teal },
+    { key: "open", label: "No inventory assigned", color: C.teal },
     { key: "converted", label: "Converted", color: C.green },
     { key: "lost", label: "Lost", color: C.red },
   ];

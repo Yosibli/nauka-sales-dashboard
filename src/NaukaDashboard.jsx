@@ -1222,8 +1222,8 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
   leadNoId.forEach(e => out.push(e));
 
   // Tours: a visit counts once its meeting is logged (Tour Date in
-  // Prospect_Calendar, not Canceled) — same rule as the sheet. Connectors are
-  // reported as tours but are never prospects.
+  // Prospect_Calendar, not Canceled). A Connector is not a prospect, so a
+  // Connector's visit is not a prospect visit: it stays on the Calendar tab only.
   const calTours = []; // [{ key, date }] to avoid counting the HubSpot date twice
   (calendarRecords || []).forEach(r => {
     if (!r.name) return;
@@ -1235,7 +1235,7 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
       const p = people.get(rid);
       people.set(rid, { ...p, status: pdStr(r.leadStatus) || p.status, lifecycle: pdStr(r.lifecycle) || p.lifecycle, lostDate: r.lostDate || p.lostDate, lossReason: pdStr(r.lossReason) || p.lossReason });
     }
-    if (!r.tourDate || r.stage === "Canceled") return;
+    if (!r.tourDate || r.stage === "Canceled" || isConnector) return;
     const d = pdDay(r.tourDate);
     const sameDay = r.arrival && r.departure ? calSameDay(r.arrival, r.departure) : true;
     calTours.push({ key, date: d });
@@ -1260,9 +1260,20 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
       notes: r.notes || [],
     });
   });
+  // An Owner or Founder who visits is a buyer coming back, not a prospect. Their
+  // HubSpot visit date only counts as a prospect visit when it led to a purchase:
+  // a deal of theirs in Master_Deals with no PSA yet, or a PSA signed on or after the visit.
+  const buyerDeals = new Map(); // buyer Record ID → [PSA date or null]
+  (masterDeals || []).forEach(r => {
+    const rid = pdId(r["Buyer HubSpot Record ID"]);
+    if (!rid || !pdStr(r["Deal Name"])) return;
+    buyerDeals.set(rid, [...(buyerDeals.get(rid) || []), twParseDate(r["PSA Date Signed"])]);
+  });
+  const visitedAsBuyer = p => ["owner", "founder"].includes(pdStr(p.contactType).toLowerCase())
+    && !(buyerDeals.get(p.rid) || []).some(psa => !psa || psa >= p.hubspotTour);
   // HubSpot tour dates from the baseline, unless the calendar already has that visit.
   people.forEach(p => {
-    if (!p.hubspotTour) return;
+    if (!p.hubspotTour || visitedAsBuyer(p)) return;
     const dup = calTours.some(t => t.key === p.key && Math.abs(pdDiff(t.date, p.hubspotTour)) <= 7);
     if (dup) return;
     out.push({
@@ -1429,12 +1440,11 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
     toDeal: list("hold", win.start, today).sort((a, b) => b.date - a.date),
   };
   // Every prospect visit in the window with what happened after it:
-  // converted (has a deal / is a buyer), lost, connector, or still open with no OTP yet.
+  // converted (has a deal / is a buyer), lost, or still open with no OTP yet.
   const visited = list("tour", win.start, today).sort((a, b) => b.date - a.date).map(e => {
     const p = (e.rid && people.get(e.rid)) || people.get(`name:${e.name}`) || null;
     const type = pdStr(p && p.contactType).toLowerCase();
-    const outcome = e.connector || type === "connector" ? "connector"
-      : p && (hasDeal(p) || ["owner", "founder"].includes(type)) ? "converted"
+    const outcome = p && (hasDeal(p) || ["owner", "founder"].includes(type)) ? "converted"
       : p && isLost(p) ? "lost" : "open";
     return { ...e, outcome, status: p ? pdStr(p.status) : "", lifecycle: p ? pdStr(p.lifecycle) : "" };
   });
@@ -1691,7 +1701,6 @@ const SixtyDayView = ({ model, onGo }) => {
     { key: "open", label: "No OTP yet", color: C.teal },
     { key: "converted", label: "Converted", color: C.green },
     { key: "lost", label: "Lost", color: C.red },
-    { key: "connector", label: "Connector", color: "rgba(54,67,74,0.35)" },
   ];
   const pvSource = e => {
     const v = pdStr(e.src);
@@ -1917,12 +1926,10 @@ const SixtyDayView = ({ model, onGo }) => {
                 <div key={e.i} style={{ ...ROW_STYLE, padding: "11px 0" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                     <Eyebrow>{e.name}</Eyebrow>
-                    {o.key !== "connector" && (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>
-                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: LEAD_STATUS_COLOR[pvStatus(e)] || "rgba(54,67,74,0.3)" }} />
-                        {pvStatus(e)}
-                      </span>
-                    )}
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: LEAD_STATUS_COLOR[pvStatus(e)] || "rgba(54,67,74,0.3)" }} />
+                      {pvStatus(e)}
+                    </span>
                   </div>
                   <RowMeta>{[`Visited ${twDayFmt(e.date)} · ${pdDiff(e.date, today)} day${pdDiff(e.date, today) === 1 ? "" : "s"}`, pvSource(e), e.advisor, e.lifecycle].filter(Boolean).join(" · ")}</RowMeta>
                 </div>

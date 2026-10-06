@@ -1393,8 +1393,10 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
   // Day-level counts exist for [a, b] only if it starts on/after mastersFrom (or the type is always dated).
   const hasDailyData = (type, a) => !ARCHIVED.includes(type) || a >= mastersFrom;
 
-  const win  = { start: pdAdd(today, -(WINDOW_DAYS - 1)), end: today };
-  const prev = { start: pdAdd(win.start, -WINDOW_DAYS), end: pdAdd(win.start, -1) };
+  // Same window as HubSpot's "last 60 days" filter: today minus 60 days, through
+  // today (61 calendar days). The comparison period is the same length, right before it.
+  const win  = { start: pdAdd(today, -WINDOW_DAYS), end: today };
+  const prev = { start: pdAdd(win.start, -(WINDOW_DAYS + 1)), end: pdAdd(win.start, -1) };
   // Monday-to-Sunday buckets across the window, clipped to it, for the small bars.
   const weeks = [];
   for (let ws = twWeekStart(win.start); ws <= today; ws = pdAdd(ws, 7)) {

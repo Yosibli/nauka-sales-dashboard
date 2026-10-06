@@ -2019,7 +2019,7 @@ const ThisMonthView = ({ model }) => {
       <PdSectionHead text="Also this month" />
       {PD_ACTIVITY_STATS.slice(2).map(row)}
 
-      <PdSectionHead text="Coming up this month" right={`${coming.length} visit${coming.length === 1 ? "" : "s"} booked`} />
+      <PdSectionHead text="Prospect visits coming up this month" right={`${coming.length} visit${coming.length === 1 ? "" : "s"} booked`} />
       {coming.length === 0 && ddThisMonth.length === 0 && (
         <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>No visits or due-diligence deadlines left this month.</div>
       )}

@@ -1520,11 +1520,19 @@ const PdDelta = ({ cur, prev, goodWhenUp = true, unit = "", note }) => {
 const PdWeekBars = ({ values, weeks }) => {
   const max = Math.max(...values, 1);
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 34, maxWidth: 260, marginTop: 8, borderBottom: "1px solid rgba(54,67,74,0.18)" }} aria-hidden="true">
-      {values.map((v, i) => (
-        <div key={i} title={`Week of ${twDayFmt(weeks[i].start)}: ${v}`}
-          style={{ flex: 1, height: `${Math.max((v / max) * 100, v > 0 ? 8 : 0)}%`, minHeight: 2, background: i === values.length - 1 ? C.gray : C.teal, opacity: v === 0 ? 0.35 : 1, borderRadius: "2px 2px 0 0" }} />
-      ))}
+    <div style={{ maxWidth: 260, marginTop: 8 }}>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 34, borderBottom: "1px solid rgba(54,67,74,0.18)" }} aria-hidden="true">
+        {values.map((v, i) => (
+          <div key={i} title={`Week of ${twDayFmt(weeks[i].start)}: ${v}`}
+            style={{ flex: 1, height: `${Math.max((v / max) * 100, v > 0 ? 8 : 0)}%`, minHeight: 2, background: i === values.length - 1 ? C.gray : C.teal, opacity: v === 0 ? 0.35 : 1, borderRadius: "2px 2px 0 0" }} />
+        ))}
+      </div>
+      {/* Says what the bars are: one per week, oldest on the left, this week on the right */}
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 6, marginTop: 3, fontSize: 10.5, color: "rgba(54,67,74,0.6)", fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>
+        <span>Week of {twDayFmt(weeks[0].start)}</span>
+        <span>By week</span>
+        <span>This week</span>
+      </div>
     </div>
   );
 };
@@ -1773,7 +1781,7 @@ const SixtyDayView = ({ model, onGo }) => {
         {answer("Coming up", `${visitsThisMonth} visit${visitsThisMonth === 1 ? "" : "s"} booked`, `Rest of ${today.toLocaleDateString("en-US", { month: "long" })} · ${prospects.active.length} toured prospect${prospects.active.length === 1 ? "" : "s"} in play`, () => onGo("month"), "View this month")}
       </div>
 
-      <PdSectionHead text="Activity" right="Each small bar is one week" first />
+      <PdSectionHead text="Activity" right="One bar per week (Mon–Sun) · dark bar = this week" first />
       {PD_ACTIVITY_STATS.slice(0, 2).map(row)}
       <PdRow stat={{ label: "From Lead to Prospect Visit", display: rateNow.pct == null ? "—" : `${Math.round(rateNow.pct)}%` }} n={rateNow.toured}>
         <div style={{ marginTop: 5 }}>

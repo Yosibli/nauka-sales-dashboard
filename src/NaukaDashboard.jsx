@@ -1608,7 +1608,8 @@ const PdRow = ({ stat, n, total, first, onOpen, children }) => {
 };
 
 // A single logged update inside the pop-up list.
-const TWEntryRow = ({ e, showDate }) => {
+// `facts` is an optional list of { label, value, color } shown under the name (used for prospect visits).
+const TWEntryRow = ({ e, showDate, facts }) => {
   const isDeal = ["hold", "potp", "sotp", "psa", "lost"].includes(e.type);
   const { property, buyer } = isDeal ? splitDealName(e.name) : { property: e.name, buyer: null };
   const color = e.type === "lost" ? C.red : e.type === "hold" ? C.amber : C.teal;
@@ -1624,6 +1625,17 @@ const TWEntryRow = ({ e, showDate }) => {
           {showDate && <div style={{ fontSize: 11.5, color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{twDayFmt(e.date)}</div>}
         </div>
       </div>
+      {facts && facts.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", margin: "6px 0 6px" }}>
+          {facts.map(f => (
+            <span key={f.label} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontFamily: FONT_BODY, color: C.gray }}>
+              <span style={{ color: PD_MUTED }}>{f.label}:</span>
+              {f.color && <span style={{ width: 8, height: 8, borderRadius: "50%", background: f.color }} />}
+              <strong>{f.value}</strong>
+            </span>
+          ))}
+        </div>
+      )}
       {isDeal && e.stage && (
         <div style={{ marginTop: 8, marginBottom: 6 }}>
           <span style={{ display: "inline-block", fontSize: 11, fontWeight: "bold", fontFamily: FONT_BODY, borderRadius: 999, padding: "2px 10px",
@@ -1693,7 +1705,6 @@ const ProspectRow = ({ p, right, sub }) => (
 const SixtyDayView = ({ model, onGo }) => {
   const [openKey, setOpenKey] = useState(null);
   const [showDeals, setShowDeals] = useState(false);
-  const [showPlay, setShowPlay] = useState(false);
   const { win, prev, weeks, count, amount, list, today, prospects, visited, visits, month } = model;
   // Toured prospects, post visit status: everyone who visited in the window,
   // by what happened after the visit, by lead status and by lead source.
@@ -1764,14 +1775,44 @@ const SixtyDayView = ({ model, onGo }) => {
   const leadTotal = cur("lead");
 
   const renderList = () => {
-    const items = list(open.key, win.start, win.end).sort((a, b) => b.date - a.date);
+    const isTour = open.key === "tour";
+    // Prospect visits carry what happened after the visit, the lead status and the lead source.
+    const items = isTour ? visited : list(open.key, win.start, win.end).sort((a, b) => b.date - a.date);
     const total = items.reduce((s, e) => s + e.amount, 0);
     const n = cur(open.key);
+    const tourFacts = e => {
+      const o = PV_OUTCOMES.find(x => x.key === e.outcome);
+      return [
+        { label: "Post visit status", value: o ? o.label : "—", color: o && o.color },
+        { label: "Lead status", value: pvStatus(e), color: LEAD_STATUS_COLOR[pvStatus(e)] || "rgba(54,67,74,0.3)" },
+        { label: "Source", value: pvSource(e) },
+      ];
+    };
     return (
       <Modal title={`${open.label}${open.sub ? ` (${open.sub})` : ""} · Last 60 Days`}
         subtitle={`${twRangeLabel(win.start, win.end)} · ${n}${total > 0 && n === items.length ? ` · ${money(total)}` : ""}`}
         onClose={() => setOpenKey(null)}>
-        <PdShowMore items={items} empty="None in the last 60 days." render={e => <TWEntryRow key={e.i} e={e} showDate />} />
+        {/* Summary at the top of the prospect visits list */}
+        {isTour && items.length > 0 && (
+          <div style={{ background: C.white, border: "1px solid rgba(54,67,74,0.14)", borderRadius: 8, padding: "12px 15px", marginBottom: 6 }}>
+            <div style={{ fontSize: 13.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>Toured Prospects Post Visit Status</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px", marginTop: 6 }}>
+              {pvByOutcome.map(o => (
+                <span key={o.key} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: C.gray, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>
+                  <span style={{ width: 9, height: 9, borderRadius: "50%", background: o.color }} />
+                  <strong>{o.items.length}</strong> {o.label}
+                </span>
+              ))}
+            </div>
+            {[["Lead status", pvByStatus], ["Source", pvBySource]].map(([label, rows]) => rows.length > 0 && (
+              <div key={label} style={{ fontSize: 12, color: C.gray, fontFamily: FONT_BODY, marginTop: 6, lineHeight: 1.45 }}>
+                <span style={{ color: "rgba(54,67,74,0.68)" }}>{label}: </span>
+                {rows.map(([k, c], ix) => <span key={k}>{ix > 0 ? " · " : ""}{k} <strong>{c}</strong></span>)}
+              </div>
+            ))}
+          </div>
+        )}
+        <PdShowMore items={items} empty="None in the last 60 days." render={e => <TWEntryRow key={e.i} e={e} showDate facts={isTour ? tourFacts(e) : null} />} />
         {n > items.length && (
           <PdNote>{n - items.length} more were reported in the weekly counts before {twDayFmt(model.mastersFrom)}, when the master tabs start. Those have no detail rows.</PdNote>
         )}
@@ -1804,7 +1845,7 @@ const SixtyDayView = ({ model, onGo }) => {
         }
       `}</style>
       <div className="pd-cards">
-        {/* Sales activity: new leads and prospect visits (each opens its own list), then the post visit status of everyone who toured */}
+        {/* Sales activity: two sections, each opens its own list. The prospect visits list opens with the post visit status summary. */}
         <div className="pd-card">
           <div style={{ fontSize: 12.5, color: "rgba(54,67,74,0.68)", fontFamily: FONT_BODY }}>Sales activity · last 60 days</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, marginTop: 4 }}>
@@ -1817,28 +1858,6 @@ const SixtyDayView = ({ model, onGo }) => {
                 <span className="pd-link" style={{ marginTop: 5 }}>View list ›</span>
               </div>
             ))}
-          </div>
-          <div role="button" tabIndex={0} aria-label={`Toured prospects post visit status, ${visited.length} toured, open the list`}
-            onClick={() => setShowPlay(true)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setShowPlay(true); } }}
-            className="pd-click" style={{ padding: "8px 6px 4px", margin: "8px 0 0 -6px", borderTop: "1px solid rgba(54,67,74,0.16)", borderRadius: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>Toured Prospects Post Visit Status</div>
-            {pvByOutcome.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px", marginTop: 6 }}>
-                {pvByOutcome.map(o => (
-                  <span key={o.key} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: C.gray, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>
-                    <span style={{ width: 9, height: 9, borderRadius: "50%", background: o.color }} />
-                    <strong>{o.items.length}</strong> {o.label}
-                  </span>
-                ))}
-              </div>
-            )}
-            {[["Lead status", pvByStatus], ["Source", pvBySource]].map(([label, rows]) => rows.length > 0 && (
-              <div key={label} style={{ fontSize: 12, color: C.gray, fontFamily: FONT_BODY, marginTop: 6, lineHeight: 1.45 }}>
-                <span style={{ color: "rgba(54,67,74,0.68)" }}>{label}: </span>
-                {rows.map(([k, n], ix) => <span key={k}>{ix > 0 ? " · " : ""}{k} <strong>{n}</strong></span>)}
-              </div>
-            ))}
-            <span className="pd-link">View list ›</span>
           </div>
         </div>
         {answer("Pipeline updates in the last 60 days", `${updates} Pipeline Update${updates === 1 ? "" : "s"}`, null, () => setShowDeals(true), "View by stage")}
@@ -1909,35 +1928,6 @@ const SixtyDayView = ({ model, onGo }) => {
         No source recorded or other: {gLeads.none} lead{gLeads.none === 1 ? "" : "s"}, {gTours.none} prospect visit{gTours.none === 1 ? "" : "s"}, {gPsas.none} signed PSA{gPsas.none === 1 ? "" : "s"}. Shown apart, not in any group.
         {" "}Before {twDayFmt(model.mastersFrom)}, New Pending OTPs, New Signed OTPs and Lost Deals come from the weekly counts reported at the time.
       </PdNote>
-
-      {/* Pop-up for "Toured Prospects Post Visit Status": one section per outcome, lead status and source on each row */}
-      {showPlay && (
-        <Modal title="Toured Prospects Post Visit Status" subtitle={`${visited.length} toured · ${twRangeLabel(win.start, win.end)}`} onClose={() => setShowPlay(false)}>
-          {visited.length === 0 && <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>No prospect visits in the last 60 days.</div>}
-          {pvByOutcome.map(o => (
-            <div key={o.key} style={{ marginBottom: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "8px 0 6px", borderBottom: `1.5px solid ${o.key === "lost" ? C.red : C.gray}` }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: "bold", color: o.key === "lost" ? C.red : PD_MUTED, fontFamily: FONT_BODY }}>
-                  <span style={{ width: 9, height: 9, borderRadius: "50%", background: o.color }} />{o.label}
-                </span>
-                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: o.key === "lost" ? C.red : C.gray }}>{o.items.length}</span>
-              </div>
-              {o.items.map(e => (
-                <div key={e.i} style={{ ...ROW_STYLE, padding: "11px 0" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                    <Eyebrow>{e.name}</Eyebrow>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>
-                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: LEAD_STATUS_COLOR[pvStatus(e)] || "rgba(54,67,74,0.3)" }} />
-                      {pvStatus(e)}
-                    </span>
-                  </div>
-                  <RowMeta>{[`Visited ${twDayFmt(e.date)} · ${pdDiff(e.date, today)} day${pdDiff(e.date, today) === 1 ? "" : "s"}`, pvSource(e), e.advisor, e.lifecycle].filter(Boolean).join(" · ")}</RowMeta>
-                </div>
-              ))}
-            </div>
-          ))}
-        </Modal>
-      )}
 
       {open && renderList()}
 

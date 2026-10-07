@@ -121,16 +121,40 @@ function invSplitNote(raw) {
   return m ? { clean: m[1].trim(), note: m[2].trim() } : { clean: s, note: null };
 }
 
-// For a "sold" entry, shortens a single personal name down to its family
-// name for a quick scan (e.g. "Andres Conesa" → "Conesa"). Leaves company
-// names, joint/multi-party owners, and anything already short as-is.
+// Shortens an owner / buyer to family names only, for a quick scan:
+//   "Andres Conesa"                    → "Conesa"
+//   "Mark Sear/Jim DeCota/Mike Lebbin" → "Sear/DeCota/Lebbin"
+//   "Gary and Aliz Simpson"            → "Simpson"  (first names sharing one surname)
+//   "Danny Epstien & Andy Cohen"       → "Epstien & Cohen"
+//   "Frank Van Veenendaal"             → "Van Veenendaal"
+// Company names are left as typed. A cell holding first names only
+// ("Pepe & Jaime") cannot be resolved here and must be fixed in the sheet.
+const INV_NAME_PARTICLE_RE = /^(de|del|la|las|los|da|di|du|le|van|von|der|den)$/i;
+function invLastName(person) {
+  const parts = String(person).replace(/\([^)]*\)/g, " ").split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return parts[0] || "";
+  if (INV_NAME_PARTICLE_RE.test(parts[0])) return parts.join(" ");
+  let i = parts.length - 1;
+  while (i > 1 && INV_NAME_PARTICLE_RE.test(parts[i - 1])) i--;
+  return parts.slice(i).join(" ");
+}
 function invFamilyName(raw) {
   if (!raw) return raw;
-  const isEntity = /(SA de CV|LLC|Corp\.?|Inc\.?|Servicios|Empresariales|Ownership)/i.test(raw);
-  const isMulti = /[/&]|\band\b/i.test(raw);
-  if (isEntity || isMulti) return raw;
-  const parts = raw.split(/\s+/).filter(Boolean);
-  return parts.length > 1 ? parts[parts.length - 1] : raw;
+  const s = String(raw).trim();
+  if (/(SA de CV|LLC|Corp\.?|Inc\.?|Servicios|Empresariales|Ownership)/i.test(s)) return s;
+  // Split joint owners, keeping the separators exactly as typed in the sheet.
+  const tokens = s.split(/(\s*\/\s*|\s*&\s*|\s+and\s+)/i);
+  const people = tokens.filter((_, i) => i % 2 === 0);
+  const seps = tokens.filter((_, i) => i % 2 === 1);
+  if (people.length === 1) return invLastName(s) || s;
+  const wordCount = p => p.trim().split(/\s+/).filter(Boolean).length;
+  // "Gary and Aliz Simpson": single first names joined by and / & before a
+  // full name share that person's surname.
+  const shared = seps.every(x => !x.includes("/"))
+    && wordCount(people[people.length - 1]) > 1
+    && people.slice(0, -1).every(p => wordCount(p) === 1);
+  if (shared) return invLastName(people[people.length - 1]);
+  return people.map((p, i) => invLastName(p) + (seps[i] || "")).join("");
 }
 
 const INV_PLACEHOLDER_RE = /^(on hold|off market|unavailable|pending)$/i;
@@ -142,6 +166,11 @@ function invIsNumericCell(v) {
   if (typeof v === "number") return Number.isFinite(v);
   if (typeof v === "string") return /^-?[\d,]+(\.\d+)?$/.test(v.trim()) && v.trim() !== "";
   return false;
+}
+// A homesite lot label: a number, optionally followed by one letter for
+// split lots ("8A", "10B").
+function invIsLotCell(v) {
+  return invIsNumericCell(v) || (typeof v === "string" && /^\d+\s*[A-Za-z]$/.test(v.trim()));
 }
 function invNumericValue(v) {
   return typeof v === "number" ? v : parseFloat(String(v).replace(/,/g, ""));
@@ -291,9 +320,9 @@ function parseHomesites(rows) {
       // this same column triplet — stop here so its lots are only
       // counted once, under their own group (parsed separately below).
       if (typeof lot === "string" && /Phase\s*\d/i.test(lot)) break;
-      if (!invIsNumericCell(lot)) continue; // skips blanks, section labels, and repeated headers
+      if (!invIsLotCell(lot)) continue; // skips blanks, section labels, and repeated headers
       const { status, buyer, price } = invClassify(row[ownerCol], row[statusCol]);
-      units.push({ unit: `Homesite ${lot}`, status, buyer, price });
+      units.push({ unit: `Homesite ${String(lot).trim()}`, status, buyer, price });
     }
     if (units.length) groups.push({ name, units });
   });
@@ -307,9 +336,9 @@ function parseHomesites(rows) {
     for (let rr = r + 2; rr < rows.length; rr++) {
       const row = rows[rr] || [];
       const lot = row[9];
-      if (!invIsNumericCell(lot)) break;
+      if (!invIsLotCell(lot)) break;
       const { status, buyer, price } = invClassify(row[10], row[11]);
-      units.push({ unit: `Homesite ${lot}`, status, buyer, price });
+      units.push({ unit: `Homesite ${String(lot).trim()}`, status, buyer, price });
     }
     if (units.length) groups.push({ name: "Cliff Estates — Phase 4", units });
     break;
@@ -424,8 +453,7 @@ const InventoryUnitRow = ({ u }) => {
   const label = INV_STATUS_LABEL[u.status] || INV_STATUS_LABEL.unknown;
 
   let subLabel = null;
-  if (u.status === "sold" && u.buyer) subLabel = invFamilyName(u.buyer);
-  else if (["hold", "pending", "pending_otp", "signed_otp"].includes(u.status) && u.buyer) subLabel = u.buyer;
+  if (["sold", "hold", "pending", "pending_otp", "signed_otp"].includes(u.status) && u.buyer) subLabel = invFamilyName(u.buyer);
 
   return (
     <div style={ROW_STYLE}>
@@ -651,13 +679,14 @@ const FALLBACK_CALENDAR_RECORDS = [
 // To change an advisor's color, edit it here. A new advisor who isn't
 // listed gets the next spare color automatically.
 const CAL_ADVISOR_COLORS = {
-  "Eli Pacino":     "#2F8F8A", // deep teal
-  "Oscar Fraustro": "#4A6FA5", // slate blue
-  "Trip Morris":    "#C9803F", // warm ochre
-  "Brandon Oyler":  "#8E6FA8", // plum
+  "Eli Pacino":     "#A9DDE0", // soft teal
+  "Oscar Fraustro": "#E5C3A0", // sand
+  "Trip Morris":    "#A9C5B4", // sage
+  "Brandon Oyler":  "#EBB0A6", // coral
 };
-const CAL_SPARE_COLORS = ["#B5566B", "#5E8C4A", "#6B6FB0", "#A0763A"];
-const CAL_UNASSIGNED_COLOR = "#8A9095";
+// Soft colors: the text on top of them is always dark gray, never white.
+const CAL_SPARE_COLORS = ["#F2E3A0", "#C5D5EA", "#D9C3DD", "#C9D9A8"];
+const CAL_UNASSIGNED_COLOR = "#E3DCD0";
 const CAL_UNASSIGNED_LABEL = "Unassigned";
 
 const calNormName = s => String(s || "").trim().replace(/\s+/g, " ").toLowerCase();
@@ -687,8 +716,7 @@ function calAdvisorColor(r, colorMap) {
 }
 
 const CalAdvisorChip = ({ name, color }) => (
-  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 11, fontWeight: "bold", color, border: `1px solid ${color}`, borderRadius: 999, padding: "2px 10px" }}>
-    <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, display: "inline-block" }} />
+  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: FONT_BODY, fontSize: 11, fontWeight: "bold", color: C.gray, background: color, borderRadius: 999, padding: "3px 10px" }}>
     {name}
   </span>
 );
@@ -895,30 +923,43 @@ const CalendarView = ({ records }) => {
     display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
   });
 
+  const CAL_LINE = "#D4D6D3";
   return (
     <div>
-      {/* Legend */}
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
-        {[...legendAdvisors, CAL_UNASSIGNED_LABEL].map(a => (
-          <button
-            key={a}
-            onClick={() => setListAdvisor(a)}
-            title={`See all of ${a === CAL_UNASSIGNED_LABEL ? "the unassigned" : `${a}'s`} visits`}
-            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.gray, fontFamily: FONT_BODY, background: "transparent", border: "none", padding: 0, cursor: "pointer" }}
-          >
-            <span style={{ width: 10, height: 10, borderRadius: 3, background: advisorColors[a] || CAL_UNASSIGNED_COLOR, display: "inline-block" }} />
-            <span style={{ borderBottom: "1px dotted rgba(54,67,74,0.45)" }}>{a}</span>
-          </button>
-        ))}
-        <div style={{ fontSize: 11, color: "rgba(54,67,74,0.64)", fontFamily: FONT_BODY }}>
-          <span style={{ textDecoration: "line-through" }}>Name</span> = Cancelled
-        </div>
-      </div>
+      <style>{`
+        .nkc-top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding-bottom:16px;border-bottom:1px solid ${CAL_LINE}}
+        .nkc-title{font-family:${FONT_DISPLAY};font-size:34px;line-height:1;color:${C.gray}}
+        .nkc-legend{display:flex;flex-wrap:wrap;gap:14px 34px;padding:22px 0}
+        .nkc-lg{appearance:none;background:transparent;border:none;padding:0;text-align:left;cursor:pointer;color:${C.gray};font-family:${FONT_BODY};font-size:10px;letter-spacing:.14em;text-transform:uppercase;line-height:1.5}
+        .nkc-lg i{display:block;width:44px;height:3px;margin-bottom:9px}
+        .nkc-grid{background:${C.white};border-top:1px solid ${CAL_LINE};border-left:1px solid ${CAL_LINE}}
+        .nkc-7{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
+        .nkc-wd{font-family:${FONT_BODY};font-size:10px;font-weight:bold;letter-spacing:.16em;text-transform:uppercase;text-align:center;padding:13px 0;color:${C.gray};border-right:1px solid ${CAL_LINE};border-bottom:1px solid ${CAL_LINE}}
+        .nkc-wd .s{display:none}
+        .nkc-week{position:relative;min-height:118px;border-bottom:1px solid ${CAL_LINE}}
+        .nkc-cols{position:absolute;inset:0}
+        .nkc-cols div{border-right:1px solid ${CAL_LINE}}
+        .nkc-num{position:relative;text-align:right;padding:8px 9px 6px;height:30px;font-family:${FONT_BODY};font-size:12px;color:#5C676C}
+        .nkc-num.today span{display:inline-block;min-width:20px;height:20px;line-height:20px;text-align:center;border-radius:50%;background:${C.teal};color:${C.gray};font-weight:bold;margin:-3px -4px 0 0}
+        .nkc-evs{position:relative;display:flex;flex-direction:column;gap:2px;padding-bottom:10px}
+        .nkc-ev{font-family:${FONT_BODY};font-size:10.5px;line-height:1.25;text-align:center;padding:5px 4px;margin-right:1px;color:${C.gray};cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .nkc-ev.x{text-decoration:line-through;opacity:.75}
+        @media (max-width:700px){
+          .nkc-title{font-size:26px}
+          .nkc-legend{gap:12px 22px;padding:16px 0}
+          .nkc-wd{font-size:9px;letter-spacing:.08em}
+          .nkc-wd .l{display:none}
+          .nkc-wd .s{display:inline}
+          .nkc-week{min-height:92px}
+          .nkc-num{padding:6px 5px;font-size:11px}
+          .nkc-ev{font-size:9px;padding:4px 2px}
+        }
+      `}</style>
 
-      {/* Fluid grid — no horizontal scroll, no fixed min-width. Columns shrink
-          naturally on narrow screens; event-bar text truncates with ellipsis. */}
-      <div style={{ background: C.white, borderRadius: 8, border: "0.5px solid rgba(54,67,74,0.12)", overflow: "hidden" }}>
-        <div style={{ padding: "14px 18px", borderBottom: "0.5px solid rgba(54,67,74,0.1)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      {/* Month title + arrows */}
+      <div className="nkc-top">
+        <div className="nkc-title">{label}</div>
+        <div style={{ display: "flex", gap: 8 }}>
           <button
             aria-label="Previous month"
             disabled={atFirst}
@@ -927,7 +968,6 @@ const CalendarView = ({ records }) => {
           >
             ‹
           </button>
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: C.gray, fontStyle: "italic" }}>{label}</div>
           <button
             aria-label="Next month"
             disabled={atLast}
@@ -937,12 +977,36 @@ const CalendarView = ({ records }) => {
             ›
           </button>
         </div>
+      </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
+      {/* Legend: a short color line above each advisor. Click a name for their visits. */}
+      <div className="nkc-legend">
+        {[...legendAdvisors, CAL_UNASSIGNED_LABEL].map(a => {
+          const parts = a.split(" ");
+          return (
+            <button
+              key={a}
+              className="nkc-lg"
+              onClick={() => setListAdvisor(a)}
+              title={`See all of ${a === CAL_UNASSIGNED_LABEL ? "the unassigned" : `${a}'s`} visits`}
+            >
+              <i style={{ background: advisorColors[a] || CAL_UNASSIGNED_COLOR }} />
+              {parts[0]}<br />{parts.slice(1).join(" ") || " "}
+            </button>
+          );
+        })}
+        <div className="nkc-lg" style={{ cursor: "default" }}>
+          <i />
+          <span style={{ textDecoration: "line-through" }}>Name</span><br />Cancelled
+        </div>
+      </div>
+
+      {/* Fluid grid — no horizontal scroll, no fixed min-width. Columns shrink
+          naturally on narrow screens; event-bar text truncates with ellipsis. */}
+      <div className="nkc-grid">
+        <div className="nkc-7">
           {weekdayLabels.map(wd => (
-            <div key={wd} style={{ fontSize: 10, fontWeight: "bold", color: "rgba(54,67,74,0.64)", textAlign: "center", padding: "8px 0", borderBottom: "0.5px solid rgba(54,67,74,0.1)", textTransform: "uppercase", fontFamily: FONT_BODY }}>
-              {wd.slice(0, 3)}
-            </div>
+            <div key={wd} className="nkc-wd"><span className="l">{wd}</span><span className="s">{wd.slice(0, 3)}</span></div>
           ))}
         </div>
 
@@ -961,41 +1025,30 @@ const CalendarView = ({ records }) => {
             .filter(x => x.startIdx !== -1);
 
           return (
-            <div key={wi} style={{ position: "relative", borderBottom: "0.5px solid rgba(54,67,74,0.1)", minHeight: 88 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
-                {week.map((cell, ci) => {
-                  const isToday = calSameDay(cell.date, CAL_TODAY);
-                  return (
-                    <div key={ci} style={{ borderRight: ci < 6 ? "0.5px solid rgba(54,67,74,0.08)" : "none", padding: "5px 3px 3px 3px", background: cell.outside ? "#FAFAF7" : C.white }}>
-                      <div style={{
-                        width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 11, fontWeight: isToday ? "bold" : "normal",
-                        color: cell.outside ? "rgba(54,67,74,0.3)" : isToday ? "#fff" : C.gray,
-                        background: isToday ? C.teal : "transparent", fontFamily: FONT_BODY,
-                      }}>
-                        {cell.date.getDate()}
-                      </div>
-                    </div>
-                  );
-                })}
+            <div key={wi} className="nkc-week">
+              {/* Day column lines run the full height of the week, behind the bars */}
+              <div className="nkc-cols nkc-7" aria-hidden="true">
+                {week.map((_, ci) => <div key={ci} />)}
+              </div>
+              <div className="nkc-7">
+                {week.map((cell, ci) => (
+                  <div key={ci} className={`nkc-num${calSameDay(cell.date, CAL_TODAY) ? " today" : ""}`}>
+                    {!cell.outside && <span>{cell.date.getDate()}</span>}
+                  </div>
+                ))}
               </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "6px 0" }}>
+              <div className="nkc-evs">
                 {weekEvents.map(({ r, startIdx, endIdx }) => {
                   const advisor = calAdvisor(r) || CAL_UNASSIGNED_LABEL;
                   const isCanceled = r.stage === "Canceled";
                   return (
-                    <div key={r.name} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
+                    <div key={r.name} className="nkc-7">
                       <div
+                        className={`nkc-ev${isCanceled ? " x" : ""}`}
                         onClick={() => setSelected(r)}
                         title={`${r.name} — ${advisor}${isCanceled ? " (Cancelled)" : ""}`}
-                        style={{
-                          gridColumn: `${startIdx + 1} / span ${endIdx - startIdx + 1}`,
-                          background: calAdvisorColor(r, advisorColors), color: "#fff", fontSize: 11, fontWeight: "bold",
-                          textDecoration: isCanceled ? "line-through" : "none",
-                          padding: "6px 5px", cursor: "pointer", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                          fontFamily: FONT_BODY,
-                        }}
+                        style={{ gridColumn: `${startIdx + 1} / span ${endIdx - startIdx + 1}`, background: calAdvisorColor(r, advisorColors) }}
                       >
                         {r.name}
                       </div>
@@ -1008,7 +1061,7 @@ const CalendarView = ({ records }) => {
         })}
 
         {!monthHasEvents && (
-          <div style={{ padding: "16px 18px", fontSize: 13, color: "rgba(54,67,74,0.64)", fontFamily: FONT_BODY, fontStyle: "italic", borderTop: "0.5px solid rgba(54,67,74,0.1)" }}>
+          <div style={{ padding: "16px 18px", fontSize: 13, color: "rgba(54,67,74,0.64)", fontFamily: FONT_BODY, fontStyle: "italic", borderRight: `1px solid ${CAL_LINE}`, borderBottom: `1px solid ${CAL_LINE}` }}>
             No tours scheduled yet for {label}.
           </div>
         )}
@@ -1042,7 +1095,8 @@ const CalendarView = ({ records }) => {
                   style={{ ...ROW_STYLE, padding: "12px 0", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}
                 >
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: "bold", letterSpacing: "0.07em", textTransform: "uppercase", color, fontFamily: FONT_BODY, textDecoration: isCanceled ? "line-through" : "none" }}>
+                    <div style={{ fontSize: 12, fontWeight: "bold", letterSpacing: "0.07em", textTransform: "uppercase", color: C.gray, fontFamily: FONT_BODY, textDecoration: isCanceled ? "line-through" : "none" }}>
+                      <span style={{ display: "inline-block", width: 18, height: 3, background: color, marginRight: 8, verticalAlign: "middle" }} />
                       {r.name}
                     </div>
                     <div style={{ fontSize: 12.5, color: "rgba(54,67,74,0.85)", marginTop: 3, fontFamily: FONT_BODY }}>
@@ -1222,8 +1276,8 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
   leadNoId.forEach(e => out.push(e));
 
   // Tours: a visit counts once its meeting is logged (Tour Date in
-  // Prospect_Calendar, not Canceled). A Connector is not a prospect, so a
-  // Connector's visit is not a prospect visit: it stays on the Calendar tab only.
+  // Prospect_Calendar, not Canceled) — same rule as the sheet. Connectors are
+  // reported as tours but are never prospects.
   const calTours = []; // [{ key, date }] to avoid counting the HubSpot date twice
   (calendarRecords || []).forEach(r => {
     if (!r.name) return;
@@ -1235,7 +1289,7 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
       const p = people.get(rid);
       people.set(rid, { ...p, status: pdStr(r.leadStatus) || p.status, lifecycle: pdStr(r.lifecycle) || p.lifecycle, lostDate: r.lostDate || p.lostDate, lossReason: pdStr(r.lossReason) || p.lossReason });
     }
-    if (!r.tourDate || r.stage === "Canceled" || isConnector) return;
+    if (!r.tourDate || r.stage === "Canceled") return;
     const d = pdDay(r.tourDate);
     const sameDay = r.arrival && r.departure ? calSameDay(r.arrival, r.departure) : true;
     calTours.push({ key, date: d });
@@ -1260,20 +1314,9 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
       notes: r.notes || [],
     });
   });
-  // An Owner or Founder who visits is a buyer coming back, not a prospect. Their
-  // HubSpot visit date only counts as a prospect visit when it led to a purchase:
-  // a deal of theirs in Master_Deals with no PSA yet, or a PSA signed on or after the visit.
-  const buyerDeals = new Map(); // buyer Record ID → [PSA date or null]
-  (masterDeals || []).forEach(r => {
-    const rid = pdId(r["Buyer HubSpot Record ID"]);
-    if (!rid || !pdStr(r["Deal Name"])) return;
-    buyerDeals.set(rid, [...(buyerDeals.get(rid) || []), twParseDate(r["PSA Date Signed"])]);
-  });
-  const visitedAsBuyer = p => ["owner", "founder"].includes(pdStr(p.contactType).toLowerCase())
-    && !(buyerDeals.get(p.rid) || []).some(psa => !psa || psa >= p.hubspotTour);
   // HubSpot tour dates from the baseline, unless the calendar already has that visit.
   people.forEach(p => {
-    if (!p.hubspotTour || visitedAsBuyer(p)) return;
+    if (!p.hubspotTour) return;
     const dup = calTours.some(t => t.key === p.key && Math.abs(pdDiff(t.date, p.hubspotTour)) <= 7);
     if (dup) return;
     out.push({
@@ -1393,10 +1436,8 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
   // Day-level counts exist for [a, b] only if it starts on/after mastersFrom (or the type is always dated).
   const hasDailyData = (type, a) => !ARCHIVED.includes(type) || a >= mastersFrom;
 
-  // Same window as HubSpot's "last 60 days" filter: today minus 60 days, through
-  // today (61 calendar days). The comparison period is the same length, right before it.
-  const win  = { start: pdAdd(today, -WINDOW_DAYS), end: today };
-  const prev = { start: pdAdd(win.start, -(WINDOW_DAYS + 1)), end: pdAdd(win.start, -1) };
+  const win  = { start: pdAdd(today, -(WINDOW_DAYS - 1)), end: today };
+  const prev = { start: pdAdd(win.start, -WINDOW_DAYS), end: pdAdd(win.start, -1) };
   // Monday-to-Sunday buckets across the window, clipped to it, for the small bars.
   const weeks = [];
   for (let ws = twWeekStart(win.start); ws <= today; ws = pdAdd(ws, 7)) {
@@ -1441,15 +1482,6 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
     // Moved to Pending OTP: inventory assigned (deal created) in the window.
     toDeal: list("hold", win.start, today).sort((a, b) => b.date - a.date),
   };
-  // Every prospect visit in the window with what happened after it:
-  // converted (has a deal / is a buyer), lost, or still open with no OTP yet.
-  const visited = list("tour", win.start, today).sort((a, b) => b.date - a.date).map(e => {
-    const p = (e.rid && people.get(e.rid)) || people.get(`name:${e.name}`) || null;
-    const type = pdStr(p && p.contactType).toLowerCase();
-    const outcome = p && (hasDeal(p) || ["owner", "founder"].includes(type)) ? "converted"
-      : p && isLost(p) ? "lost" : "open";
-    return { ...e, outcome, status: p ? pdStr(p.status) : "", lifecycle: p ? pdStr(p.lifecycle) : "" };
-  });
   // Days since the prospect visit, for the ones that have not moved to Pending OTP.
   const daysOpen = p => pdDiff(p.tourDate, today);
   const avgOf = arr => arr.length ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : null;
@@ -1487,7 +1519,7 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
     .filter(d => d.name && d.date && ["Pending OTP", "Signed OTP", "Decision"].includes(d.stage) && d.date >= today && d.date <= mEnd)
     .sort((a, b) => a.date - b.date);
 
-  return { today, entries, list, count, amount, hasDailyData, win, prev, weeks, month, mastersFrom, leadTourRate, prospects, visited, visits, ddThisMonth, aging, daysOpen };
+  return { today, entries, list, count, amount, hasDailyData, win, prev, weeks, month, mastersFrom, leadTourRate, prospects, visits, ddThisMonth, aging, daysOpen };
 }
 
 const PD_DEAL_STATS = [
@@ -1610,8 +1642,7 @@ const PdRow = ({ stat, n, total, first, onOpen, children }) => {
 };
 
 // A single logged update inside the pop-up list.
-// `facts` is an optional list of { label, value, color } shown under the name (used for prospect visits).
-const TWEntryRow = ({ e, showDate, facts }) => {
+const TWEntryRow = ({ e, showDate }) => {
   const isDeal = ["hold", "potp", "sotp", "psa", "lost"].includes(e.type);
   const { property, buyer } = isDeal ? splitDealName(e.name) : { property: e.name, buyer: null };
   const color = e.type === "lost" ? C.red : e.type === "hold" ? C.amber : C.teal;
@@ -1627,17 +1658,6 @@ const TWEntryRow = ({ e, showDate, facts }) => {
           {showDate && <div style={{ fontSize: 11.5, color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{twDayFmt(e.date)}</div>}
         </div>
       </div>
-      {facts && facts.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", margin: "6px 0 6px" }}>
-          {facts.map(f => (
-            <span key={f.label} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontFamily: FONT_BODY, color: C.gray }}>
-              <span style={{ color: PD_MUTED }}>{f.label}:</span>
-              {f.color && <span style={{ width: 8, height: 8, borderRadius: "50%", background: f.color }} />}
-              <strong>{f.value}</strong>
-            </span>
-          ))}
-        </div>
-      )}
       {isDeal && e.stage && (
         <div style={{ marginTop: 8, marginBottom: 6 }}>
           <span style={{ display: "inline-block", fontSize: 11, fontWeight: "bold", fontFamily: FONT_BODY, borderRadius: 999, padding: "2px 10px",
@@ -1707,28 +1727,7 @@ const ProspectRow = ({ p, right, sub }) => (
 const SixtyDayView = ({ model, onGo }) => {
   const [openKey, setOpenKey] = useState(null);
   const [showDeals, setShowDeals] = useState(false);
-  const { win, prev, weeks, count, amount, list, today, prospects, visited, visits, month } = model;
-  // Toured prospects, post visit status: everyone who visited in the window,
-  // by what happened after the visit, by lead status and by lead source.
-  const PV_OUTCOMES = [
-    { key: "open", label: "No inventory assigned", color: C.teal },
-    { key: "converted", label: "Converted", color: C.green },
-    { key: "lost", label: "Lost", color: C.red },
-  ];
-  const pvSource = e => {
-    const v = pdStr(e.src);
-    if (!v) return "No source";
-    const k = v.toLowerCase();
-    return k === "referral" ? "Personal Referral" : k === "media/press" ? "Press" : v;
-  };
-  const pvStatus = e => { const v = pdStr(e.status); return !v || v === "(No Status Set)" ? "No lead status" : v; };
-  const pvTally = fn => {
-    const acc = new Map();
-    visited.forEach(e => acc.set(fn(e), (acc.get(fn(e)) || 0) + 1));
-    return [...acc.entries()].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]));
-  };
-  const pvBySource = pvTally(pvSource), pvByStatus = pvTally(pvStatus);
-  const pvByOutcome = PV_OUTCOMES.map(o => ({ ...o, items: visited.filter(e => e.outcome === o.key) })).filter(o => o.items.length > 0);
+  const { win, prev, weeks, count, amount, list, today, prospects, visits, month } = model;
   const allStats = [...PD_DEAL_STATS, ...PD_ACTIVITY_STATS];
   const open = allStats.find(s => s.key === openKey);
 
@@ -1777,44 +1776,14 @@ const SixtyDayView = ({ model, onGo }) => {
   const leadTotal = cur("lead");
 
   const renderList = () => {
-    const isTour = open.key === "tour";
-    // Prospect visits carry what happened after the visit, the lead status and the lead source.
-    const items = isTour ? visited : list(open.key, win.start, win.end).sort((a, b) => b.date - a.date);
+    const items = list(open.key, win.start, win.end).sort((a, b) => b.date - a.date);
     const total = items.reduce((s, e) => s + e.amount, 0);
     const n = cur(open.key);
-    const tourFacts = e => {
-      const o = PV_OUTCOMES.find(x => x.key === e.outcome);
-      return [
-        { label: "Post visit status", value: o ? o.label : "—", color: o && o.color },
-        { label: "Lead status", value: pvStatus(e), color: LEAD_STATUS_COLOR[pvStatus(e)] || "rgba(54,67,74,0.3)" },
-        { label: "Source", value: pvSource(e) },
-      ];
-    };
     return (
       <Modal title={`${open.label}${open.sub ? ` (${open.sub})` : ""} · Last 60 Days`}
         subtitle={`${twRangeLabel(win.start, win.end)} · ${n}${total > 0 && n === items.length ? ` · ${money(total)}` : ""}`}
         onClose={() => setOpenKey(null)}>
-        {/* Summary at the top of the prospect visits list */}
-        {isTour && items.length > 0 && (
-          <div style={{ background: C.white, border: "1px solid rgba(54,67,74,0.14)", borderRadius: 8, padding: "12px 15px", marginBottom: 6 }}>
-            <div style={{ fontSize: 13.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>Toured Prospects Post Visit Status</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px", marginTop: 6 }}>
-              {pvByOutcome.map(o => (
-                <span key={o.key} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: C.gray, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>
-                  <span style={{ width: 9, height: 9, borderRadius: "50%", background: o.color }} />
-                  <strong>{o.items.length}</strong> {o.label}
-                </span>
-              ))}
-            </div>
-            {[["Lead status", pvByStatus], ["Source", pvBySource]].map(([label, rows]) => rows.length > 0 && (
-              <div key={label} style={{ fontSize: 12, color: C.gray, fontFamily: FONT_BODY, marginTop: 6, lineHeight: 1.45 }}>
-                <span style={{ color: "rgba(54,67,74,0.68)" }}>{label}: </span>
-                {rows.map(([k, c], ix) => <span key={k}>{ix > 0 ? " · " : ""}{k} <strong>{c}</strong></span>)}
-              </div>
-            ))}
-          </div>
-        )}
-        <PdShowMore items={items} empty="None in the last 60 days." render={e => <TWEntryRow key={e.i} e={e} showDate facts={isTour ? tourFacts(e) : null} />} />
+        <PdShowMore items={items} empty="None in the last 60 days." render={e => <TWEntryRow key={e.i} e={e} showDate />} />
         {n > items.length && (
           <PdNote>{n - items.length} more were reported in the weekly counts before {twDayFmt(model.mastersFrom)}, when the master tabs start. Those have no detail rows.</PdNote>
         )}
@@ -1847,7 +1816,7 @@ const SixtyDayView = ({ model, onGo }) => {
         }
       `}</style>
       <div className="pd-cards">
-        {/* Sales activity: two sections, each opens its own list. The prospect visits list opens with the post visit status summary. */}
+        {/* Sales activity: two sections, each opens its own list */}
         <div className="pd-card">
           <div style={{ fontSize: 12.5, color: "rgba(54,67,74,0.68)", fontFamily: FONT_BODY }}>Sales activity · last 60 days</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, marginTop: 4 }}>
@@ -1863,16 +1832,7 @@ const SixtyDayView = ({ model, onGo }) => {
           </div>
         </div>
         {answer("Pipeline updates in the last 60 days", `${updates} Pipeline Update${updates === 1 ? "" : "s"}`, null, () => setShowDeals(true), "View by stage")}
-        {/* Coming up: upcoming prospect visits for the rest of the month */}
-        <div className="pd-card">
-          <div style={{ fontSize: 12.5, color: "rgba(54,67,74,0.68)", fontFamily: FONT_BODY }}>Coming up</div>
-          <div role="button" tabIndex={0} onClick={() => onGo("month")} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onGo("month"); } }}
-            className="pd-click" style={{ padding: "2px 6px 4px", marginLeft: -6 }}>
-            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 23, lineHeight: 1.2, color: C.gray, marginTop: 4 }}>{visitsThisMonth} upcoming prospect visit{visitsThisMonth === 1 ? "" : "s"}</div>
-            <div style={{ fontSize: 12, color: "rgba(54,67,74,0.68)", fontFamily: FONT_BODY, marginTop: 3 }}>Rest of {today.toLocaleDateString("en-US", { month: "long" })}</div>
-            <span className="pd-link">View this month ›</span>
-          </div>
-        </div>
+        {answer("Coming up", `${visitsThisMonth} visit${visitsThisMonth === 1 ? "" : "s"} booked`, `Rest of ${today.toLocaleDateString("en-US", { month: "long" })} · ${prospects.active.length} toured prospect${prospects.active.length === 1 ? "" : "s"} in play`, () => onGo("month"), "View this month")}
       </div>
 
       <PdSectionHead text="Activity" right="One bar per week (Mon–Sun) · dark bar = this week" first />
@@ -1926,6 +1886,10 @@ const SixtyDayView = ({ model, onGo }) => {
           ))}
         </div>
       )}
+      <PdNote>
+        No source recorded or other: {gLeads.none} lead{gLeads.none === 1 ? "" : "s"}, {gTours.none} prospect visit{gTours.none === 1 ? "" : "s"}, {gPsas.none} signed PSA{gPsas.none === 1 ? "" : "s"}. Shown apart, not in any group.
+        {" "}Before {twDayFmt(model.mastersFrom)}, New Pending OTPs, New Signed OTPs and Lost Deals come from the weekly counts reported at the time.
+      </PdNote>
 
       {open && renderList()}
 
@@ -2021,7 +1985,7 @@ const ThisMonthView = ({ model }) => {
       <PdSectionHead text="Also this month" />
       {PD_ACTIVITY_STATS.slice(2).map(row)}
 
-      <PdSectionHead text="Prospect visits coming up this month" right={`${coming.length} visit${coming.length === 1 ? "" : "s"} booked`} />
+      <PdSectionHead text="Coming up this month" right={`${coming.length} visit${coming.length === 1 ? "" : "s"} booked`} />
       {coming.length === 0 && ddThisMonth.length === 0 && (
         <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>No visits or due-diligence deadlines left this month.</div>
       )}

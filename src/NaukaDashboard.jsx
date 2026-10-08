@@ -545,8 +545,8 @@ function parseCalendarSheet(rows) {
       name: r["Name"],
       arrival: parseDate(r["Arrival Date"]),
       departure: parseDate(r["Departure Date"]),
-      // Meeting date from HubSpot's "contacts with meetings" report. A visit
-      // counts as a tour (60-day and monthly counts) only when it's set.
+      // Meeting date from HubSpot's "contacts with meetings" report. Kept for
+      // reference; prospect visits are counted by Arrival Date.
       tourDate: parseDate(r["Tour Date"]),
       // Links the visit to its lead and deal. Names are never used for matching.
       recordId: r["HubSpot Record ID"] || null,
@@ -1135,7 +1135,7 @@ const CalendarView = ({ records }) => {
 //                     OTP Signed Date            → New Signed OTPs
 //                     PSA Date Signed            → New Signed Deals (PSAs)
 //                     Lost Date                  → Lost Deals
-//   Prospect_Calendar — Tour Date (not Canceled) → Tours & Visits
+//   Prospect_Calendar — Arrival Date (not Canceled) → Prospect Visits
 // The masters only hold complete OTP / lost-deal dates from the "Masters
 // complete from" date in Report_Settings (Sep 7, 2026). For days before it,
 // New Pending OTPs, New Signed OTPs and Lost Deals use the weekly counts in
@@ -1275,9 +1275,10 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
   leadById.forEach(e => out.push(e));
   leadNoId.forEach(e => out.push(e));
 
-  // Tours: a visit counts once its meeting is logged (Tour Date in
-  // Prospect_Calendar, not Canceled) — same rule as the sheet. Connectors are
-  // reported as tours but are never prospects.
+  // Prospect visits: counted by Arrival Date in Prospect_Calendar (not
+  // Canceled), the same date HubSpot's prospect visit report uses. A visit
+  // enters the counts on the day of arrival. Connectors are reported as
+  // visits but are never prospects.
   const calTours = []; // [{ key, date }] to avoid counting the HubSpot date twice
   (calendarRecords || []).forEach(r => {
     if (!r.name) return;
@@ -1289,8 +1290,8 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
       const p = people.get(rid);
       people.set(rid, { ...p, status: pdStr(r.leadStatus) || p.status, lifecycle: pdStr(r.lifecycle) || p.lifecycle, lostDate: r.lostDate || p.lostDate, lossReason: pdStr(r.lossReason) || p.lossReason });
     }
-    if (!r.tourDate || r.stage === "Canceled") return;
-    const d = pdDay(r.tourDate);
+    if (!r.arrival || r.stage === "Canceled") return;
+    const d = pdDay(r.arrival);
     const sameDay = r.arrival && r.departure ? calSameDay(r.arrival, r.departure) : true;
     calTours.push({ key, date: d });
     out.push({

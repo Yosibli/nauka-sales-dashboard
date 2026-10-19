@@ -721,9 +721,13 @@ const CalAdvisorChip = ({ name, color }) => (
   </span>
 );
 
+// Club events (Stage or Contact Type "Event", e.g. the Nauka Cup) show on the
+// calendar only. They are never counted as Prospect Visits or upcoming visits.
+const calIsEvent = r => /^event$/i.test(String(r.stage || "").trim()) || /^event$/i.test(String(r.contactType || "").trim());
+
 function calGetIssues(r) {
   const issues = [];
-  if (r.isMember) return issues;
+  if (r.isMember || calIsEvent(r)) return issues;
   if (r.stage !== "Canceled" && !r.coveredBy) issues.push({ label: "No advisor / 'Covered By' assigned", level: "red" });
   // Email check runs regardless of stage (including Canceled) — a canceled visit is
   // still a prospect worth following up with, so a missing email is still an open item.
@@ -762,6 +766,7 @@ function calNarrative(r) {
   const sentences = [];
   const dayVisit = calSameDay(r.arrival, r.departure);
   const a = calFmt(r.arrival), d = calFmt(r.departure);
+  if (calIsEvent(r)) return `Club event, ${dayVisit ? a : `${a} to ${d}`}. Not counted as a Prospect Visit.`;
   const covered = r.coveredBy ? `, covered by ${r.coveredBy}` : "";
   if (r.stage === "Canceled") {
     sentences.push(`${dayVisit ? `Visit planned for ${a}` : `Visit planned for ${a} to ${d}`} was cancelled${covered}.`);
@@ -1281,7 +1286,7 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
   // visits but are never prospects.
   const calTours = []; // [{ key, date }] to avoid counting the HubSpot date twice
   (calendarRecords || []).forEach(r => {
-    if (!r.name) return;
+    if (!r.name || calIsEvent(r)) return; // club events are not Prospect Visits
     const rid = pdId(r.recordId);
     const key = rid || `name:${r.name}`;
     const isConnector = pdStr(r.contactType).toLowerCase() === "connector";
@@ -1513,7 +1518,7 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
   };
 
   const visits = (calRecords || [])
-    .filter(r => r.name && r.stage === "Scheduled" && r.arrival && r.arrival >= today && pdStr(r.contactType).toLowerCase() !== "connector")
+    .filter(r => r.name && r.stage === "Scheduled" && !calIsEvent(r) && r.arrival && r.arrival >= today && pdStr(r.contactType).toLowerCase() !== "connector")
     .sort((a, b) => a.arrival - b.arrival);
   const ddThisMonth = (masterDeals || [])
     .map(r => ({ name: pdStr(r["Deal Name"]), stage: pdStr(r["Stage"]), date: twParseDate(r["DD Expiry"]), amount: twAmount(r["Amount ($)"]), advisor: pdStr(r["Advisor"]) }))

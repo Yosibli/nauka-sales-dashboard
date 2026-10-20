@@ -1487,8 +1487,11 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
     recent: toured.filter(p => !hasDeal(p) && p.tourDate >= win.start).sort(byTourDesc),
     // Lost after the tour, in the window: by Lost Date when the sheet has one, else by the tour date.
     lost: toured.filter(p => !hasDeal(p) && isLost(p) && (p.lostDate || p.tourDate) >= win.start && (p.lostDate || p.tourDate) <= today).sort(byTourDesc),
-    // Moved to Pending OTP: inventory assigned (deal created) in the window.
-    toDeal: list("hold", win.start, today).sort((a, b) => b.date - a.date),
+    // Moved to Pending OTP: inventory assigned (deal created) in the window, only for
+    // buyers who had a prospect visit in the window on or before the deal date.
+    toDeal: list("hold", win.start, today)
+      .filter(d => d.rid && entries.some(t => t.type === "tour" && !t.connector && t.rid === d.rid && t.date >= win.start && t.date <= d.date))
+      .sort((a, b) => b.date - a.date),
   };
   // Days since the prospect visit, for the ones that have not moved to Pending OTP.
   const daysOpen = p => pdDiff(p.tourDate, today);
@@ -2059,7 +2062,7 @@ const ProspectStages = ({ model }) => {
       items: prospects.active, render: (p, i) => <ProspectRow key={i} p={p} right={tourInfo(p)} sub={stageAndStatus(p)} /> },
     older: { title: "Older Toured Prospects Still Open", sub: `Toured before ${twDayFmt(win.start)} · no deal, not marked Lost`, empty: "None.",
       items: prospects.older, render: (p, i) => <ProspectRow key={i} p={p} right={tourInfo(p)} sub={stageAndStatus(p)} /> },
-    toDeal: { title: "Moved to Pending OTP", sub: `Inventory assigned · ${twRangeLabel(win.start, win.end)}`, empty: "No inventory was assigned in the last 60 days.",
+    toDeal: { title: "Moved to Pending OTP", sub: `Visited and inventory assigned · ${twRangeLabel(win.start, win.end)}`, empty: "No one who visited in the last 60 days has had inventory assigned yet.",
       items: prospects.toDeal, render: e => <TWEntryRow key={e.i} e={e} showDate /> },
   };
   byStatus.forEach(([st]) => {
@@ -2079,7 +2082,7 @@ const ProspectStages = ({ model }) => {
           <div style={{ fontSize: 13.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, marginBottom: 4 }}>
             Where toured prospects went <span style={{ fontWeight: "normal", color: PD_MUTED, fontSize: 12 }}>· last 60 days</span>
           </div>
-          {exit("toDeal", "→", C.green, prospects.toDeal.length, "Moved to Pending OTP", "Inventory assigned, deal amount starts here")}
+          {exit("toDeal", "→", C.green, prospects.toDeal.length, "Moved to Pending OTP", "Visited in the last 60 days, then inventory assigned")}
         </div>
         <div style={{ background: C.white, border: "1px solid rgba(54,67,74,0.14)", borderRadius: 8, padding: "12px 15px", minWidth: 0 }}>
           <div style={{ fontSize: 13.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}>

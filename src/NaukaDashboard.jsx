@@ -1749,7 +1749,6 @@ const SixtyDayView = ({ model, onGo }) => {
   const rateOld = model.leadTourRate(prev.start, prev.end);
   // Pipeline updates: every change of stage after the prospect visit, wins and losses alike.
   const updates = cur("hold") + cur("potp") + cur("sotp") + cur("psa") + cur("lost");
-  const visitsThisMonth = visits.filter(v => v.arrival <= month.end).length;
 
   const row = (s, i) => {
     const n = cur(s.key), p = old(s.key);
@@ -1843,7 +1842,13 @@ const SixtyDayView = ({ model, onGo }) => {
           </div>
         </div>
         {answer("Pipeline updates in the last 60 days", `${updates} Pipeline Update${updates === 1 ? "" : "s"}`, null, () => setShowDeals(true), "View by stage")}
-        {answer("Coming up", `${visitsThisMonth} visit${visitsThisMonth === 1 ? "" : "s"} booked`, `Rest of ${today.toLocaleDateString("en-US", { month: "long" })} · ${prospects.active.length} toured prospect${prospects.active.length === 1 ? "" : "s"} in play`, () => onGo("month"), "View this month")}
+        {/* Coming up: the next booked Prospect Visit (Scheduled, from today on) */}
+        {(() => {
+          const next = visits[0];
+          const when = next ? (calSameDay(next.arrival, next.departure) ? twDayFmt(next.arrival) : pdShortRange(next.arrival, next.departure)) : null;
+          const who = next ? (next.coveredBy || next.owner) : null;
+          return answer("Coming up", next ? `Next: ${next.name}` : "No visits booked", next ? [when, who].filter(Boolean).join(" · ") : null, () => onGo("month"), "View this month");
+        })()}
       </div>
 
       <PdSectionHead text="Activity" right="One bar per week (Mon–Sun) · dark bar = this week" first />

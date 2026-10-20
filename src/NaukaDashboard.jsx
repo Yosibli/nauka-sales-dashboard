@@ -1483,6 +1483,8 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
   const prospects = {
     active: open.filter(p => p.tourDate >= win.start),
     older: open.filter(p => p.tourDate < win.start),
+    // Visited in the window, no deal yet, any lead status (for "Where toured prospects are now").
+    recent: toured.filter(p => !hasDeal(p) && p.tourDate >= win.start).sort(byTourDesc),
     // Lost after the tour, in the window: by Lost Date when the sheet has one, else by the tour date.
     lost: toured.filter(p => !hasDeal(p) && isLost(p) && (p.lostDate || p.tourDate) >= win.start && (p.lostDate || p.tourDate) <= today).sort(byTourDesc),
     // Moved to Pending OTP: inventory assigned (deal created) in the window.
@@ -2021,27 +2023,18 @@ const ThisMonthView = ({ model }) => {
 const ProspectStages = ({ model }) => {
   const [openKey, setOpenKey] = useState(null);
   const { prospects, visits, win, today, aging, daysOpen } = model;
-  const reasons = (() => {
+  // Current HubSpot lead status of everyone who had a prospect visit in the last 60 days and has no deal yet.
+  const statusOf = p => { const v = pdStr(p.status); return !v || v === "(No Status Set)" ? "No status" : v; };
+  const STATUS_ORDER = ["Active", "Nurture", "Timing", "Unresponsive", "Gone Dark", "Not Interested", "Unqualified", "Unsubscribed"];
+  const byStatus = (() => {
     const acc = new Map();
-    prospects.lost.forEach(p => {
-      const k = p.lossReason || "No reason recorded";
-      acc.set(k, (acc.get(k) || 0) + 1);
-    });
-    return [...acc.entries()].sort((a, b) => b[1] - a[1]);
+    prospects.recent.forEach(p => { const k = statusOf(p); acc.set(k, (acc.get(k) || 0) + 1); });
+    const rank = k => { const i = STATUS_ORDER.indexOf(k); return i === -1 ? (k === "No status" ? 99 : 50) : i; };
+    return [...acc.entries()].sort((x, y) => rank(x[0]) - rank(y[0]) || y[1] - x[1]);
   })();
-  const maxReason = Math.max(...reasons.map(r => r[1]), 1);
+  const maxStatus = Math.max(...byStatus.map(r => r[1]), 1);
   const tourInfo = p => `Visited ${twDayFmt(p.tourDate)}${p.tourDate.getFullYear() !== today.getFullYear() ? `, ${p.tourDate.getFullYear()}` : ""} · ${daysOpen(p)} day${daysOpen(p) === 1 ? "" : "s"}`;
   const stageAndStatus = p => [p.lifecycle, p.status || "No lead status"].filter(Boolean).join(" · ");
-  const agingMax = Math.max(aging.active || 0, aging.older || 0, aging.buyersAvg || 0, 1);
-  const agingLine = (label, hint, days, color) => days != null && (
-    <div style={{ padding: "5px 0" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, fontFamily: FONT_BODY }}>
-        <span style={{ fontSize: 13, color: C.gray }}>{label} <span style={{ fontSize: 12, color: PD_MUTED }}>{hint}</span></span>
-        <span style={{ fontSize: 13, fontWeight: "bold", color: C.gray, whiteSpace: "nowrap" }}>{days} days</span>
-      </div>
-      <div style={{ height: 9, width: `${Math.max((days / agingMax) * 100, 1)}%`, background: color, borderRadius: 5, marginTop: 4 }} />
-    </div>
-  );
 
   const stageRow = (key, label, hint, n, first) => (
     <PdRow key={key} stat={{ label }} n={n} first={first} onOpen={() => setOpenKey(key)}>
@@ -2066,11 +2059,13 @@ const ProspectStages = ({ model }) => {
       items: prospects.active, render: (p, i) => <ProspectRow key={i} p={p} right={tourInfo(p)} sub={stageAndStatus(p)} /> },
     older: { title: "Older Toured Prospects Still Open", sub: `Toured before ${twDayFmt(win.start)} · no deal, not marked Lost`, empty: "None.",
       items: prospects.older, render: (p, i) => <ProspectRow key={i} p={p} right={tourInfo(p)} sub={stageAndStatus(p)} /> },
-    lost: { title: "Lost After the Tour", sub: `${twRangeLabel(win.start, win.end)}`, empty: "No toured prospects were marked Lost in the last 60 days.",
-      items: prospects.lost, render: (p, i) => <ProspectRow key={i} p={p} right={tourInfo(p)} sub={`${p.lossReason || "No reason recorded"} · ${stageAndStatus(p)}`} /> },
     toDeal: { title: "Moved to Pending OTP", sub: `Inventory assigned · ${twRangeLabel(win.start, win.end)}`, empty: "No inventory was assigned in the last 60 days.",
       items: prospects.toDeal, render: e => <TWEntryRow key={e.i} e={e} showDate /> },
   };
+  byStatus.forEach(([st]) => {
+    lists[`status:${st}`] = { title: `Toured Prospects · ${st}`, sub: `Visited since ${twDayFmt(win.start)} · no deal yet · current lead status`, empty: "None.",
+      items: prospects.recent.filter(p => statusOf(p) === st), render: (p, i) => <ProspectRow key={i} p={p} right={tourInfo(p)} sub={stageAndStatus(p)} /> };
+  });
   const open = openKey && lists[openKey];
 
   return (
@@ -2085,33 +2080,30 @@ const ProspectStages = ({ model }) => {
             Where toured prospects went <span style={{ fontWeight: "normal", color: PD_MUTED, fontSize: 12 }}>· last 60 days</span>
           </div>
           {exit("toDeal", "→", C.green, prospects.toDeal.length, "Moved to Pending OTP", "Inventory assigned, deal amount starts here")}
-          {exit("lost", "→", C.red, prospects.lost.length, "Lost after the tour", "Each one with a reason and a lead status update")}
         </div>
         <div style={{ background: C.white, border: "1px solid rgba(54,67,74,0.14)", borderRadius: 8, padding: "12px 15px", minWidth: 0 }}>
-          <div style={{ fontSize: 13.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}>Lost reasons</div>
-          {reasons.length === 0 && <div style={{ fontSize: 12.5, color: PD_MUTED, fontFamily: FONT_BODY }}>None in the last 60 days.</div>}
-          {reasons.map(([label, n]) => (
-            <div key={label} style={{ display: "grid", gridTemplateColumns: "minmax(0, 150px) 1fr 18px", gap: 8, alignItems: "center", fontSize: 13, color: C.gray, fontFamily: FONT_BODY, padding: "3px 0" }}>
+          <div style={{ fontSize: 13.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}>
+            Where toured prospects are now <span style={{ fontWeight: "normal", color: PD_MUTED, fontSize: 12 }}>· lead status, last 60 days</span>
+          </div>
+          {byStatus.length === 0 && <div style={{ fontSize: 12.5, color: PD_MUTED, fontFamily: FONT_BODY }}>No prospect visits in the last 60 days.</div>}
+          {byStatus.map(([label, n]) => (
+            <div key={label} role="button" tabIndex={0} onClick={() => setOpenKey(`status:${label}`)}
+              onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpenKey(`status:${label}`); } }}
+              style={{ display: "grid", gridTemplateColumns: "minmax(0, 110px) 1fr 22px", gap: 8, alignItems: "center", fontSize: 13, color: C.gray, fontFamily: FONT_BODY, padding: "4px 0", cursor: "pointer" }}>
               <span>{label}</span>
-              <div style={{ height: 9, width: `${(n / maxReason) * 100}%`, background: C.red, borderRadius: 5 }} />
-              <span style={{ fontWeight: "bold" }}>{n}</span>
+              <div style={{ height: 9, width: `${(n / maxStatus) * 100}%`, minWidth: 4, background: LEAD_STATUS_COLOR[label] || "rgba(54,67,74,0.3)", borderRadius: 5 }} />
+              <span style={{ fontWeight: "bold", textAlign: "right" }}>{n}</span>
             </div>
           ))}
         </div>
       </div>
-      <div style={{ background: C.white, border: "1px solid rgba(54,67,74,0.14)", borderRadius: 8, padding: "12px 15px", marginTop: 10 }}>
-        <div style={{ fontSize: 13.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, marginBottom: 4 }}>
-          Days since prospect visit <span style={{ fontWeight: "normal", color: PD_MUTED, fontSize: 12 }}>· average, for those not yet in Pending OTP</span>
+      {/* Days since the prospect visit, in one sentence (median past buyer as the benchmark) */}
+      {aging.active != null && (
+        <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginTop: 12, lineHeight: 1.5 }}>
+          Recent prospects: {aging.active} day{aging.active === 1 ? "" : "s"} since their visit.
+          {aging.buyersMedian != null && <> Buyers usually take about {Math.max(1, Math.round(aging.buyersMedian / 30))} month{Math.max(1, Math.round(aging.buyersMedian / 30)) === 1 ? "" : "s"}.</>}
         </div>
-        {agingLine("Toured prospects", `(${prospects.active.length}, last 60 days)`, aging.active, C.teal)}
-        {agingLine("Older, still open", `(${prospects.older.length})`, aging.older, C.red)}
-        {agingLine("Past buyers: visit to Pending OTP", `(average of ${aging.buyersN} deals)`, aging.buyersAvg, C.gray)}
-        {aging.buyersN > 0 && (
-          <div style={{ fontSize: 11.5, color: PD_MUTED, fontFamily: FONT_BODY, marginTop: 6, lineHeight: 1.5 }}>
-            Half of past buyers had inventory assigned within {aging.buyersMedian} days of their visit. Measured on the {aging.buyersN} deals where HubSpot has a visit date before the deal.
-          </div>
-        )}
-      </div>
+      )}
       {prospects.older.length > 0 && (
         <div role="button" tabIndex={0} onClick={() => setOpenKey("older")} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpenKey("older"); } }}
           style={{ cursor: "pointer", fontSize: 12.5, color: "rgba(54,67,74,0.75)", fontFamily: FONT_BODY, marginTop: 12, lineHeight: 1.5 }}>

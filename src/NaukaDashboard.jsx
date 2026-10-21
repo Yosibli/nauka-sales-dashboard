@@ -2132,10 +2132,11 @@ const ProspectStages = ({ model }) => {
 // ── MAIN MENU ────────────────────────────────────────────────────────
 // Desktop / tablet: one row of big icon tabs that sticks to the top while
 // scrolling. Phones (≤700px): an app-style bar pinned to the bottom of the
-// screen, in thumb reach. Same six destinations, same order.
+// screen, in thumb reach. Same seven destinations, same order.
 // ══════════════════════════════════════════════════════════════════════
 
 const NAV_ITEMS = [
+  { key: "home",        label: "Home",       cap: "2026 sales",   icon: "home" },
   { key: "weekly",      label: "60 Days",    cap: "Last 60 days", icon: "bars" },
   { key: "month",       label: "This Month", cap: "Live",         icon: "pulse", live: true },
   { key: "calendar",    label: "Calendar",  icon: "calendar" },
@@ -2148,6 +2149,7 @@ const NavIcon = ({ name, size = 22 }) => {
   const p = { fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" };
   const shapes = {
     bars: <><rect x="3" y="12" width="4" height="8" rx="1" {...p} /><rect x="10" y="8" width="4" height="12" rx="1" {...p} /><rect x="17" y="4" width="4" height="16" rx="1" {...p} /></>,
+    home: <path d="M3 11l9-7 9 7M5 10v10h5v-6h4v6h5V10" {...p} />,
     pulse: <path d="M3 12h4l3-8 4 16 3-8h4" {...p} />,
     calendar: <><rect x="4" y="5" width="16" height="16" rx="2" {...p} /><path d="M16 3v4M8 3v4M4 11h16" {...p} /></>,
     briefcase: <><rect x="3" y="7" width="18" height="13" rx="2" {...p} /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18" {...p} /></>,
@@ -2158,7 +2160,7 @@ const NavIcon = ({ name, size = 22 }) => {
 };
 
 const NAV_CSS = `
-.nk-topnav{position:sticky;top:8px;z-index:50;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;background:${C.gray};padding:6px;border-radius:12px;margin-bottom:1rem;box-shadow:0 2px 10px rgba(54,67,74,0.18)}
+.nk-topnav{position:sticky;top:8px;z-index:50;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;background:${C.gray};padding:6px;border-radius:12px;margin-bottom:1rem;box-shadow:0 2px 10px rgba(54,67,74,0.18)}
 .nk-tab{appearance:none;border:none;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:64px;padding:8px 4px;border-radius:8px;color:#C9D3D6;cursor:pointer;font-family:${FONT_BODY};font-size:13px;font-weight:bold;position:relative;transition:background .15s,color .15s;text-align:center;line-height:1.15}
 .nk-tab:hover{background:rgba(136,209,209,0.14);color:#fff}
 .nk-tab.on{background:${C.teal};color:${C.gray}}
@@ -2171,7 +2173,7 @@ const NAV_CSS = `
 @media (max-width:700px){
   .nk-root{padding:0.75rem 0.9rem calc(96px + env(safe-area-inset-bottom)) !important}
   .nk-topnav{display:none}
-  .nk-bottomnav{display:grid;position:fixed;left:0;right:0;bottom:0;z-index:900;grid-template-columns:repeat(6,minmax(0,1fr));background:${C.gray};padding:7px 2px calc(9px + env(safe-area-inset-bottom));box-shadow:0 -4px 16px rgba(0,0,0,0.2)}
+  .nk-bottomnav{display:grid;position:fixed;left:0;right:0;bottom:0;z-index:900;grid-template-columns:repeat(7,minmax(0,1fr));background:${C.gray};padding:7px 2px calc(9px + env(safe-area-inset-bottom));box-shadow:0 -4px 16px rgba(0,0,0,0.2)}
   .nk-btab{appearance:none;border:none;background:transparent;display:flex;flex-direction:column;align-items:center;gap:4px;min-height:52px;padding:5px 0;color:#C9D3D6;font-family:${FONT_BODY};font-size:10.5px;font-weight:bold;cursor:pointer;position:relative;white-space:nowrap;-webkit-tap-highlight-color:transparent}
   .nk-btab.on{color:${C.teal}}
   .nk-btab.on::before{content:"";position:absolute;top:-7px;left:20%;right:20%;height:3px;border-radius:2px;background:${C.teal}}
@@ -2450,9 +2452,275 @@ const FunnelView = ({ allTime, byYear, advAllTime, advByYear, leadStatus, tabSty
   );
 };
 
+// ══════════════════════════════════════════════════════════════════════
+// ── HOME (landing page: 2026 sales and the breakdowns from Eli's
+// Q3 2026 Executive Sales Report) ────────────────────────────────────
+// Live from the sheet:
+//   YTD_PSAs + YTD_Resale_PSAs → total property transactions
+//     · Cash transactions = YTD PSAs that are not related-party, plus re-sales
+//     · Partner deals     = related-party YTD PSAs (Related Party = Yes, or
+//                           listed in SALES_TEAM_GOAL_EXCLUSIONS)
+//   Pending Transactions (Pending OTP / Decision / Signed OTP) → set to close
+//   Built Product + Homesites (Available) → available inventory
+// Past years are not in the sheet; they come from the report (below).
+// ══════════════════════════════════════════════════════════════════════
+
+const HOME_YEAR = 2026;
+const HOME_TOTAL_TARGET = 350000000; // 2026 year-end total property transaction target
+// Cash transactions by quarter in past years, from the Q3 2026 report.
+// 2025 Q4 = full-year 2025 ($161.3M) minus Jan–Sep 2025 ($123.4M). 2024 Q4 was not reported.
+const HOME_HIST_QUARTERS = {
+  2024: [12.1e6, 39.2e6, 20.3e6, null],
+  2025: [28.9e6, 30.4e6, 64.1e6, 37.9e6],
+};
+const HOME_FULL_YEAR_PREV = 161.3e6; // full-year 2025 cash transactions
+// January–September signed sales by year (amount, number of PSAs), from the report.
+const HOME_JAN_SEP_HISTORY = [
+  { year: 2022, amount: 53.2e6, n: 16 },
+  { year: 2023, amount: 56.7e6, n: 11 },
+  { year: 2024, amount: 71.6e6, n: 12 },
+  { year: 2025, amount: 123.4e6, n: 17 },
+];
+const HOME_YEAR_COLOR = { 2024: "#D9D4C4", 2025: "#8C979C", 2026: C.teal };
+const HOME_SET_TO_CLOSE_STAGES = ["Pending OTP", "Decision", "Signed OTP"];
+
+// $251.4M · $28.65M · $7.2M (no trailing zeros)
+function homeM(v, digits = 1) {
+  const f = 10 ** digits;
+  const s = (Math.round((v / 1e6) * f + 1e-6) / f).toFixed(digits); // half-up, so $93.05M shows $93.1M like the report
+  return `$${s.includes(".") ? s.replace(/\.?0+$/, "") : s}M`;
+}
+const homeQuarterOf = r => {
+  const d = twParseDate(r["PSA Date Signed"]);
+  return d && d.getFullYear() === HOME_YEAR ? Math.floor(d.getMonth() / 3) : -1;
+};
+
+const HOME_CSS = `
+.hm-eyebrow{font-family:${FONT_BODY};font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:bold;color:${PD_MUTED}}
+.hm-hero{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-top:6px}
+.hm-total{font-family:${FONT_DISPLAY};font-size:64px;line-height:1;color:${C.gray}}
+.hm-split{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
+.hm-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:3px solid ${C.teal};margin:26px 0 6px}
+.hm-cell{padding:12px 18px 8px;min-width:0}
+.hm-cell:first-child{padding-left:2px}
+.hm-cell + .hm-cell{border-left:1px solid rgba(54,67,74,0.16)}
+.hm-big{font-family:${FONT_DISPLAY};font-size:34px;line-height:1.1;color:${C.gray}}
+.hm-small{font-family:${FONT_BODY};font-size:12.5px;color:rgba(54,67,74,0.7);line-height:1.45}
+.hm-click{cursor:pointer;border-radius:6px;transition:background .15s}
+.hm-click:hover,.hm-click:focus-visible{background:rgba(136,209,209,0.22);outline:none}
+.hm-link{display:inline-block;margin-top:6px;font-family:${FONT_BODY};font-size:12.5px;font-weight:bold;color:${C.gray};text-decoration:underline;text-decoration-color:${C.teal};text-decoration-thickness:2px;text-underline-offset:3px}
+.hm-quarters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 34px;margin-top:14px}
+@media (max-width:700px){
+  .hm-total{font-size:52px}
+  .hm-strip{grid-template-columns:1fr}
+  .hm-cell{padding:12px 2px}
+  .hm-cell + .hm-cell{border-left:none;border-top:1px solid rgba(54,67,74,0.16)}
+  .hm-quarters{grid-template-columns:1fr}
+}
+`;
+
+// One labelled horizontal bar: label · bar · value.
+const HomeBar = ({ label, value, max, color, text, note, bold }) => (
+  <div style={{ display: "grid", gridTemplateColumns: "44px 1fr", gap: 10, alignItems: "center", fontFamily: FONT_BODY, fontSize: 12.5, color: C.gray, padding: "3px 0" }}>
+    <span style={{ fontWeight: bold ? "bold" : "normal" }}>{label}</span>
+    {value == null ? (
+      <span style={{ fontStyle: "italic", color: PD_MUTED, fontSize: 12 }}>{note}</span>
+    ) : (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <div style={{ height: 12, width: `${(value / max) * 100}%`, minWidth: value > 0 ? 3 : 0, maxWidth: "calc(100% - 96px)", background: color, borderRadius: 6 }} />
+        <span style={{ whiteSpace: "nowrap", fontWeight: bold ? "bold" : "normal" }}>{text}</span>
+      </div>
+    )}
+  </div>
+);
+
+const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo, onInventory }) => {
+  const [open, setOpen] = useState(null);
+  const cash = sumAmount(cashDeals), partner = sumAmount(partnerDeals), total = cash + partner;
+  const count = cashDeals.length + partnerDeals.length;
+  const closing = sumAmount(setToClose);
+  const milestonePct = (total / SALES_TEAM_GOAL_AMOUNT) * 100;
+  const toTarget = Math.max(HOME_TOTAL_TARGET - total, 0);
+  const afterClosing = Math.max(toTarget - closing, 0);
+
+  // 2026 cash transactions by quarter (PSA Date Signed)
+  const q = [0, 0, 0, 0], qn = [0, 0, 0, 0];
+  cashDeals.forEach(r => { const i = homeQuarterOf(r); if (i >= 0) { q[i] += twAmount(r["Amount ($)"]); qn[i] += 1; } });
+  const curQ = today.getFullYear() > HOME_YEAR ? 4 : Math.floor(today.getMonth() / 3); // completed quarters
+  const prevYear = HOME_HIST_QUARTERS[HOME_YEAR - 1];
+  const samePrev = prevYear.slice(0, curQ).reduce((s, v) => s + (v || 0), 0);
+  const sameCur = q.slice(0, curQ).reduce((s, v) => s + v, 0);
+  const periodLabel = curQ > 0 ? `Jan–${["Mar", "Jun", "Sep", "Dec"][curQ - 1]}` : null;
+  const pct = (a, b) => (b > 0 ? Math.round((a / b - 1) * 100) : null);
+  const vsFull = pct(cash, HOME_FULL_YEAR_PREV);
+  const vsSame = curQ > 0 ? pct(sameCur, samePrev) : null;
+  const signedPct = v => (v == null ? "—" : `${v >= 0 ? "+" : "−"}${Math.abs(v)}%`);
+
+  const qMax = Math.max(...q, ...Object.values(HOME_HIST_QUARTERS).flat().map(v => v || 0), 1);
+  const janSep = [...HOME_JAN_SEP_HISTORY, { year: HOME_YEAR, amount: q[0] + q[1] + q[2], n: qn[0] + qn[1] + qn[2] }];
+  const janSepMax = Math.max(...janSep.map(r => r.amount), 1);
+
+  const barMax = Math.max(HOME_TOTAL_TARGET, total + closing);
+  const w = v => `${(v / barMax) * 100}%`;
+
+  const click = fn => ({ role: "button", tabIndex: 0, onClick: fn, onKeyDown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fn(); } } });
+  const byPsaDesc = (a, b) => (twParseDate(b["PSA Date Signed"]) || 0) - (twParseDate(a["PSA Date Signed"]) || 0);
+
+  const lists = {
+    cash: { title: "Cash Transactions", sub: `${HOME_YEAR} year to date · ${cashDeals.length} · ${homeM(cash)} · re-sales included`, items: [...cashDeals].sort(byPsaDesc), psa: true },
+    partner: { title: "Partner Deals", sub: `${HOME_YEAR} year to date · ${partnerDeals.length} · ${homeM(partner)} · related-party sales`, items: [...partnerDeals].sort(byPsaDesc), psa: true },
+    closing: { title: "Set to Close", sub: `${setToClose.length} deal${setToClose.length === 1 ? "" : "s"} · ${homeM(closing, 2)} · Pending OTP and Signed OTP`, items: setToClose, psa: false },
+  };
+  const list = open && lists[open];
+
+  return (
+    <div>
+      <style>{HOME_CSS}</style>
+
+      {/* 1 · The sales number */}
+      <div className="hm-eyebrow">{HOME_YEAR} sales · year to date · {twRangeLabel(new Date(HOME_YEAR, 0, 1), today)}</div>
+      <div className="hm-hero">
+        <div>
+          <div className="hm-total">{homeM(total)}</div>
+          <div style={{ fontSize: 14, color: C.gray, fontFamily: FONT_BODY, marginTop: 6 }}>
+            <strong>{count} properties</strong> · total property transactions
+          </div>
+        </div>
+      </div>
+
+      {/* Cash vs partner split */}
+      <div style={{ display: "flex", height: 14, borderRadius: 7, overflow: "hidden", marginTop: 16, gap: 2 }} role="img"
+        aria-label={`Cash transactions ${homeM(cash)}, partner deals ${homeM(partner)}`}>
+        <div style={{ width: `${total ? (cash / total) * 100 : 0}%`, background: C.teal }} />
+        <div style={{ width: `${total ? (partner / total) * 100 : 0}%`, background: C.gray }} />
+      </div>
+      <div className="hm-split">
+        {[["cash", "Cash transactions", cash, cashDeals.length, C.teal], ["partner", "Partner deals", partner, partnerDeals.length, C.gray]].map(([key, label, amt, n, color]) => (
+          <div key={key} className="hm-click" {...click(() => setOpen(key))} style={{ padding: "4px 6px 6px", marginLeft: -6, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "rgba(54,67,74,0.75)", fontFamily: FONT_BODY }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: color, flex: "none" }} />{label}
+            </div>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 28, lineHeight: 1.15, color: C.gray, marginTop: 2 }}>
+              {homeM(amt)} <span style={{ fontSize: 17, color: "rgba(54,67,74,0.6)" }}>· {n}</span>
+            </div>
+            <span className="hm-link">View list ›</span>
+          </div>
+        ))}
+      </div>
+
+      {/* 2 · Versus last year and the $270M milestone */}
+      <div className="hm-strip">
+        <div className="hm-cell">
+          <div className="hm-big" style={{ color: vsFull != null && vsFull < 0 ? C.red : C.gray }}>{signedPct(vsFull)}</div>
+          <div className="hm-small">Cash transactions vs. full-year {HOME_YEAR - 1} ({homeM(HOME_FULL_YEAR_PREV)})</div>
+        </div>
+        <div className="hm-cell">
+          <div className="hm-big" style={{ color: vsSame != null && vsSame < 0 ? C.red : C.gray }}>{signedPct(vsSame)}</div>
+          <div className="hm-small">{periodLabel ? `${periodLabel} ${HOME_YEAR} vs. ${periodLabel} ${HOME_YEAR - 1} (${homeM(samePrev)})` : "First quarter not closed yet"}</div>
+        </div>
+        <div className="hm-cell">
+          <div className="hm-big">{Math.round(milestonePct)}%</div>
+          <div className="hm-small">of the {homeM(SALES_TEAM_GOAL_AMOUNT, 0)} milestone ({homeM(total)} total property transactions)</div>
+        </div>
+      </div>
+
+      {/* 3 · Year-end target */}
+      <PdSectionHead text="Year-end target" right={`${homeM(HOME_TOTAL_TARGET, 0)} total property transactions`} />
+      <div style={{ position: "relative", marginTop: 34, marginBottom: 34 }}>
+        <div style={{ position: "absolute", right: 0, top: -22, fontSize: 11.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{homeM(HOME_TOTAL_TARGET, 0)}</div>
+        <div style={{ display: "flex", height: 22, borderRadius: 6, overflow: "hidden", background: "rgba(54,67,74,0.08)" }}>
+          <div style={{ width: w(total), background: C.teal }} title={`Signed ${homeM(total)}`} />
+          <div style={{ width: w(closing), background: `repeating-linear-gradient(135deg, rgba(136,209,209,0.85) 0 6px, rgba(136,209,209,0.4) 6px 12px)` }} title={`Set to close ${homeM(closing, 2)}`} />
+        </div>
+        <div style={{ position: "absolute", left: w(SALES_TEAM_GOAL_AMOUNT), top: -4, bottom: -4, width: 2, background: C.gray }} />
+        <div style={{ position: "absolute", left: w(SALES_TEAM_GOAL_AMOUNT), top: 28, transform: "translateX(-50%)", fontSize: 11.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>
+          {homeM(SALES_TEAM_GOAL_AMOUNT, 0)} milestone
+        </div>
+      </div>
+      <div className="hm-strip" style={{ marginTop: 0 }}>
+        <div className="hm-cell">
+          <div style={{ display: "flex", alignItems: "center", gap: 7 }} className="hm-small"><span style={{ width: 10, height: 10, borderRadius: 3, background: C.teal }} />Signed</div>
+          <div className="hm-big">{homeM(total)}</div>
+          <div className="hm-small">{count} properties</div>
+        </div>
+        <div className="hm-cell hm-click" {...click(() => setOpen("closing"))}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7 }} className="hm-small"><span style={{ width: 10, height: 10, borderRadius: 3, background: "repeating-linear-gradient(135deg, rgba(136,209,209,0.9) 0 3px, rgba(136,209,209,0.35) 3px 6px)" }} />Set to close</div>
+          <div className="hm-big">{homeM(closing, 2)}</div>
+          <div className="hm-small">{setToClose.length} deal{setToClose.length === 1 ? "" : "s"} at Pending OTP or Signed OTP</div>
+          <span className="hm-link">View list ›</span>
+        </div>
+        <div className="hm-cell">
+          <div className="hm-small">Still to reach {homeM(HOME_TOTAL_TARGET, 0)}</div>
+          <div className="hm-big">{homeM(toTarget)}</div>
+          <div className="hm-small">{homeM(afterClosing)} after the deals set to close</div>
+        </div>
+      </div>
+
+      {/* 4 · Cash transactions by quarter */}
+      <PdSectionHead text="Cash transactions by quarter" right="2024 · 2025 · 2026" />
+      <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginTop: 12, fontSize: 11.5, color: "rgba(54,67,74,0.7)", fontFamily: FONT_BODY }}>
+        {[2024, 2025, 2026].map(y => (
+          <span key={y}><span style={{ display: "inline-block", width: 12, height: 9, borderRadius: 3, background: HOME_YEAR_COLOR[y], marginRight: 6 }} />{y}</span>
+        ))}
+      </div>
+      <div className="hm-quarters">
+        {[0, 1, 2, 3].map(i => {
+          const live = curQ === i && today.getFullYear() === HOME_YEAR;
+          if (i > curQ && today.getFullYear() === HOME_YEAR) return null;
+          return (
+            <div key={i}>
+              <div style={{ fontSize: 13.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, marginBottom: 4 }}>
+                Q{i + 1}{live && <span style={{ fontWeight: "normal", color: PD_MUTED, fontSize: 12 }}> · so far</span>}
+              </div>
+              {[2024, 2025].map(y => {
+                const v = HOME_HIST_QUARTERS[y][i];
+                return <HomeBar key={y} label={y} value={v} max={qMax} color={HOME_YEAR_COLOR[y]} text={v != null ? homeM(v) : ""} note="not reported" />;
+              })}
+              <HomeBar label={HOME_YEAR} value={q[i]} max={qMax} color={HOME_YEAR_COLOR[HOME_YEAR]} bold
+                text={`${homeM(q[i])} · ${qn[i]} sale${qn[i] === 1 ? "" : "s"}`} />
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 5 · January–September signed sales by year */}
+      <PdSectionHead text="January–September signed sales" right="2022 – 2026" />
+      <div style={{ marginTop: 12 }}>
+        {janSep.map(r => (
+          <HomeBar key={r.year} label={r.year} value={r.amount} max={janSepMax} bold={r.year === HOME_YEAR}
+            color={r.year === HOME_YEAR ? C.teal : "#C9C4B4"} text={`${homeM(r.amount)} · ${r.n} PSAs`} />
+        ))}
+      </div>
+
+      {/* 6 · Available inventory */}
+      <PdSectionHead text="Available inventory" />
+      <div className="hm-click" {...click(onInventory)} style={{ padding: "12px 6px", marginLeft: -6 }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, color: C.gray, lineHeight: 1.2 }}>
+          {inventory.count} homes and homesites
+        </div>
+        {inventory.count > 0 && (
+          <div className="hm-small">Priced from {homeM(inventory.min, 2)} to {homeM(inventory.max, 2)}</div>
+        )}
+        <span className="hm-link">View available inventory ›</span>
+      </div>
+
+      <PdNote>
+        Total property transactions = signed PSAs this year, including re-sales and partner deals. Cash transactions leave out partner (related-party) deals. Past years come from the Q3 {HOME_YEAR} Executive Sales Report; {HOME_YEAR - 1} Q4 is full-year {HOME_YEAR - 1} minus January–September.
+      </PdNote>
+
+      {list && (
+        <Modal title={list.title} subtitle={list.sub} onClose={() => setOpen(null)}>
+          <PdShowMore items={list.items} empty="None yet."
+            render={(d, i) => list.psa ? <PSACard key={i} deal={d} /> : <DealCard key={i} deal={d} />} />
+        </Modal>
+      )}
+    </div>
+  );
+};
+
 // ── Main ──────────────────────────────────────────────────────────────
 export default function NaukaDashboard() {
-  const [view, setView]               = useState("weekly");
+  const [view, setView]               = useState("home");
   const [funnelTab, setFunnelTab]   = useState("alltime"); // "alltime" | "byyear"
   const [funnelDim, setFunnelDim]   = useState("Source");  // "Source" | "Advisor"
   const [funnelYear, setFunnelYear] = useState(null);      // null → newest year group
@@ -2573,6 +2841,17 @@ export default function NaukaDashboard() {
   const salesTeamDeals = [...salesTeamPrimaryDeals, ...salesTeamResaleDeals];
   const salesTeamTotal = sumAmount(salesTeamDeals);
   const salesTeamPct = SALES_TEAM_GOAL_AMOUNT > 0 ? (salesTeamTotal / SALES_TEAM_GOAL_AMOUNT) * 100 : 0;
+  // Home: partner deals = the related-party YTD PSAs left out of the cash figure.
+  const partnerDeals = ytdPSAs.filter(d => !isSummaryRow(d) && !salesTeamPrimaryDeals.includes(d));
+  const setToClose = deals.filter(d => HOME_SET_TO_CLOSE_STAGES.includes(String(d["Stage"] ?? "").trim()) && !isSummaryRow(d));
+  const availableUnits = [...builtProduct, ...homesites].flatMap(g => g.units).filter(u => u.status === "available");
+  const availablePrices = availableUnits.map(u => u.price).filter(p => p != null);
+  const inventorySummary = {
+    count: availableUnits.length,
+    min: availablePrices.length ? Math.min(...availablePrices) : 0,
+    max: availablePrices.length ? Math.max(...availablePrices) : 0,
+  };
+
   const salesTeamAvgDays = (() => {
     const days = salesTeamDeals.map(r => parseInt(r["Days on Hold"])).filter(d => !isNaN(d));
     return days.length ? Math.round(days.reduce((a, b) => a + b, 0) / days.length) : null;
@@ -2668,6 +2947,13 @@ export default function NaukaDashboard() {
 
       {/* Main menu — top bar on desktop, bottom bar on phones */}
       <MainNav view={view} onGo={go} todayCount={todayCount} />
+
+      {/* ── HOME · 2026 sales and breakdowns ──────────────────────── */}
+      {view === "home" && (
+        <HomeView cashDeals={salesTeamDeals} partnerDeals={partnerDeals} setToClose={setToClose}
+          inventory={inventorySummary} today={model.today} onGo={go}
+          onInventory={() => { setOnlyAvailable(true); go("inventories"); }} />
+      )}
 
       {/* ── LAST 60 DAYS (vs. the 60 days before) ───────────────────── */}
       {view === "weekly" && (

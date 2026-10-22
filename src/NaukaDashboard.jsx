@@ -681,11 +681,13 @@ const FALLBACK_CALENDAR_RECORDS = [
 const CAL_ADVISOR_COLORS = {
   "Eli Pacino":     "#A9DDE0", // soft teal
   "Oscar Fraustro": "#E5C3A0", // sand
-  "Trip Morris":    "#A9C5B4", // sage
+  "Trip Morris":    "#F2E3A0", // yellow
   "Brandon Oyler":  "#EBB0A6", // coral
+  "Sales Team":     "#D9C3DD", // lavender (events)
 };
 // Soft colors: the text on top of them is always dark gray, never white.
-const CAL_SPARE_COLORS = ["#F2E3A0", "#C5D5EA", "#D9C3DD", "#C9D9A8"];
+// No greens, and none repeat a color above.
+const CAL_SPARE_COLORS = ["#C5D5EA", "#E8CFD9", "#CFD8DC"];
 const CAL_UNASSIGNED_COLOR = "#E3DCD0";
 const CAL_UNASSIGNED_LABEL = "Unassigned";
 

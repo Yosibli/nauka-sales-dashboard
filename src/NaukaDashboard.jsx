@@ -265,7 +265,11 @@ function parseBuiltProduct(rows) {
       if (val === undefined || val === "") return;
       if (invIsNumericCell(val) && invNumericValue(val) < 100000) return; // bare unit number, no real status
       const { status, buyer, price } = invClassify(null, val);
-      beach.push({ unit: `${beachBuildingNames[i]} · ${floorLabel}`, status, buyer, price });
+      // The unit number (101, 202, …) sits in the row just below the owner/price cell.
+      const below = (rows[r + 1] || [])[col];
+      const unitNo = invIsNumericCell(below) && invNumericValue(below) < 100000 ? String(invNumericValue(below)) : null;
+      const floor = String(floorLabel).trim().toLowerCase().replace(/\bph\b/, "PH").replace(/^./, c => c.toUpperCase());
+      beach.push({ unit: unitNo ? `Beach Residence ${unitNo} · ${beachBuildingNames[i]} · ${floor}` : `${beachBuildingNames[i]} · ${floorLabel}`, status, buyer, price });
     });
   }
   if (beach.length) groups.push({ name: "Beach Residences", units: beach });

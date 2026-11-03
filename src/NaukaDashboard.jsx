@@ -565,6 +565,11 @@ function parseCalendarSheet(rows) {
       referral: r["Referral Source"] || null,
       email: r["Email"] || null,
       lifecycle: r["Lifecycle Stage"] || null,
+      // Sales side of the visit (HubSpot Experiences pipeline), kept apart from
+      // the calendar status in "Stage": Qualified Opportunity, Moved to Active
+      // Negotiation, Not This Time, Legacy… Never shown on screen as-is.
+      pipelineStage: pdStr(r["Pipeline Stage"]) || null,
+      lastActivity: parseDate(r["Last Activity Date"]),
       leadStatus: r["Lead Status"] || null,
       guests: r["Guests"] || null,
       chargeNote: r["Charge Note"] || null,
@@ -1168,6 +1173,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // of these (or a Lost Date in Prospect_Calendar) leaves the Toured Prospects
 // stage as Lost. Edit this list to match how sales marks a lost prospect.
 const LOST_LEAD_STATUSES = ["Not Interested", "Unqualified", "Unsubscribed"];
+// Lead statuses that take a person off the Pipeline whiteboard (one list, one place).
+const WHITEBOARD_OFF_STATUSES = ["Not Interested", "Unqualified", "Unsubscribed"];
+const isHotelSource = src => /siari hotel guest/i.test(String(src || ""));
+const isNegotiationStage = st => /^active negotiation/i.test(String(st || "").trim());
 // Contact Types that are never counted as toured prospects.
 const NOT_A_PROSPECT_TYPES = ["Owner", "Founder", "Connector", "Internal"];
 
@@ -1241,7 +1250,7 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
     const rid = pdId(r["Record ID"]);
     const status = pdStr(r["Current Lead Status"]) || pdStr(r["Lead Status (HubSpot)"]);
     const e = {
-      date, type: "lead", name, details: status, amount: 0,
+      date, type: "lead", name, details: status, amount: 0, status,
       advisor: pdStr(r["Advisor"]) || pdStr(r["Contact Owner"]),
       source: pdStr(r["Source"]), src: pdStr(r["Source"]), rid,
     };
@@ -1265,6 +1274,7 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
     const prev = rid ? leadById.get(rid) : null;
     const e = {
       date, type: "lead", name,
+      status: pdStr(r["Lead Status"]) || (prev ? prev.status : ""),
       details: [pdStr(r["Lifecycle Stage"]), pdStr(r["Lead Status"]), pdStr(r["Notes"])].filter(Boolean).join(" · ") || (prev ? prev.details : ""),
       amount: 0,
       advisor: pdStr(r["Advisor"]) || (prev ? prev.advisor : ""),
@@ -1285,6 +1295,12 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
   });
   leadById.forEach(e => out.push(e));
   leadNoId.forEach(e => out.push(e));
+  // CEO report lead lines: New Hotel Leads (Lead Source = Siari Hotel Guest) and
+  // New Qualified Leads (every other lead except Unqualified).
+  [...leadById.values(), ...leadNoId].forEach(e => {
+    if (isHotelSource(e.src)) out.push({ ...e, type: "hlead" });
+    else if (pdStr(e.status).toLowerCase() !== "unqualified") out.push({ ...e, type: "qlead" });
+  });
 
   // Prospect visits: counted by Arrival Date in Prospect_Calendar (not
   // Canceled), the same date HubSpot's prospect visit report uses. A visit
@@ -1351,7 +1367,11 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
     if (!name) return;
     const rid = pdId(r["Buyer HubSpot Record ID"]);
     if (rid) dealRids.add(rid);
-    milestones.forEach(([field, type]) => {
+    const isNeg = isNegotiationStage(r["Stage"]);
+    milestones.forEach(([field, t]) => {
+      // An Active Negotiation deal is created before inventory is assigned, so
+      // its Create Date is a new negotiation, not a new hold.
+      const type = isNeg && t === "hold" ? "neg" : t;
       const date = twParseDate(r[field]);
       if (!date) return;
       out.push({
@@ -1536,19 +1556,21 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
     .filter(d => d.name && d.date && ["Pending OTP", "Signed OTP", "Decision"].includes(d.stage) && d.date >= today && d.date <= mEnd)
     .sort((a, b) => a.date - b.date);
 
-  return { today, entries, list, count, amount, hasDailyData, win, prev, weeks, month, mastersFrom, leadTourRate, prospects, visits, ddThisMonth, aging, daysOpen };
+  return { today, entries, people, list, count, amount, hasDailyData, win, prev, weeks, month, mastersFrom, leadTourRate, prospects, visits, ddThisMonth, aging, daysOpen };
 }
 
+// Labels follow Paul White's weekly CEO report; `house` is our own term, shown small underneath.
 const PD_DEAL_STATS = [
-  { key: "potp", label: "New Pending OTPs", money: true },
-  { key: "sotp", label: "New Signed OTPs",  money: true },
-  { key: "psa",  label: "New Signed Deals", sub: "PSAs", money: true },
+  { key: "neg",  label: "Active Negotiations",        house: "New · advisor's estimated amount", money: true },
+  { key: "hold", label: "OTPs Submitted",             house: "Pending OTP · inventory on hold", money: true },
+  { key: "sotp", label: "Offers to Purchase (OTPs)",  house: "Signed OTPs", money: true },
+  { key: "psa",  label: "Executed PSAs (Sales)",      house: "Signed PSAs", money: true },
 ];
 const PD_ACTIVITY_STATS = [
-  { key: "lead", label: "New Leads" },
-  { key: "tour", label: "Prospect Visits" },
-  { key: "hold", label: "New Inventory on Hold" },
-  { key: "lost", label: "Lost Deals", money: true, danger: true },
+  { key: "qlead", label: "New Qualified Leads", house: "New leads, excluding hotel guests and Unqualified" },
+  { key: "hlead", label: "New Hotel Leads",     house: "Lead Source: Siari Hotel Guest" },
+  { key: "tour",  label: "Site Tours / Immersions Completed", house: "Prospect Visits" },
+  { key: "lost",  label: "Lost Deals", money: true, danger: true },
 ];
 
 const twDayFmt = d => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -1645,6 +1667,7 @@ const PdRow = ({ stat, n, total, first, onOpen, children }) => {
         <div style={{ fontSize: 15, fontWeight: "bold", color: isLost ? C.red : C.gray, fontFamily: FONT_BODY }}>
           {stat.label}{stat.sub && <span style={{ fontWeight: "normal" }}> ({stat.sub})</span>}
         </div>
+        {stat.house && <div style={{ fontSize: 11.5, color: PD_MUTED, fontFamily: FONT_BODY, marginTop: 2 }}>{stat.house}</div>}
         {children}
       </div>
       <div style={{ textAlign: "right", opacity: zero ? 0.5 : 1 }}>
@@ -1660,7 +1683,7 @@ const PdRow = ({ stat, n, total, first, onOpen, children }) => {
 
 // A single logged update inside the pop-up list.
 const TWEntryRow = ({ e, showDate }) => {
-  const isDeal = ["hold", "potp", "sotp", "psa", "lost"].includes(e.type);
+  const isDeal = ["neg", "hold", "potp", "sotp", "psa", "lost"].includes(e.type);
   const { property, buyer } = isDeal ? splitDealName(e.name) : { property: e.name, buyer: null };
   const color = e.type === "lost" ? C.red : e.type === "hold" ? C.amber : C.teal;
   return (
@@ -1741,7 +1764,98 @@ const ProspectRow = ({ p, right, sub }) => (
 );
 
 // ── LAST 60 DAYS ─────────────────────────────────────────────────────
-const SixtyDayView = ({ model, onGo }) => {
+// ══════════════════════════════════════════════════════════════════════
+// ── ACTIVE QUALIFIED LEADS (whiteboard by advisor, 60 Days tab) ───────
+// Reads the "Active_Leads" tab: one row per active qualified lead, typed by
+// the sales team. Columns: Advisor | Name | Interest | Notes | Next Step |
+// HubSpot Record ID. Remove a row when the lead is no longer active.
+// The last / next prospect visit is added from Prospect_Calendar by
+// HubSpot Record ID (never by name).
+// ══════════════════════════════════════════════════════════════════════
+const AL_ADVISORS = ["Eli Pacino", "Oscar Fraustro", "Trip Morris"]; // always shown, in this order
+
+function parseActiveLeads(rows) {
+  return (rows || [])
+    .map(r => ({
+      advisor: pdStr(r["Advisor"]) || "Unassigned",
+      name: pdStr(r["Name"]),
+      interest: pdStr(r["Interest"]),
+      notes: pdStr(r["Notes"]),
+      next: pdStr(r["Next Step"]),
+      rid: pdStr(r["HubSpot Record ID"]).replace(/[,\s]/g, "").replace(/\.0+$/, ""),
+      lastActivity: twParseDate(r["Last Activity Date"]),
+    }))
+    .filter(r => r.name);
+}
+
+const ActiveLeadsBoard = ({ leads, calRecords, today }) => {
+  const advisors = [...AL_ADVISORS, ...[...new Set(leads.map(l => l.advisor))].filter(a => !AL_ADVISORS.includes(a)).sort()];
+  const visitFor = rid => {
+    if (!rid) return null;
+    const mine = (calRecords || []).filter(r => r.stage !== "Canceled" && r.arrival &&
+      String(r.recordId ?? "").replace(/[,\s]/g, "").replace(/\.0+$/, "") === rid);
+    const upcoming = mine.filter(r => (r.departure || r.arrival) >= today).sort((a, b) => a.arrival - b.arrival)[0];
+    const fmt = r => calSameDay(r.arrival, r.departure) ? twDayFmt(r.arrival) : pdShortRange(r.arrival, r.departure);
+    if (upcoming) return { text: `${upcoming.arrival <= today ? "On property" : "Visiting"} ${fmt(upcoming)}`, soon: true };
+    const last = mine.sort((a, b) => b.arrival - a.arrival)[0];
+    return last ? { text: `Visited ${fmt(last)}`, soon: false } : null;
+  };
+  return (
+    <div>
+      <style>{`
+        .al-board{display:grid;grid-template-columns:repeat(${advisors.length},minmax(0,1fr));gap:12px;margin-top:14px;align-items:start}
+        .al-col{background:rgba(54,67,74,0.045);border-radius:10px;padding:10px 10px 12px;min-width:0}
+        .al-card{background:${C.white};border:1px solid rgba(54,67,74,0.12);border-radius:8px;padding:11px 12px;margin-top:8px;box-shadow:0 1px 2px rgba(54,67,74,0.06)}
+        @media (max-width:900px){.al-board{grid-template-columns:1fr}}
+      `}</style>
+      <div className="al-board">
+        {advisors.map(a => {
+          const mine = leads.filter(l => l.advisor === a);
+          const color = CAL_ADVISOR_COLORS[a] || CAL_UNASSIGNED_COLOR;
+          return (
+            <div key={a} className="al-col">
+              <div style={{ height: 4, borderRadius: 2, background: color, marginBottom: 8 }} />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontFamily: FONT_BODY }}>
+                <span style={{ fontSize: 14, fontWeight: "bold", color: C.gray }}>{a}</span>
+                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.gray }}>{mine.length}</span>
+              </div>
+              {mine.length === 0 && (
+                <div style={{ fontSize: 12.5, color: PD_MUTED, fontFamily: FONT_BODY, padding: "10px 2px 2px" }}>No active leads listed yet.</div>
+              )}
+              {mine.map((l, i) => {
+                const v = visitFor(l.rid);
+                return (
+                  <div key={i} className="al-card">
+                    <div style={{ fontSize: 14.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.25 }}>{l.name}</div>
+                    {l.interest && (
+                      <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "#4E8F8F", fontFamily: FONT_BODY, marginTop: 4 }}>{l.interest}</div>
+                    )}
+                    {l.notes && (
+                      <div style={{ fontSize: 13, color: "rgba(54,67,74,0.85)", fontFamily: FONT_BODY, marginTop: 5, lineHeight: 1.45 }}>{l.notes}</div>
+                    )}
+                    {(l.next || v) && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                        {l.next && (
+                          <span style={{ fontSize: 11.5, fontWeight: "bold", fontFamily: FONT_BODY, color: C.gray, background: "rgba(136,209,209,0.35)", borderRadius: 999, padding: "3px 9px" }}>{l.next}</span>
+                        )}
+                        {v && (
+                          <span style={{ fontSize: 11.5, fontFamily: FONT_BODY, color: C.gray, background: v.soon ? "rgba(136,209,209,0.35)" : "rgba(54,67,74,0.07)", fontWeight: v.soon ? "bold" : "normal", borderRadius: 999, padding: "3px 9px" }}>{v.text}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+      <PdNote>Typed by the sales team in the Active_Leads tab. Visit dates come from Prospect_Calendar.</PdNote>
+    </div>
+  );
+};
+
+const SixtyDayView = ({ model, onGo, activeLeads = [], calRecords = [] }) => {
   const [openKey, setOpenKey] = useState(null);
   const [showDeals, setShowDeals] = useState(false);
   const { win, prev, weeks, count, amount, list, today, prospects, visits, month } = model;
@@ -1754,7 +1868,7 @@ const SixtyDayView = ({ model, onGo }) => {
   const rateNow = model.leadTourRate(win.start, win.end);
   const rateOld = model.leadTourRate(prev.start, prev.end);
   // Pipeline updates: every change of stage after the prospect visit, wins and losses alike.
-  const updates = cur("hold") + cur("potp") + cur("sotp") + cur("psa") + cur("lost");
+  const updates = cur("neg") + cur("hold") + cur("sotp") + cur("psa") + cur("lost");
 
   const row = (s, i) => {
     const n = cur(s.key), p = old(s.key);
@@ -1836,7 +1950,7 @@ const SixtyDayView = ({ model, onGo }) => {
         <div className="pd-card">
           <div style={{ fontSize: 12.5, color: "rgba(54,67,74,0.68)", fontFamily: FONT_BODY }}>Sales activity · last 60 days</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, marginTop: 4 }}>
-            {[["lead", cur("lead") === 1 ? "new lead" : "new leads"], ["tour", cur("tour") === 1 ? "prospect visit" : "prospect visits"]].map(([key, label], ix) => (
+            {[["qlead", "New Qualified Leads"], ["tour", "Site Tours / Immersions"]].map(([key, label], ix) => (
               <div key={key} role="button" tabIndex={0} aria-label={`${cur(key)} ${label}, open the list`}
                 onClick={() => setOpenKey(key)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpenKey(key); } }}
                 className="pd-click" style={{ minWidth: 0, padding: "2px 6px 4px", marginLeft: -6 }}>
@@ -1853,12 +1967,12 @@ const SixtyDayView = ({ model, onGo }) => {
           const next = visits[0];
           const when = next ? (calSameDay(next.arrival, next.departure) ? twDayFmt(next.arrival) : pdShortRange(next.arrival, next.departure)) : null;
           const who = next ? (next.coveredBy || next.owner) : null;
-          return answer("Coming up", next ? `Next: ${next.name}` : "No visits booked", next ? [when, who].filter(Boolean).join(" · ") : null, () => onGo("month"), "View this month");
+          return answer(`Upcoming Site Tours Booked · ${visits.length}`, next ? `Next: ${next.name}` : "No visits booked", next ? [when, who].filter(Boolean).join(" · ") : null, () => onGo("calendar"), "View calendar");
         })()}
       </div>
 
-      <PdSectionHead text="Activity" right="One bar per week (Mon–Sun) · dark bar = this week" first />
-      {PD_ACTIVITY_STATS.slice(0, 2).map(row)}
+      <PdSectionHead text="Weekly sales activity" right="One bar per week (Mon–Sun) · dark bar = this week" first />
+      {PD_ACTIVITY_STATS.slice(0, 3).map(row)}
       <PdRow stat={{ label: "From Lead to Prospect Visit", display: rateNow.pct == null ? "—" : `${Math.round(rateNow.pct)}%` }} n={rateNow.toured}>
         <div style={{ marginTop: 5 }}>
           {rateNow.pct != null && rateOld.pct != null
@@ -1870,11 +1984,11 @@ const SixtyDayView = ({ model, onGo }) => {
         </div>
       </PdRow>
 
-      <PdSectionHead text="Deals" />
+      <PdSectionHead text="Sales pipeline" />
       {PD_DEAL_STATS.map(row)}
 
       <PdSectionHead text="Also in the last 60 days" />
-      {PD_ACTIVITY_STATS.slice(2).map(row)}
+      {PD_ACTIVITY_STATS.slice(3).map(row)}
 
       <PdSectionHead text="New leads by group" right={pdShortRange(win.start, win.end)} />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginTop: 14 }}>
@@ -1910,7 +2024,7 @@ const SixtyDayView = ({ model, onGo }) => {
       )}
       <PdNote>
         No source recorded or other: {gLeads.none} lead{gLeads.none === 1 ? "" : "s"}, {gTours.none} prospect visit{gTours.none === 1 ? "" : "s"}, {gPsas.none} signed PSA{gPsas.none === 1 ? "" : "s"}. Shown apart, not in any group.
-        {" "}Before {twDayFmt(model.mastersFrom)}, New Pending OTPs, New Signed OTPs and Lost Deals come from the weekly counts reported at the time.
+        {" "}Before {twDayFmt(model.mastersFrom)}, signed OTPs and Lost Deals come from the weekly counts reported at the time.
       </PdNote>
 
       {open && renderList()}
@@ -1918,7 +2032,7 @@ const SixtyDayView = ({ model, onGo }) => {
       {/* Pop-up for the "Pipeline updates" card: every stage change after the prospect visit, by stage */}
       {showDeals && (
         <Modal title="Pipeline Updates" subtitle={`${updates} stage change${updates === 1 ? "" : "s"} after the prospect visit · ${twRangeLabel(win.start, win.end)}`} onClose={() => setShowDeals(false)}>
-          {[["hold", "New inventory on hold"], ["potp", "New pending OTPs"], ["sotp", "New signed OTPs"], ["psa", "New signed PSAs"], ["lost", "Lost deals"]].map(([key, label]) => {
+          {[["neg", "Active Negotiations"], ["hold", "OTPs Submitted (inventory on hold)"], ["sotp", "Offers to Purchase (OTPs)"], ["psa", "Executed PSAs (Sales)"], ["lost", "Lost deals"]].map(([key, label]) => {
             const items = list(key, win.start, win.end).sort((a, b) => b.date - a.date);
             const n = cur(key);
             return (
@@ -1939,6 +2053,510 @@ const SixtyDayView = ({ model, onGo }) => {
           })}
         </Modal>
       )}
+    </div>
+  );
+};
+
+// ══════════════════════════════════════════════════════════════════════
+// ── PIPELINE: sales pipeline (CEO report wording) + whiteboard ─────────
+// Deal stages, in order: Active Negotiation → Pending OTP (HubSpot
+// "Decision") → Signed OTP → Signed PSA. Lost is the exit from any stage.
+// Qualified Opportunities are not deals (no amount): they come from the
+// visit's Pipeline Stage in Prospect_Calendar, kept apart from the calendar
+// status in "Stage". Stage names are never shown as-is on screen: every
+// label is the CEO report's.
+// ══════════════════════════════════════════════════════════════════════
+const PIPE_STAGES = [
+  { key: "neg",  label: "Active Negotiations", house: "Advisor working toward an OTP · estimated amount", match: st => isNegotiationStage(st) },
+  { key: "potp", label: "OTPs Submitted / Pending Acceptance", house: "Pending OTP · inventory on hold", match: st => /^(decision|pending otp)$/i.test(st) },
+  { key: "sotp", label: "Accepted OTPs / Pending PSA", house: "Signed OTP", match: st => /^signed otp$/i.test(st) },
+];
+// Open deals by stage, from Master_Deals.
+function openDealsByStage(masterDeals) {
+  const out = { neg: [], potp: [], sotp: [] };
+  (masterDeals || []).forEach(r => {
+    const name = pdStr(r["Deal Name"]);
+    const st = pdStr(r["Stage"]);
+    if (!name) return;
+    const stage = PIPE_STAGES.find(s => s.match(st));
+    if (!stage) return;
+    out[stage.key].push({
+      name, amount: twAmount(r["Amount ($)"]), advisor: pdStr(r["Advisor"]) || "Unassigned",
+      rid: pdId(r["Buyer HubSpot Record ID"]), created: twParseDate(r["Create Date"]),
+      dd: twParseDate(r["DD Expiry"]), notes: pdStr(r["Notes"]), stageKey: stage.key,
+    });
+  });
+  Object.values(out).forEach(list => list.sort((a, b) => b.amount - a.amount));
+  return out;
+}
+
+// Traffic light from days since the last activity (decided Nov 3, 2026).
+const WB_GREEN = 14, WB_YELLOW = 30;
+const WB_LIGHT = {
+  green:  { color: C.green, label: "Active",       hint: `contact in the last ${WB_GREEN} days` },
+  yellow: { color: "#E0B23C", label: "Slowing down", hint: `${WB_GREEN + 1}–${WB_YELLOW} days without contact` },
+  red:    { color: C.red,   label: "Stalled",      hint: `more than ${WB_YELLOW} days without contact` },
+  none:   { color: "#C9CED1", label: "No activity date", hint: "add the Last Activity Date" },
+};
+const wbLight = days => days == null ? "none" : days <= WB_GREEN ? "green" : days <= WB_YELLOW ? "yellow" : "red";
+
+// Qualified Opportunities: one card per person. A person is on the board when
+// any of their visits has Pipeline Stage = Qualified Opportunity. Until the
+// sheet has that column filled in, a visit that departed in the last 60 days
+// with no Pipeline Stage counts. Off the board: Lead Status Not Interested /
+// Unqualified / Unsubscribed, or an open deal (they show as a negotiation).
+function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNotes, today, winStart }) {
+  const off = WHITEBOARD_OFF_STATUSES.map(s => s.toLowerCase());
+  const skipTypes = NOT_A_PROSPECT_TYPES.map(s => s.toLowerCase());
+  const openByRid = new Map();
+  [...openDeals.neg, ...openDeals.potp, ...openDeals.sotp].forEach(d => { if (d.rid) openByRid.set(d.rid, d); });
+  const notesByRid = new Map();
+  (contactNotes || []).forEach(n => {
+    if (!n.rid) return;
+    if (!notesByRid.has(n.rid)) notesByRid.set(n.rid, []);
+    notesByRid.get(n.rid).push(n);
+  });
+
+  // Group calendar rows by person (Record ID; name only when there is no ID).
+  const persons = new Map();
+  [...(calRecords || [])].sort((a, b) => (a.arrival || 0) - (b.arrival || 0)).forEach(r => {
+    if (!r.name || calIsEvent(r)) return;
+    if (skipTypes.includes(pdStr(r.contactType).toLowerCase())) return;
+    const rid = pdId(r.recordId);
+    const key = rid || `name:${r.name.toLowerCase()}`;
+    const g = persons.get(key) || { key, rid, name: r.name, advisor: "", visits: [], notes: [], lastActivity: null, leadStatus: "", src: "" };
+    g.visits.push(r);
+    g.advisor = r.coveredBy || r.owner || g.advisor;
+    g.leadStatus = pdStr(r.leadStatus) || g.leadStatus;
+    g.src = pdStr(r.source) || g.src;
+    if (r.lastActivity && (!g.lastActivity || r.lastActivity > g.lastActivity)) g.lastActivity = r.lastActivity;
+    (r.notes || []).forEach(n => g.notes.push(n));
+    persons.set(key, g);
+  });
+
+  const cards = new Map();
+  persons.forEach(g => {
+    const ps = v => pdStr(v.pipelineStage).toLowerCase();
+    const explicit = g.visits.some(v => ps(v) === "qualified opportunity");
+    const fallback = !explicit && g.visits.some(v => !v.pipelineStage && v.stage !== "Canceled" && v.departure && v.departure < today && v.departure >= winStart);
+    if (!explicit && !fallback) return;
+    const status = g.leadStatus || (g.rid && people.get(g.rid) ? pdStr(people.get(g.rid).status) : "");
+    if (off.includes(status.toLowerCase())) return;
+    if (g.rid && openByRid.has(g.rid)) return;
+    const past = g.visits.filter(v => v.stage !== "Canceled" && v.departure && v.departure < today).sort((a, b) => b.departure - a.departure)[0];
+    const next = g.visits.filter(v => v.stage !== "Canceled" && v.arrival && (v.departure || v.arrival) >= today).sort((a, b) => a.arrival - b.arrival)[0];
+    cards.set(g.key, {
+      key: g.key, rid: g.rid, name: g.name, advisor: g.advisor || "Unassigned", kind: "qo",
+      leadStatus: status, src: g.src, lastActivity: g.lastActivity, lastVisit: past || null, nextVisit: next || null,
+      notes: [...g.notes], interest: "", nextStep: "", amount: 0, property: "",
+    });
+  });
+
+  // Active Negotiation deals: one card each, by the deal's advisor.
+  openDeals.neg.forEach(d => {
+    const { property, buyer } = splitDealName(d.name);
+    const key = d.rid || `deal:${d.name}`;
+    const g = d.rid ? [...persons.values()].find(p => p.rid === d.rid) : null;
+    cards.set(key, {
+      key, rid: d.rid, name: buyer || d.name, advisor: d.advisor, kind: "neg",
+      leadStatus: g ? g.leadStatus : "", src: g ? g.src : "", lastActivity: g ? g.lastActivity : null,
+      lastVisit: g ? g.visits.filter(v => v.departure && v.departure < today).slice(-1)[0] || null : null,
+      nextVisit: g ? g.visits.find(v => v.arrival && (v.departure || v.arrival) >= today && v.stage !== "Canceled") || null : null,
+      notes: g ? [...g.notes] : [], interest: "", nextStep: "", amount: d.amount, property: property || "",
+      dealNotes: d.notes,
+    });
+  });
+
+  // Names the advisors add (Active_Leads tab): joined to their card by Record ID, else their own card.
+  (activeLeads || []).forEach(l => {
+    const hit = l.rid && cards.get(l.rid);
+    if (hit) {
+      // The advisor's own name for the card wins (e.g. Eli's "Esteban Vizcaino" for the visit booked under Roberto).
+      if (l.name && l.name !== hit.name) { hit.notes = [{ date: null, text: `Visit booked under ${hit.name}` }, ...hit.notes]; hit.name = l.name; }
+      hit.interest = hit.interest || l.interest; hit.nextStep = hit.nextStep || l.next;
+      if (l.notes) hit.notes = [{ date: null, text: l.notes }, ...hit.notes];
+      if (l.lastActivity && (!hit.lastActivity || l.lastActivity > hit.lastActivity)) hit.lastActivity = l.lastActivity;
+      if (l.advisor && l.advisor !== "Unassigned") hit.advisor = l.advisor;
+      return;
+    }
+    const status = l.rid && people.get(l.rid) ? pdStr(people.get(l.rid).status) : "";
+    if (off.includes(status.toLowerCase())) return;
+    const g = l.rid ? [...persons.values()].find(p => p.rid === l.rid) : null;
+    cards.set(l.rid || `added:${l.name}`, {
+      key: l.rid || `added:${l.name}`, rid: l.rid, name: l.name, advisor: l.advisor, kind: "added",
+      leadStatus: status || (g ? g.leadStatus : ""), src: g ? g.src : "", lastActivity: l.lastActivity || (g ? g.lastActivity : null),
+      lastVisit: g ? g.visits.filter(v => v.departure && v.departure < today && v.stage !== "Canceled").slice(-1)[0] || null : null,
+      nextVisit: g ? g.visits.find(v => v.arrival && (v.departure || v.arrival) >= today && v.stage !== "Canceled") || null : null,
+      notes: [...(l.notes ? [{ date: null, text: l.notes }] : []), ...(g ? g.notes : [])],
+      interest: l.interest, nextStep: l.next, amount: 0, property: "",
+    });
+  });
+
+  // Latest HubSpot notes (optional Contact_Notes tab) and the light.
+  return [...cards.values()].map(c => {
+    const hs = c.rid ? (notesByRid.get(c.rid) || []) : [];
+    hs.forEach(n => { if (n.date && (!c.lastActivity || n.date > c.lastActivity)) c.lastActivity = n.date; });
+    const days = c.lastActivity ? Math.max(pdDiff(c.lastActivity, today), 0) : null;
+    return { ...c, hubspotNotes: hs.sort((a, b) => (b.date || 0) - (a.date || 0)), days, light: wbLight(days) };
+  });
+}
+
+function parseContactNotes(rows) {
+  return (rows || []).map(r => ({
+    rid: pdId(pdStr(r["HubSpot Record ID"]).replace(/[,\s]/g, "")),
+    date: twParseDate(r["Date"]),
+    author: pdStr(r["Author"]),
+    text: pdStr(r["Note"]),
+  })).filter(n => n.rid && n.text);
+}
+
+const WB_ORDER = { red: 0, yellow: 1, none: 2, green: 3 };
+const visitWhen = v => v ? (calSameDay(v.arrival, v.departure || v.arrival) ? twDayFmt(v.arrival) : pdShortRange(v.arrival, v.departure)) : "";
+const nextVisitLabel = (v, today) => v ? `${v.arrival <= today ? "On property" : "Next visit"} ${visitWhen(v)}` : "";
+
+const WhiteboardCard = ({ c, onOpen }) => {
+  const L = WB_LIGHT[c.light];
+  return (
+    <div role="button" tabIndex={0} onClick={onOpen} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}
+      className="wb-card" style={{ borderLeft: `5px solid ${L.color}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+        <span style={{ fontSize: 14.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.25 }}>{c.name}</span>
+        {c.kind === "neg" && c.amount > 0 && <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, color: C.gray, whiteSpace: "nowrap" }}>{money(c.amount)}</span>}
+      </div>
+      {c.kind === "neg" && (
+        <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "#4E8F8F", fontFamily: FONT_BODY, marginTop: 3 }}>
+          Active Negotiation{c.property ? ` · ${c.property}` : ""}
+        </div>
+      )}
+      {c.kind !== "neg" && c.interest && (
+        <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "#4E8F8F", fontFamily: FONT_BODY, marginTop: 3 }}>{c.interest}</div>
+      )}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7, alignItems: "center" }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontFamily: FONT_BODY, color: C.gray }}>
+          <span style={{ width: 9, height: 9, borderRadius: "50%", background: L.color }} />
+          {c.days == null ? L.label : c.days === 0 ? "Contact today" : `${c.days} day${c.days === 1 ? "" : "s"} since last contact`}
+        </span>
+        {c.nextVisit && <span className="wb-chip wb-chip-on">{nextVisitLabel(c.nextVisit, pdDay(new Date()))}</span>}
+        {!c.nextVisit && c.lastVisit && <span className="wb-chip">Visited {visitWhen(c.lastVisit)}</span>}
+        {c.nextStep && <span className="wb-chip wb-chip-on">{c.nextStep}</span>}
+      </div>
+    </div>
+  );
+};
+
+const WhiteboardDetail = ({ c, onClose }) => {
+  const L = WB_LIGHT[c.light];
+  const meta = [c.advisor, c.leadStatus && `Lead Status: ${c.leadStatus}`, c.src].filter(Boolean).join(" · ");
+  const noteRow = (n, i) => (
+    <div key={i} style={{ ...ROW_STYLE, fontFamily: FONT_BODY }}>
+      {(n.date || n.author) && (
+        <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: PD_MUTED, marginBottom: 3 }}>
+          {[n.date ? (n.date instanceof Date ? twDayFmt(n.date) : n.date) : null, n.author].filter(Boolean).join(" · ")}
+        </div>
+      )}
+      <div style={{ fontSize: 13.5, color: C.gray, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{n.text}</div>
+    </div>
+  );
+  return (
+    <Modal title={c.name} subtitle={meta} onClose={onClose}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+        <span className="wb-chip" style={{ background: L.color, color: c.light === "none" ? C.gray : C.white, fontWeight: "bold" }}>
+          {L.label}{c.days != null ? ` · ${c.days} day${c.days === 1 ? "" : "s"}` : ""}
+        </span>
+        {c.kind === "neg" && <span className="wb-chip wb-chip-on">Active Negotiation{c.amount ? ` · ${money(c.amount)}` : ""}{c.property ? ` · ${c.property}` : ""}</span>}
+        {c.lastVisit && <span className="wb-chip">Visited {visitWhen(c.lastVisit)}</span>}
+        {c.nextVisit && <span className="wb-chip wb-chip-on">{nextVisitLabel(c.nextVisit, pdDay(new Date()))}</span>}
+        {c.nextStep && <span className="wb-chip wb-chip-on">{c.nextStep}</span>}
+      </div>
+      {c.interest && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Interest:</strong> {c.interest}</div>}
+      {c.dealNotes && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Deal notes:</strong> {c.dealNotes}</div>}
+      {c.hubspotNotes.length > 0 && <PdSectionHead text="Latest HubSpot notes" first />}
+      {c.hubspotNotes.map(noteRow)}
+      {c.notes.length > 0 && <PdSectionHead text="Notes" first={c.hubspotNotes.length === 0} />}
+      {c.notes.map(noteRow)}
+      {c.hubspotNotes.length === 0 && c.notes.length === 0 && (
+        <div style={{ fontSize: 13, color: PD_MUTED, fontFamily: FONT_BODY }}>No notes yet.</div>
+      )}
+    </Modal>
+  );
+};
+
+const Whiteboard = ({ cards }) => {
+  const [open, setOpen] = useState(null);
+  const advisors = [...AL_ADVISORS, ...[...new Set(cards.map(c => c.advisor))].filter(a => !AL_ADVISORS.includes(a)).sort()];
+  const sortCards = list => [...list].sort((a, b) => (a.kind === "neg" ? -1 : 0) - (b.kind === "neg" ? -1 : 0) || WB_ORDER[a.light] - WB_ORDER[b.light] || (b.days ?? -1) - (a.days ?? -1));
+  return (
+    <div>
+      <style>{`
+        .wb-board{display:grid;grid-template-columns:repeat(${advisors.length},minmax(0,1fr));gap:12px;margin-top:12px;align-items:start}
+        .wb-col{background:rgba(54,67,74,0.045);border-radius:10px;padding:10px 10px 12px;min-width:0}
+        .wb-card{background:${C.white};border:1px solid rgba(54,67,74,0.12);border-radius:8px;padding:10px 12px;margin-top:8px;cursor:pointer;box-shadow:0 1px 2px rgba(54,67,74,0.06)}
+        .wb-card:hover,.wb-card:focus-visible{outline:none;box-shadow:0 0 0 2px ${C.teal}}
+        .wb-chip{font-size:11.5px;font-family:${FONT_BODY};color:${C.gray};background:rgba(54,67,74,0.07);border-radius:999px;padding:3px 9px}
+        .wb-chip-on{background:rgba(136,209,209,0.35);font-weight:bold}
+        @media (max-width:900px){.wb-board{grid-template-columns:1fr}}
+      `}</style>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 10, fontSize: 12, color: "rgba(54,67,74,0.75)", fontFamily: FONT_BODY }}>
+        {["green", "yellow", "red"].map(k => (
+          <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 10, height: 10, borderRadius: "50%", background: WB_LIGHT[k].color }} />
+            <strong>{WB_LIGHT[k].label}</strong> · {WB_LIGHT[k].hint}
+          </span>
+        ))}
+      </div>
+      <div className="wb-board">
+        {advisors.map(a => {
+          const mine = sortCards(cards.filter(c => c.advisor === a));
+          return (
+            <div key={a} className="wb-col">
+              <div style={{ height: 4, borderRadius: 2, background: CAL_ADVISOR_COLORS[a] || CAL_UNASSIGNED_COLOR, marginBottom: 8 }} />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontFamily: FONT_BODY }}>
+                <span style={{ fontSize: 14, fontWeight: "bold", color: C.gray }}>{a}</span>
+                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.gray }}>{mine.length}</span>
+              </div>
+              {mine.length === 0 && <div style={{ fontSize: 12.5, color: PD_MUTED, fontFamily: FONT_BODY, padding: "10px 2px 2px" }}>No one on the list yet.</div>}
+              {mine.map(c => <WhiteboardCard key={c.key} c={c} onOpen={() => setOpen(c)} />)}
+            </div>
+          );
+        })}
+      </div>
+      <PdNote>
+        Everyone whose prospect visit is now a Qualified Opportunity appears here by themselves, plus each Active Negotiation and the names advisors add. A card leaves the list when a deal moves past Active Negotiation, or when the Lead Status is set to {WHITEBOARD_OFF_STATUSES.join(", ")}.
+      </PdNote>
+      {open && <WhiteboardDetail c={open} onClose={() => setOpen(null)} />}
+    </div>
+  );
+};
+
+// The CEO report's pipeline table, live.
+const SalesPipelineTable = ({ qoCount, openDeals, onOpenStage }) => {
+  const rows = [
+    { key: "qo", label: "Qualified Opportunities", house: "Active Qualified Prospects · after the prospect visit, no deal yet", n: qoCount, value: null },
+    ...PIPE_STAGES.map(s => ({ key: s.key, label: s.label, house: s.house, n: openDeals[s.key].length, value: openDeals[s.key].reduce((t, d) => t + d.amount, 0) })),
+  ];
+  const totalN = rows.reduce((t, r) => t + r.n, 0);
+  const totalV = rows.reduce((t, r) => t + (r.value || 0), 0);
+  return (
+    <div>
+      {rows.map((r, i) => (
+        <PdRow key={r.key} stat={{ label: r.label, house: r.house, money: true }} n={r.n} total={r.value || 0} first={i === 0}
+          onOpen={r.key === "qo" ? undefined : () => onOpenStage(r.key)} />
+      ))}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 0", borderTop: `1.5px solid ${C.gray}` }}>
+        <div style={{ flex: 1, fontSize: 15, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, letterSpacing: "0.04em" }}>TOTAL OPEN PIPELINE
+          <div style={{ fontSize: 11.5, fontWeight: "normal", color: PD_MUTED, marginTop: 2, letterSpacing: 0 }}>Each opportunity in one stage only · executed PSAs excluded</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 40, lineHeight: 1, color: C.gray }}>{totalN}</div>
+          {totalV > 0 && <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: "bold", color: C.teal, marginTop: 2 }}>{money(totalV)}</div>}
+        </div>
+        <span style={{ width: 14 }} />
+      </div>
+    </div>
+  );
+};
+
+const PipelineDealList = ({ stageKey, openDeals, onClose }) => {
+  const st = PIPE_STAGES.find(s => s.key === stageKey);
+  const items = openDeals[stageKey];
+  const total = items.reduce((t, d) => t + d.amount, 0);
+  return (
+    <Modal title={st.label} subtitle={`${items.length} · ${money(total)} · ${st.house}`} onClose={onClose}>
+      {items.length === 0 && <div style={{ fontSize: 13, color: PD_MUTED, fontFamily: FONT_BODY }}>None right now.</div>}
+      {items.map((d, i) => {
+        const { property, buyer } = splitDealName(d.name);
+        return (
+          <div key={i} style={ROW_STYLE}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+              <div style={{ minWidth: 0 }}>
+                <Eyebrow>{property}</Eyebrow>
+                {buyer && <Subhead>{buyer}</Subhead>}
+              </div>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, color: C.gray, whiteSpace: "nowrap" }}>{money(d.amount)}</div>
+            </div>
+            <RowMeta>{[d.advisor, d.created && `Created ${twDayFmt(d.created)}`, d.dd && `DD ${twDayFmt(d.dd)}`, d.notes].filter(Boolean).join(" · ")}</RowMeta>
+          </div>
+        );
+      })}
+    </Modal>
+  );
+};
+
+// ══════════════════════════════════════════════════════════════════════
+// ── REPORT (Paul White's LIFE Weekly CEO Sales Report, live) ──────────
+// Numbers are built live from the same data as the rest of the app, for a
+// Monday–Sunday week. Eli's parts (status, comments, forecasts, top 3, wins,
+// priorities, support) are typed in the "CEO_Report" tab, one row per week,
+// keyed by "Week Ending" (the Sunday). Past weeks stay visible.
+// Point-in-time lines (pipeline, active counts) always show today's numbers.
+// ══════════════════════════════════════════════════════════════════════
+const CONTRACTED_GOAL = 270000000;   // Contracted Sales Volume goal in the report (Eli, Nov 2)
+const RAISED_TARGET = 350000000;      // raised target, noted in the comments
+const CEO_FIELDS = {
+  status: "Sales Status", s1: "Sales Performance Comments", s2: "Weekly Activity Comments",
+  next30: "Next 30 Days", next60: "Next 60 Days", s3: "Pipeline Comments", s4: "Top Opportunities Comments",
+  wins: "Key Wins", priorities: "Top 3 Priorities", support: "Challenges / Leadership Support", s5: "Director Comments",
+  forecast30: "30-Day OTP Forecast", portfolio: "Portfolio Comments", director: "Director of Sales",
+};
+const ceoList = v => pdStr(v).split(/\s*(?:\|\||\n)\s*/).map(x => x.trim()).filter(Boolean);
+function ceoRowFor(rows, weekEnd) {
+  return (rows || []).find(r => { const d = twParseDate(r["Week Ending"]); return d && calSameDay(d, weekEnd); }) || null;
+}
+function topOppsFrom(row) {
+  if (!row) return [];
+  return [1, 2, 3].map(i => ({
+    prospect: pdStr(row[`Opp ${i} Prospect`]), product: pdStr(row[`Opp ${i} Product / Value`]),
+    status: pdStr(row[`Opp ${i} Status / Next Step`]), target: pdStr(row[`Opp ${i} Target PSA Date`]),
+  })).filter(o => o.prospect);
+}
+
+const RP_CSS = `
+.rp{font-family:${FONT_BODY};color:${C.gray}}
+.rp h2{font-family:${FONT_BODY};font-size:13px;letter-spacing:.12em;text-transform:uppercase;margin:26px 0 8px;padding-bottom:6px;border-bottom:1.5px solid ${C.gray}}
+.rp table{width:100%;border-collapse:collapse;font-size:13.5px}
+.rp th{background:${C.gray};color:#fff;text-align:left;padding:8px 10px;font-weight:bold;font-size:12px}
+.rp td{padding:8px 10px;border-bottom:1px solid rgba(54,67,74,0.12);vertical-align:top}
+.rp tr:nth-child(even) td{background:rgba(245,243,234,0.7)}
+.rp td.n,.rp th.n{text-align:right;white-space:nowrap}
+.rp .house{display:block;font-size:11px;color:${PD_MUTED};margin-top:2px}
+.rp .cm{font-size:13px;line-height:1.55;margin-top:10px}
+.rp .cm b{letter-spacing:.06em;font-size:11px;text-transform:uppercase;color:${PD_MUTED}}
+.rp .todo{color:${PD_MUTED};font-style:italic}
+.rp-wrap{overflow-x:auto}
+@media (max-width:700px){.rp table{font-size:12.5px}.rp th,.rp td{padding:7px 6px}}
+@media print{.nk-topnav,.nk-bottomnav,.nk-header,.rp-noprint{display:none !important}body{background:#fff}}
+`;
+
+const ReportView = ({ model, openDeals, qoCount, ceoRows }) => {
+  const today = model.today;
+  // Weeks run Monday–Sunday. The list: this week (in progress) and the 8 before it.
+  const thisMon = twWeekStart(today);
+  const weeks = Array.from({ length: 9 }, (_, i) => {
+    const start = pdAdd(thisMon, -7 * i), end = pdAdd(start, 6);
+    return { start, end, live: i === 0 };
+  });
+  const [idx, setIdx] = useState(weeks.length > 1 ? 1 : 0); // default: last finished week (the one sent Monday)
+  const wk = weeks[idx];
+  const until = wk.live ? today : wk.end;
+  const jan1 = new Date(until.getFullYear(), 0, 1);
+  const row = ceoRowFor(ceoRows, wk.end);
+  const f = k => (row ? pdStr(row[CEO_FIELDS[k]]) : "");
+  const todo = <span className="todo">To fill in (CEO_Report tab)</span>;
+  const txt = k => f(k) || todo;
+
+  const c = (t, a, b) => model.count(t, a, b);
+  const amt = (t, a, b) => model.amount(t, a, b);
+  const otpW = c("sotp", wk.start, until), otpY = c("sotp", jan1, until);
+  const psaW = c("psa", wk.start, until), psaY = c("psa", jan1, until);
+  const volW = amt("psa", wk.start, until), volY = amt("psa", jan1, until);
+  const pct = (v, g) => g ? `${Math.round((v / g) * 100)}%` : "—";
+  const negN = openDeals.neg.length, negV = openDeals.neg.reduce((t, d) => t + d.amount, 0);
+  const potpN = openDeals.potp.length, potpV = openDeals.potp.reduce((t, d) => t + d.amount, 0);
+  const sotpN = openDeals.sotp.length, sotpV = openDeals.sotp.reduce((t, d) => t + d.amount, 0);
+  const openN = qoCount + negN + potpN + sotpN, openV = negV + potpV + sotpV;
+  const upcoming = model.visits.length;
+  const opps = topOppsFrom(row);
+  const autoOpps = [...openDeals.neg, ...openDeals.potp, ...openDeals.sotp].sort((a, b) => b.amount - a.amount).slice(0, 3)
+    .map(d => { const { property, buyer } = splitDealName(d.name); return { prospect: buyer || d.name, product: `${property} · ${money(d.amount)}`, status: PIPE_STAGES.find(s => s.key === d.stageKey).label, target: "—" }; });
+  const top3 = opps.length ? opps : autoOpps;
+  const H = ({ children, house }) => <>{children}{house && <span className="house">{house}</span>}</>;
+  const bullets = k => { const items = ceoList(f(k)); return items.length ? <ul style={{ margin: "4px 0 0 18px", padding: 0 }}>{items.map((x, i) => <li key={i} style={{ marginBottom: 3 }}>{x}</li>)}</ul> : <div>{todo}</div>; };
+  const numbered = k => { const items = ceoList(f(k)); return items.length ? <ol style={{ margin: "4px 0 0 18px", padding: 0 }}>{items.map((x, i) => <li key={i} style={{ marginBottom: 3 }}>{x}</li>)}</ol> : <div>{todo}</div>; };
+  const weekLabel = w => `Week ending ${twDayFmt(w.end)}, ${w.end.getFullYear()}${w.live ? " (in progress)" : ""}`;
+
+  return (
+    <div className="rp">
+      <style>{RP_CSS}</style>
+      <div className="rp-noprint" style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBottom: 14 }}>
+        <select value={idx} onChange={e => setIdx(Number(e.target.value))}
+          style={{ fontFamily: FONT_BODY, fontSize: 14, padding: "8px 10px", borderRadius: 8, border: `1px solid rgba(54,67,74,0.3)`, background: C.white, color: C.gray }}>
+          {weeks.map((w, i) => <option key={i} value={i}>{weekLabel(w)}{ceoRowFor(ceoRows, w.end) ? " ✓" : ""}</option>)}
+        </select>
+        <button onClick={() => { try { window.print(); } catch { /* no print */ } }}
+          style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: "bold", padding: "9px 14px", borderRadius: 8, border: "none", background: C.gray, color: C.white, cursor: "pointer" }}>
+          Print / save as PDF
+        </button>
+        <span style={{ fontSize: 12, color: PD_MUTED }}>✓ = Eli's parts saved for that week</span>
+      </div>
+
+      <div style={{ fontSize: 12, letterSpacing: ".1em", textTransform: "uppercase", fontWeight: "bold", color: PD_MUTED }}>LIFE · Weekly CEO Sales Report</div>
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, marginTop: 4 }}>Nauka</div>
+      <div style={{ fontSize: 13, marginTop: 4 }}>
+        <strong>Director of Sales:</strong> {f("director") || "Eli Pacino"} · <strong>Week ending:</strong> {twDayFmt(wk.end)}, {wk.end.getFullYear()} ({twRangeLabel(wk.start, wk.end)}){wk.live ? " · in progress" : ""}
+      </div>
+
+      <h2>1. Sales performance | Actual vs. goal</h2>
+      <div className="rp-wrap"><table>
+        <thead><tr><th>KPI</th><th className="n">This Week</th><th className="n">YTD</th><th className="n">Annual Goal</th><th className="n">% Achieved</th></tr></thead>
+        <tbody>
+          <tr><td><H house="Signed OTPs">Offers to Purchase (OTPs)</H></td><td className="n">{otpW}</td><td className="n">{otpY}</td><td className="n">—</td><td className="n">—</td></tr>
+          <tr><td><H house="Signed PSAs">Executed PSAs (Sales)</H></td><td className="n">{psaW}</td><td className="n">{psaY}</td><td className="n">—</td><td className="n">—</td></tr>
+          <tr><td><H house="All sales, incl. related party and re-sales">Contracted Sales Volume</H></td><td className="n">{money(volW)}</td><td className="n">{money(volY)}</td><td className="n">{money(CONTRACTED_GOAL)}</td><td className="n">{pct(volY, CONTRACTED_GOAL)}</td></tr>
+          <tr><td><H house="Definition pending (Paul)">Closed Sales Volume</H></td><td className="n">—</td><td className="n">—</td><td className="n">—</td><td className="n">—</td></tr>
+        </tbody>
+      </table></div>
+      <div className="cm"><b>Sales Status:</b> {f("status") || todo}</div>
+      <div className="cm"><b>Comments / context:</b> {f("s1") || <>Raised target: {money(RAISED_TARGET)} ({pct(volY, RAISED_TARGET)} achieved). {todo}</>}</div>
+
+      <h2>2. Weekly sales activity</h2>
+      <div className="rp-wrap"><table>
+        <thead><tr><th>KPI</th><th className="n">This Week</th><th className="n">YTD / Current</th></tr></thead>
+        <tbody>
+          <tr><td><H house="Excludes hotel guests and Unqualified">New Qualified Leads</H></td><td className="n">{c("qlead", wk.start, until)}</td><td className="n">{c("qlead", jan1, until)} YTD</td></tr>
+          <tr><td><H house="Lead Source: Siari Hotel Guest">New Hotel Leads</H></td><td className="n">{c("hlead", wk.start, until)}</td><td className="n">{c("hlead", jan1, until)} YTD</td></tr>
+          <tr><td><H house="Prospect Visits">Site Tours / Immersions Completed</H></td><td className="n">{c("tour", wk.start, until)}</td><td className="n">{c("tour", jan1, until)} YTD</td></tr>
+          <tr><td><H house="Upcoming Prospect Visits">Upcoming Site Tours Booked</H></td><td className="n">—</td><td className="n">{upcoming} Scheduled</td></tr>
+          <tr><td><H house="Qualified Opportunities, today">Active Qualified Prospects</H></td><td className="n">{qoCount} Active</td><td className="n">—</td></tr>
+          <tr><td><H house="Working toward an OTP, today">Active Negotiations</H></td><td className="n">{negN} Active</td><td className="n">—</td></tr>
+          <tr><td><H house="Pending OTP · inventory on hold">OTPs Submitted</H></td><td className="n">{c("hold", wk.start, until)}</td><td className="n">{c("hold", jan1, until)} YTD</td></tr>
+          <tr><td><H house="Signed OTP, today">OTPs Accepted / Pending PSA</H></td><td className="n">{sotpN} Active</td><td className="n">—</td></tr>
+          <tr><td><H house="Signed PSAs">PSAs Executed</H></td><td className="n">{psaW}</td><td className="n">{psaY} YTD</td></tr>
+          <tr><td><H house="Definition pending (Paul)">Sales Closed</H></td><td className="n">—</td><td className="n">—</td></tr>
+        </tbody>
+      </table></div>
+      <div className="cm"><b>Comments / context:</b> {txt("s2")}</div>
+
+      <h2>3. Sales pipeline &amp; forecast</h2>
+      <div className="rp-wrap"><table>
+        <thead><tr><th>Pipeline Stage</th><th className="n"># Deals</th><th className="n">Estimated Value</th></tr></thead>
+        <tbody>
+          <tr><td><H house="After the prospect visit, no deal yet">Qualified Opportunities</H></td><td className="n">{qoCount}</td><td className="n">—</td></tr>
+          <tr><td>Active Negotiations</td><td className="n">{negN}</td><td className="n">{money(negV)}</td></tr>
+          <tr><td><H house="Pending OTP">OTPs Submitted / Pending Acceptance</H></td><td className="n">{potpN}</td><td className="n">{money(potpV)}</td></tr>
+          <tr><td><H house="Signed OTP">Accepted OTPs / Pending PSA</H></td><td className="n">{sotpN}</td><td className="n">{money(sotpV)}</td></tr>
+          <tr><td><strong>TOTAL OPEN PIPELINE</strong></td><td className="n"><strong>{openN}</strong></td><td className="n"><strong>{money(openV)}</strong></td></tr>
+        </tbody>
+      </table></div>
+      <div className="cm"><b>Next 30 Days:</b> {txt("next30")}</div>
+      <div className="cm"><b>Next 60 Days:</b> {txt("next60")}</div>
+      <div className="cm"><b>Comments / context:</b> {txt("s3")}</div>
+
+      <h2>4. Top 3 sales opportunities</h2>
+      <div className="rp-wrap"><table>
+        <thead><tr><th>Prospect</th><th>Product / Value</th><th>Status / Next Step</th><th>Target PSA Date</th></tr></thead>
+        <tbody>
+          {top3.length === 0 && <tr><td colSpan={4}>{todo}</td></tr>}
+          {top3.map((o, i) => <tr key={i}><td><strong>{i + 1}.</strong> {o.prospect}</td><td>{o.product}</td><td>{o.status}</td><td>{o.target || "—"}</td></tr>)}
+        </tbody>
+      </table></div>
+      {!opps.length && top3.length > 0 && <div className="cm todo">Showing the largest open deals until Eli's top 3 are in the CEO_Report tab.</div>}
+      <div className="cm"><b>Comments / context:</b> {txt("s4")}</div>
+
+      <h2>5. Director of Sales update</h2>
+      <div className="cm"><b>Key Wins This Week</b>{bullets("wins")}</div>
+      <div className="cm"><b>Top 3 Priorities for Next Week</b>{numbered("priorities")}</div>
+      <div className="cm"><b>Challenges / Leadership Support Needed</b>{bullets("support")}</div>
+      <div className="cm"><b>Comments / context:</b> {txt("s5")}</div>
+
+      <h2>LIFE | Consolidated portfolio dashboard · Nauka row</h2>
+      <div className="rp-wrap"><table>
+        <thead><tr><th>Project</th><th className="n">Sales Goal</th><th className="n">OTPs YTD</th><th className="n">PSAs YTD</th><th className="n">% Goal</th><th className="n">Open Pipeline</th><th className="n">30-Day OTP Forecast</th></tr></thead>
+        <tbody><tr><td>Nauka</td><td className="n">{money(CONTRACTED_GOAL)}</td><td className="n">{otpY}</td><td className="n">{psaY}</td><td className="n">{pct(volY, CONTRACTED_GOAL)}</td><td className="n">{money(openV)}</td><td className="n">{f("forecast30") || "—"}</td></tr></tbody>
+      </table></div>
+      {f("portfolio") && <div className="cm"><b>Comments / context:</b> {f("portfolio")}</div>}
+      <PdNote>
+        Same data as the rest of the app. Pipeline and "Active" lines show today's numbers, also for past weeks. OTPs Submitted = inventory placed on hold (deal created at Pending OTP). Before {twDayFmt(model.mastersFrom)}, signed OTPs come from the weekly counts reported at the time.
+      </PdNote>
     </div>
   );
 };
@@ -2067,7 +2685,7 @@ const ProspectStages = ({ model }) => {
   );
 
   const lists = {
-    visits: { title: "Upcoming Prospect Visits", sub: `${visits.length} upcoming`, empty: "No visits scheduled.",
+    visits: { title: "Upcoming Site Tours Booked", sub: `${visits.length} upcoming`, empty: "No visits scheduled.",
       items: visits, render: (v, i) => <ProspectRow key={i} p={{ name: v.name, advisor: v.coveredBy || v.owner, src: v.source }} right={calSameDay(v.arrival, v.departure) ? twDayFmt(v.arrival) : pdShortRange(v.arrival, v.departure)} /> },
     active: { title: "Toured Prospects", sub: `Toured since ${twDayFmt(win.start)} · no deal yet · not Lost`, empty: "No open toured prospects from the last 60 days.",
       items: prospects.active, render: (p, i) => <ProspectRow key={i} p={p} right={tourInfo(p)} sub={stageAndStatus(p)} /> },
@@ -2084,9 +2702,8 @@ const ProspectStages = ({ model }) => {
 
   return (
     <div style={{ marginBottom: 26 }}>
-      <PdSectionHead text="Prospect pipeline" first />
-      {stageRow("visits", "Upcoming Prospect Visits", "Booked in the prospect calendar, not yet arrived", visits.length, true)}
-      {stageRow("active", "Toured Prospects", `Toured in the last 60 days, no deal yet, not Lost`, prospects.active.length, false)}
+      <PdSectionHead text="Site tours / immersions" first />
+      {stageRow("visits", "Upcoming Site Tours Booked", "Upcoming Prospect Visits · booked in the calendar, not yet arrived", visits.length, true)}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 10, marginTop: 6 }}>
         <div style={{ background: C.white, border: "1px solid rgba(54,67,74,0.14)", borderRadius: 8, padding: "12px 15px", minWidth: 0 }}>
@@ -2144,11 +2761,11 @@ const ProspectStages = ({ model }) => {
 const NAV_ITEMS = [
   { key: "home",        label: "Home",       cap: "2026 sales",   icon: "home" },
   { key: "weekly",      label: "60 Days",    cap: "Last 60 days", icon: "bars" },
-  { key: "month",       label: "This Month", cap: "Live",         icon: "pulse", live: true },
   { key: "calendar",    label: "Calendar",  icon: "calendar" },
   { key: "active",      label: "Pipeline",  icon: "briefcase" },
   { key: "inventories", label: "Inventory", icon: "building" },
   { key: "conversions", label: "Funnel",    icon: "funnel" },
+  { key: "report",      label: "Report",    cap: "CEO weekly", icon: "report" },
 ];
 
 const NavIcon = ({ name, size = 22 }) => {
@@ -2160,6 +2777,7 @@ const NavIcon = ({ name, size = 22 }) => {
     calendar: <><rect x="4" y="5" width="16" height="16" rx="2" {...p} /><path d="M16 3v4M8 3v4M4 11h16" {...p} /></>,
     briefcase: <><rect x="3" y="7" width="18" height="13" rx="2" {...p} /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18" {...p} /></>,
     building: <path d="M3 21h18M5 21V8l7-5 7 5v13M9 10v.01M15 10v.01M9 14v.01M15 14v.01M10 21v-3h4v3" {...p} />,
+    report: <><path d="M6 3h9l4 4v14H6z" {...p} /><path d="M15 3v4h4M9 12h7M9 16h7M9 8h3" {...p} /></>,
     funnel: <path d="M4 4h16v2.2a2 2 0 0 1-.6 1.4L15 12v7l-6 2v-8.5L4.5 7.6A2 2 0 0 1 4 6.2V4z" {...p} />,
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" style={{ display: "block" }}>{shapes[name]}</svg>;
@@ -2698,18 +3316,6 @@ const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo,
         ))}
       </div>
 
-      {/* 6 · Available inventory */}
-      <PdSectionHead text="Available inventory" />
-      <div className="hm-click" {...click(onInventory)} style={{ padding: "12px 6px", marginLeft: -6 }}>
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, color: C.gray, lineHeight: 1.2 }}>
-          {inventory.count} homes and homesites
-        </div>
-        {inventory.count > 0 && (
-          <div className="hm-small">Priced from {homeM(inventory.min, 2)} to {homeM(inventory.max, 2)}</div>
-        )}
-        <span className="hm-link">View available inventory ›</span>
-      </div>
-
       <PdNote>
         Total property transactions = signed PSAs this year, including re-sales and partner deals. Cash transactions leave out partner (related-party) deals. Past years come from the Q3 {HOME_YEAR} Executive Sales Report; {HOME_YEAR - 1} Q4 is full-year {HOME_YEAR - 1} minus January–September.
       </PdNote>
@@ -2754,6 +3360,9 @@ export default function NaukaDashboard() {
   const [openModal, setOpenModal] = useState(null);
   const [masterLeads, setMasterLeads] = useState([]);
   const [masterDeals, setMasterDeals] = useState([]);
+  const [activeLeads, setActiveLeads] = useState([]);
+  const [contactNotes, setContactNotes] = useState([]);
+  const [ceoRows, setCeoRows] = useState([]);
   const [now, setNow]             = useState(() => new Date());
   const lastLoadRef               = useRef(0);
 
@@ -2764,7 +3373,7 @@ export default function NaukaDashboard() {
   const load = useCallback(async (silent = false) => {
       lastLoadRef.current = Date.now();
       try {
-        const [k, p, d, ka, fc, st, ytd, resale, fa, fy, faa, fay, fls, cal, bp, hs, mLeads, mDeals] = await Promise.all([
+        const [k, p, d, ka, fc, st, ytd, resale, fa, fy, faa, fay, fls, cal, bp, hs, mLeads, mDeals, al, cn, ceo] = await Promise.all([
           fetchSheet("Weekly_KPIs"),
           fetchSheet("Pipeline"),
           fetchSheet("Pending Transactions"),
@@ -2783,6 +3392,9 @@ export default function NaukaDashboard() {
           fetchRawSheet("Homesites"),
           fetchSheet("Master_Leads"),
           fetchSheet("Master_Deals"),
+          fetchSheet("Active_Leads"),
+          fetchSheet("Contact_Notes"),
+          fetchSheet("CEO_Report"),
         ]);
         // fetchSheet returns [] on a network error, so a background refresh
         // that came back with nothing in the core tabs is treated as a failed
@@ -2798,6 +3410,9 @@ export default function NaukaDashboard() {
         setBuiltProduct(parseBuiltProduct(bp));
         setHomesites(parseHomesites(hs));
         setMasterLeads(mLeads); setMasterDeals(mDeals);
+        setActiveLeads(parseActiveLeads(al));
+        setContactNotes(parseContactNotes(cn));
+        setCeoRows(ceo);
         setNow(new Date());
         setLastUpdated(new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }));
       } catch { if (!silent) setError("Could not load data."); }
@@ -2896,6 +3511,7 @@ export default function NaukaDashboard() {
 
   const renderModal = () => {
     if (!openModal) return null;
+    if (openModal.type === "pipeStage") return <PipelineDealList stageKey={openModal.key} openDeals={openDealsByStage(masterDeals)} onClose={() => setOpenModal(null)} />;
     if (openModal.type === "active") {
       const stage = openModal.key;
       const info = pipe(stage);
@@ -2932,6 +3548,10 @@ export default function NaukaDashboard() {
   const calRecords = calendarRows.length ? parseCalendarSheet(calendarRows) : FALLBACK_CALENDAR_RECORDS;
   const model = buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis, kpiArchive, settings, now });
   const todayCount = model.entries.filter(e => calSameDay(e.date, model.today)).length;
+  const openDeals = openDealsByStage(masterDeals);
+  const whiteboard = buildWhiteboard({ calRecords, people: model.people, openDeals, activeLeads, contactNotes, today: model.today, winStart: model.win.start });
+  // Qualified Opportunities = people after a prospect visit (names added by hand who have not visited are on the board, not in the count).
+  const qoCount = whiteboard.filter(c => c.kind === "qo").length;
   const go = key => {
     setView(key);
     try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch { /* old browsers */ }
@@ -2963,7 +3583,7 @@ export default function NaukaDashboard() {
 
       {/* ── LAST 60 DAYS (vs. the 60 days before) ───────────────────── */}
       {view === "weekly" && (
-        <SixtyDayView model={model} onGo={go} />
+        <SixtyDayView model={model} onGo={go} activeLeads={activeLeads} calRecords={calRecords} />
       )}
 
       {/* ── ACTIVE TRANSACTIONS ───────────────────────────────────── */}
@@ -3005,13 +3625,18 @@ export default function NaukaDashboard() {
             </div>
           );
         };
-        const motion = activeChips.slice(0, 3);
         const sales  = activeChips.slice(3);
+        const expired = activeChips.find(c => c.key === "Expired DD");
         return (
           <div>
+            <PdSectionHead text="Sales pipeline" right={`Today · ${twDayFmt(model.today)}`} first />
+            <SalesPipelineTable qoCount={qoCount} openDeals={openDeals} onOpenStage={k => setOpenModal({ type: "pipeStage", key: k })} />
+            <PdSectionHead text="Qualified Opportunities & Active Negotiations · by advisor" right="Tap a name for the notes" />
+            <Whiteboard cards={whiteboard} />
+            <div style={{ height: 18 }} />
             <ProspectStages model={model} />
-            {sectionHead("Deals · inventory assigned", true)}
-            {motion.map((c, i) => row(c, i === 0))}
+            {sectionHead("Due diligence", true)}
+            {row(expired, true)}
             {sectionHead("Sales", false)}
             {sales.map((c, i) => row(c, i === 0))}
           </div>
@@ -3058,9 +3683,9 @@ export default function NaukaDashboard() {
         />
       )}
 
-      {/* ── THIS MONTH (the 1st through today, vs. the same days last month) ─ */}
-      {view === "month" && (
-        <ThisMonthView model={model} />
+      {/* ── REPORT · the CEO weekly report, live ─────────────────────── */}
+      {view === "report" && (
+        <ReportView model={model} openDeals={openDeals} qoCount={qoCount} ceoRows={ceoRows} />
       )}
 
       {/* ── PROSPECT CALENDAR ───────────────────────────────────────── */}

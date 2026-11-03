@@ -1174,8 +1174,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // stage as Lost. Edit this list to match how sales marks a lost prospect.
 const LOST_LEAD_STATUSES = ["Not Interested", "Unqualified", "Unsubscribed"];
 // Lead statuses that take a person off the Pipeline whiteboard (one list, one place).
-const WHITEBOARD_OFF_STATUSES = ["Not Interested", "Unqualified", "Unsubscribed"];
-const TALKS_OFF_STATUSES = ["unresponsive", "no contact", "closed won"]; // also kept out of "In talks to visit"
+const WHITEBOARD_OFF_STATUSES = ["Not Interested", "Unqualified", "Unsubscribed", "Timing"]; // Timing = not active (Nov 3)
+const TALKS_OFF_STATUSES = ["unresponsive", "no contact", "gone dark", "closed won"]; // also kept out of "In talks to visit"
 const isHotelSource = src => /siari hotel guest/i.test(String(src || ""));
 const isNegotiationStage = st => /^active negotiation/i.test(String(st || "").trim());
 // Contact Types that are never counted as toured prospects.
@@ -2094,10 +2094,10 @@ function openDealsByStage(masterDeals) {
 // Traffic light from days since the last activity (decided Nov 3, 2026).
 const WB_GREEN = 14, WB_YELLOW = 30;
 const WB_LIGHT = {
-  green:  { color: C.green, label: "Active",       hint: `note or meeting in the last ${WB_GREEN} days` },
-  yellow: { color: "#E0B23C", label: "Slowing down", hint: `${WB_GREEN + 1}–${WB_YELLOW} days since the last note or meeting` },
-  red:    { color: C.red,   label: "Stalled",      hint: `more than ${WB_YELLOW} days since the last note or meeting` },
-  none:   { color: "#C9CED1", label: "No activity date", hint: "no note or meeting in HubSpot" },
+  green:  { color: C.green, label: "Active",       hint: `note, call or meeting in the last ${WB_GREEN} days` },
+  yellow: { color: "#E0B23C", label: "Slowing down", hint: `${WB_GREEN + 1}–${WB_YELLOW} days since the last note, call or meeting` },
+  red:    { color: C.red,   label: "Stalled",      hint: `more than ${WB_YELLOW} days since the last note, call or meeting` },
+  none:   { color: "#C9CED1", label: "No activity date", hint: "no note, call or meeting in HubSpot" },
 };
 const wbLight = days => days == null ? "none" : days <= WB_GREEN ? "green" : days <= WB_YELLOW ? "yellow" : "red";
 
@@ -2111,8 +2111,16 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
   const skipTypes = NOT_A_PROSPECT_TYPES.map(s => s.toLowerCase());
   const openByRid = new Map();
   [...openDeals.neg, ...openDeals.potp, ...openDeals.sotp].forEach(d => { if (d.rid) openByRid.set(d.rid, d); });
+  // Open HubSpot tasks (Type = Task, Date = due date) are next steps, not activity.
+  const isTask = n => /^task$/i.test(n.type);
+  const tasksByRid = new Map();
+  (contactNotes || []).filter(isTask).forEach(n => {
+    if (!n.date || n.date < today) return;
+    if (!tasksByRid.has(n.rid)) tasksByRid.set(n.rid, []);
+    tasksByRid.get(n.rid).push(n);
+  });
   const notesByRid = new Map();
-  (contactNotes || []).forEach(n => {
+  (contactNotes || []).filter(n => !isTask(n)).forEach(n => {
     if (!n.rid) return;
     if (!notesByRid.has(n.rid)) notesByRid.set(n.rid, []);
     notesByRid.get(n.rid).push(n);
@@ -2217,7 +2225,7 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
     if (cards.has(rid)) return;
     const list = notesByRid.get(rid);
     if (!list.some(n => n.date && n.date >= liveFrom)) return;
-    const status = list.find(n => n.leadStatus)?.leadStatus || (people.get(rid) ? pdStr(people.get(rid).status) : "");
+    const status = [...list].sort((x, y) => (y.date || 0) - (x.date || 0)).find(n => n.leadStatus)?.leadStatus || (people.get(rid) ? pdStr(people.get(rid).status) : "");
     if ([...off, "closed won"].includes(status.toLowerCase())) return;
     if (openByRid.has(rid)) return;
     // Already on the board under the same name without a Record ID (e.g. a calendar row): join them.
@@ -2250,8 +2258,9 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
     const visited = c.kind === "qo" || c.kind === "neg" || hasCome(g);
     const p = c.rid ? people.get(c.rid) : null;
     const src = c.src || (g && g.src) || hs.find(n => n.source)?.source || (p ? pdStr(p.src) : "");
-    const leadStatus = c.leadStatus || hs.find(n => n.leadStatus)?.leadStatus || (p ? pdStr(p.status) : "");
-    return { ...c, src, leadStatus, visited, lastActivity, fromNotes: !!lastTouch, hubspotNotes: hs, lastNote: hs[0] || null, days, light: wbLight(days) };
+    const leadStatus = c.leadStatus || hs.find(n => n.leadStatus)?.leadStatus || (p ? pdStr(p.status) : ""); // hs is newest first
+    const nextTask = c.rid ? [...(tasksByRid.get(c.rid) || [])].sort((a, b) => a.date - b.date)[0] || null : null;
+    return { ...c, src, leadStatus, visited, nextTask, lastActivity, fromNotes: !!lastTouch, hubspotNotes: hs, lastNote: hs[0] || null, days, light: wbLight(days) };
   });
 }
 
@@ -2294,7 +2303,7 @@ const WhiteboardCard = ({ c, onOpen }) => {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7, alignItems: "center" }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontFamily: FONT_BODY, color: C.gray }}>
           <span style={{ width: 9, height: 9, borderRadius: "50%", background: L.color }} />
-          {c.days == null ? "No note or meeting yet" : `Last ${c.lastNote.type.toLowerCase()} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}
+          {c.days == null ? "No note, call or meeting yet" : `Last ${c.lastNote.type.toLowerCase()} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}
         </span>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignItems: "center" }}>
@@ -2304,6 +2313,9 @@ const WhiteboardCard = ({ c, onOpen }) => {
         {!c.nextVisit && c.lastVisit && <span className="wb-chip">Visited {visitWhen(c.lastVisit)}</span>}
         {c.nextStep && <span className="wb-chip wb-chip-on">{c.nextStep}</span>}
       </div>
+      {c.nextTask && (
+        <div className="wb-next"><strong>Next · {twDayFmt(c.nextTask.date)}</strong> {c.nextTask.text}</div>
+      )}
     </div>
   );
 };
@@ -2334,7 +2346,8 @@ const WhiteboardDetail = ({ c, onClose }) => {
       </div>
       {c.interest && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Interest:</strong> {c.interest}</div>}
       {c.dealNotes && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Deal notes:</strong> {c.dealNotes}</div>}
-      {c.lastNote && <PdSectionHead text="Most recent note or meeting · HubSpot" first />}
+      {c.nextTask && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 10 }}><strong>Next step · {twDayFmt(c.nextTask.date)}:</strong> {c.nextTask.text}{c.nextTask.author ? ` (${c.nextTask.author})` : ""}</div>}
+      {c.lastNote && <PdSectionHead text="Most recent note, call or meeting · HubSpot" first />}
       {c.lastNote && noteRow(c.lastNote, "last")}
       {!c.lastNote && c.notes.length > 0 && <PdSectionHead text="Most recent note" first />}
       {!c.lastNote && c.notes.length > 0 && noteRow(c.notes[c.notes.length - 1], "n")}
@@ -2358,6 +2371,7 @@ const Whiteboard = ({ cards, talks = false }) => {
         .wb-card:hover,.wb-card:focus-visible{outline:none;box-shadow:0 0 0 2px ${C.teal}}
         .wb-chip{font-size:11.5px;font-family:${FONT_BODY};color:${C.gray};background:rgba(54,67,74,0.07);border-radius:999px;padding:3px 9px}
         .wb-chip-on{background:rgba(136,209,209,0.35);font-weight:bold}
+        .wb-next{margin-top:7px;font-size:12px;font-family:${FONT_BODY};color:${C.gray};line-height:1.35;background:rgba(136,209,209,0.18);border-radius:6px;padding:5px 8px}
         .wb-last{margin-top:8px;padding-top:7px;border-top:1px solid rgba(54,67,74,0.1);font-family:${FONT_BODY}}
         .wb-last-meta{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:bold;color:${PD_MUTED}}
         .wb-last-text{font-size:12.5px;color:${C.gray};line-height:1.4;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line;overflow-wrap:anywhere}
@@ -2388,7 +2402,7 @@ const Whiteboard = ({ cards, talks = false }) => {
         })}
       </div>
       <PdNote>
-        {talks ? <>People who have not come yet but are in talks: a note or meeting an advisor logged in HubSpot in the last {WB_YELLOW} days (emails don't count), or a name the advisor added. They move up to the whiteboard once they arrive. Unresponsive and No Contact leads are left out.</> : <>Only people who have already come. Everyone whose prospect visit is now a Qualified Opportunity appears here by themselves, plus each Active Negotiation, the names advisors add, and anyone who has visited and has a note or meeting an advisor logged in HubSpot in the last {WB_YELLOW} days (emails don't count).</>} A card leaves the list when a deal moves past Active Negotiation, or when the Lead Status is set to {WHITEBOARD_OFF_STATUSES.join(", ")}.
+        {talks ? <>People who have not come yet but are in talks: a note, call or meeting an advisor logged in HubSpot in the last {WB_YELLOW} days (emails don't count), or a name the advisor added. They move up to the whiteboard once they arrive. Unresponsive, Gone Dark and No Contact leads are left out.</> : <>Only people who have already come. Everyone whose prospect visit is now a Qualified Opportunity appears here by themselves, plus each Active Negotiation, the names advisors add, and anyone who has visited and has a note, call or meeting an advisor logged in HubSpot in the last {WB_YELLOW} days (emails don't count).</>} A card leaves the list when a deal moves past Active Negotiation, or when the Lead Status is set to {WHITEBOARD_OFF_STATUSES.join(", ")}.
       </PdNote>
       {open && <WhiteboardDetail c={open} onClose={() => setOpen(null)} />}
     </div>

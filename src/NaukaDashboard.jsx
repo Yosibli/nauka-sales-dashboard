@@ -1175,6 +1175,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const LOST_LEAD_STATUSES = ["Not Interested", "Unqualified", "Unsubscribed"];
 // Lead statuses that take a person off the Pipeline whiteboard (one list, one place).
 const WHITEBOARD_OFF_STATUSES = ["Not Interested", "Unqualified", "Unsubscribed"];
+const TALKS_OFF_STATUSES = ["unresponsive", "no contact", "closed won"]; // also kept out of "In talks to visit"
 const isHotelSource = src => /siari hotel guest/i.test(String(src || ""));
 const isNegotiationStage = st => /^active negotiation/i.test(String(st || "").trim());
 // Contact Types that are never counted as toured prospects.
@@ -1231,7 +1232,7 @@ const pdDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const pdAdd = (d, n) => { const x = pdDay(d); x.setDate(x.getDate() + n); return x; };
 const pdDiff = (a, b) => Math.round((pdDay(b) - pdDay(a)) / DAY_MS);
 const pdStr = v => String(v ?? "").trim();
-const pdId = v => pdStr(v).replace(/\.0+$/, "");
+const pdId = v => pdStr(v).replace(/[,\s]/g, "").replace(/\.0+$/, "");
 
 // Turns the sheet tabs into dated entries (one per lead, tour and deal
 // milestone) plus a map of people used for the Toured Prospects stage.
@@ -2093,10 +2094,10 @@ function openDealsByStage(masterDeals) {
 // Traffic light from days since the last activity (decided Nov 3, 2026).
 const WB_GREEN = 14, WB_YELLOW = 30;
 const WB_LIGHT = {
-  green:  { color: C.green, label: "Active",       hint: `contact in the last ${WB_GREEN} days` },
-  yellow: { color: "#E0B23C", label: "Slowing down", hint: `${WB_GREEN + 1}–${WB_YELLOW} days without contact` },
-  red:    { color: C.red,   label: "Stalled",      hint: `more than ${WB_YELLOW} days without contact` },
-  none:   { color: "#C9CED1", label: "No activity date", hint: "add the Last Activity Date" },
+  green:  { color: C.green, label: "Active",       hint: `note or meeting in the last ${WB_GREEN} days` },
+  yellow: { color: "#E0B23C", label: "Slowing down", hint: `${WB_GREEN + 1}–${WB_YELLOW} days since the last note or meeting` },
+  red:    { color: C.red,   label: "Stalled",      hint: `more than ${WB_YELLOW} days since the last note or meeting` },
+  none:   { color: "#C9CED1", label: "No activity date", hint: "no note or meeting in HubSpot" },
 };
 const wbLight = days => days == null ? "none" : days <= WB_GREEN ? "green" : days <= WB_YELLOW ? "yellow" : "red";
 
@@ -2192,12 +2193,65 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
     });
   });
 
-  // Latest HubSpot notes (optional Contact_Notes tab) and the light.
+  // Live activity (Nov 3): anyone with a note or meeting an advisor logged by hand
+  // in HubSpot in the last 30 days (Contact_Notes tab; emails do not count).
+  // Already came → whiteboard. Not yet → "In talks to visit" (Unresponsive /
+  // No Contact are left out there: background research is not talks).
+  // A spouse or broker on the same notes/meetings is folded into one card.
+  const liveFrom = new Date(today.getTime() - WB_YELLOW * 864e5);
+  const hasCome = g => !!g && g.visits.some(v => v.stage !== "Canceled" && v.arrival && v.arrival <= today);
+  const aidsByRid = new Map();
+  notesByRid.forEach((list, rid) => aidsByRid.set(rid, new Set(list.map(n => n.aid || `${+n.date}|${n.text.slice(0, 40)}`))));
+  const sortedRids = [...aidsByRid.keys()].sort();
+  const foldInto = rid => {
+    const mine = aidsByRid.get(rid);
+    return sortedRids.find(o => {
+      if (o === rid) return false;
+      const theirs = aidsByRid.get(o);
+      if (![...mine].every(a => theirs.has(a))) return false;
+      return theirs.size > mine.size || (theirs.size === mine.size && ((cards.has(o) && !cards.has(rid)) || (cards.has(o) === cards.has(rid) && o < rid)));
+    }) || null;
+  };
+  const also = new Map();
+  sortedRids.forEach(rid => {
+    if (cards.has(rid)) return;
+    const list = notesByRid.get(rid);
+    if (!list.some(n => n.date && n.date >= liveFrom)) return;
+    const status = list.find(n => n.leadStatus)?.leadStatus || (people.get(rid) ? pdStr(people.get(rid).status) : "");
+    if ([...off, "closed won"].includes(status.toLowerCase())) return;
+    if (openByRid.has(rid)) return;
+    // Already on the board under the same name without a Record ID (e.g. a calendar row): join them.
+    const byName = list[0].name && [...cards.values()].find(c => !c.rid && c.name.toLowerCase() === list[0].name.toLowerCase());
+    if (byName) { byName.rid = rid; return; }
+    // Not visited yet: goes to "In talks to visit", only when they are really in talks.
+    const g = [...persons.values()].find(p => p.rid === rid);
+    if (!hasCome(g) && TALKS_OFF_STATUSES.includes(status.toLowerCase())) return;
+    const host = foldInto(rid);
+    if (host) { if (!also.has(host)) also.set(host, []); also.get(host).push(list[0].name); return; }
+    const latest = [...list].sort((a, b) => (b.date || 0) - (a.date || 0))[0];
+    cards.set(rid, {
+      key: rid, rid, name: latest.name || (g ? g.name : ""), advisor: latest.advisor || (g ? g.advisor : "") || "Unassigned", kind: "live",
+      leadStatus: status, src: g ? g.src : "", lastActivity: null,
+      lastVisit: g ? g.visits.filter(v => v.departure && v.departure < today && v.stage !== "Canceled").slice(-1)[0] || null : null,
+      nextVisit: g ? g.visits.find(v => v.arrival && (v.departure || v.arrival) >= today && v.stage !== "Canceled") || null : null,
+      notes: g ? [...g.notes] : [], interest: "", nextStep: "", amount: 0, property: "",
+    });
+  });
+  also.forEach((names, host) => { const c = cards.get(host); if (c && c.kind === "live") c.name = [c.name, ...names.filter(n => n && n !== c.name)].join(" & "); });
+
+  // The last note or meeting (any author, any date, from Contact_Notes) sets the light.
   return [...cards.values()].map(c => {
-    const hs = c.rid ? (notesByRid.get(c.rid) || []) : [];
-    hs.forEach(n => { if (n.date && (!c.lastActivity || n.date > c.lastActivity)) c.lastActivity = n.date; });
-    const days = c.lastActivity ? Math.max(pdDiff(c.lastActivity, today), 0) : null;
-    return { ...c, hubspotNotes: hs.sort((a, b) => (b.date || 0) - (a.date || 0)), days, light: wbLight(days) };
+    const hs = c.rid ? [...(notesByRid.get(c.rid) || [])].sort((a, b) => (b.date || 0) - (a.date || 0)) : [];
+    const lastTouch = hs.find(n => n.date)?.date || null;
+    const lastActivity = lastTouch; // notes and meetings only; emails never count
+    const days = lastActivity ? Math.max(pdDiff(lastActivity, today), 0) : null;
+    const g = c.rid ? [...persons.values()].find(p => p.rid === c.rid) : persons.get(`name:${pdStr(c.name).toLowerCase()}`);
+    // On the whiteboard: people who have already come (or are on property now) and every Active Negotiation.
+    const visited = c.kind === "qo" || c.kind === "neg" || hasCome(g);
+    const p = c.rid ? people.get(c.rid) : null;
+    const src = c.src || (g && g.src) || hs.find(n => n.source)?.source || (p ? pdStr(p.src) : "");
+    const leadStatus = c.leadStatus || hs.find(n => n.leadStatus)?.leadStatus || (p ? pdStr(p.status) : "");
+    return { ...c, src, leadStatus, visited, lastActivity, fromNotes: !!lastTouch, hubspotNotes: hs, lastNote: hs[0] || null, days, light: wbLight(days) };
   });
 }
 
@@ -2206,8 +2260,14 @@ function parseContactNotes(rows) {
     rid: pdId(pdStr(r["HubSpot Record ID"]).replace(/[,\s]/g, "")),
     date: twParseDate(r["Date"]),
     author: pdStr(r["Author"]),
+    name: pdStr(r["Name"]),
+    type: pdStr(r["Type"]) || "Note",
+    aid: pdStr(r["Activity ID"]),
+    leadStatus: pdStr(r["Lead Status"]),
+    advisor: pdStr(r["Advisor"]),
+    source: pdStr(r["Lead Source"]),
     text: pdStr(r["Note"]),
-  })).filter(n => n.rid && n.text);
+  })).filter(n => n.rid && n.text && !/^email$/i.test(n.type));
 }
 
 const WB_ORDER = { red: 0, yellow: 1, none: 2, green: 3 };
@@ -2234,8 +2294,12 @@ const WhiteboardCard = ({ c, onOpen }) => {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7, alignItems: "center" }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontFamily: FONT_BODY, color: C.gray }}>
           <span style={{ width: 9, height: 9, borderRadius: "50%", background: L.color }} />
-          {c.days == null ? L.label : c.days === 0 ? "Contact today" : `${c.days} day${c.days === 1 ? "" : "s"} since last contact`}
+          {c.days == null ? "No note or meeting yet" : `Last ${c.lastNote.type.toLowerCase()} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}
         </span>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignItems: "center" }}>
+        {c.src && <span className="wb-chip">{c.src}</span>}
+        {c.leadStatus && <span className="wb-chip">Lead Status: {c.leadStatus}</span>}
         {c.nextVisit && <span className="wb-chip wb-chip-on">{nextVisitLabel(c.nextVisit, pdDay(new Date()))}</span>}
         {!c.nextVisit && c.lastVisit && <span className="wb-chip">Visited {visitWhen(c.lastVisit)}</span>}
         {c.nextStep && <span className="wb-chip wb-chip-on">{c.nextStep}</span>}
@@ -2249,9 +2313,9 @@ const WhiteboardDetail = ({ c, onClose }) => {
   const meta = [c.advisor, c.leadStatus && `Lead Status: ${c.leadStatus}`, c.src].filter(Boolean).join(" · ");
   const noteRow = (n, i) => (
     <div key={i} style={{ ...ROW_STYLE, fontFamily: FONT_BODY }}>
-      {(n.date || n.author) && (
+      {(n.date || n.author || n.type) && (
         <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: PD_MUTED, marginBottom: 3 }}>
-          {[n.date ? (n.date instanceof Date ? twDayFmt(n.date) : n.date) : null, n.author].filter(Boolean).join(" · ")}
+          {[n.type, n.date ? (n.date instanceof Date ? twDayFmt(n.date) : n.date) : null, n.author].filter(Boolean).join(" · ")}
         </div>
       )}
       <div style={{ fontSize: 13.5, color: C.gray, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{n.text}</div>
@@ -2270,18 +2334,18 @@ const WhiteboardDetail = ({ c, onClose }) => {
       </div>
       {c.interest && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Interest:</strong> {c.interest}</div>}
       {c.dealNotes && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Deal notes:</strong> {c.dealNotes}</div>}
-      {c.hubspotNotes.length > 0 && <PdSectionHead text="Latest HubSpot notes" first />}
-      {c.hubspotNotes.map(noteRow)}
-      {c.notes.length > 0 && <PdSectionHead text="Notes" first={c.hubspotNotes.length === 0} />}
-      {c.notes.map(noteRow)}
-      {c.hubspotNotes.length === 0 && c.notes.length === 0 && (
+      {c.lastNote && <PdSectionHead text="Most recent note or meeting · HubSpot" first />}
+      {c.lastNote && noteRow(c.lastNote, "last")}
+      {!c.lastNote && c.notes.length > 0 && <PdSectionHead text="Most recent note" first />}
+      {!c.lastNote && c.notes.length > 0 && noteRow(c.notes[c.notes.length - 1], "n")}
+      {!c.lastNote && c.notes.length === 0 && (
         <div style={{ fontSize: 13, color: PD_MUTED, fontFamily: FONT_BODY }}>No notes yet.</div>
       )}
     </Modal>
   );
 };
 
-const Whiteboard = ({ cards }) => {
+const Whiteboard = ({ cards, talks = false }) => {
   const [open, setOpen] = useState(null);
   const advisors = [...AL_ADVISORS, ...[...new Set(cards.map(c => c.advisor))].filter(a => !AL_ADVISORS.includes(a)).sort()];
   const sortCards = list => [...list].sort((a, b) => (a.kind === "neg" ? -1 : 0) - (b.kind === "neg" ? -1 : 0) || WB_ORDER[a.light] - WB_ORDER[b.light] || (b.days ?? -1) - (a.days ?? -1));
@@ -2294,6 +2358,9 @@ const Whiteboard = ({ cards }) => {
         .wb-card:hover,.wb-card:focus-visible{outline:none;box-shadow:0 0 0 2px ${C.teal}}
         .wb-chip{font-size:11.5px;font-family:${FONT_BODY};color:${C.gray};background:rgba(54,67,74,0.07);border-radius:999px;padding:3px 9px}
         .wb-chip-on{background:rgba(136,209,209,0.35);font-weight:bold}
+        .wb-last{margin-top:8px;padding-top:7px;border-top:1px solid rgba(54,67,74,0.1);font-family:${FONT_BODY}}
+        .wb-last-meta{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:bold;color:${PD_MUTED}}
+        .wb-last-text{font-size:12.5px;color:${C.gray};line-height:1.4;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line;overflow-wrap:anywhere}
         @media (max-width:900px){.wb-board{grid-template-columns:1fr}}
       `}</style>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 10, fontSize: 12, color: "rgba(54,67,74,0.75)", fontFamily: FONT_BODY }}>
@@ -2314,14 +2381,14 @@ const Whiteboard = ({ cards }) => {
                 <span style={{ fontSize: 14, fontWeight: "bold", color: C.gray }}>{a}</span>
                 <span style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.gray }}>{mine.length}</span>
               </div>
-              {mine.length === 0 && <div style={{ fontSize: 12.5, color: PD_MUTED, fontFamily: FONT_BODY, padding: "10px 2px 2px" }}>No one on the list yet.</div>}
+              {mine.length === 0 && <div style={{ fontSize: 12.5, color: PD_MUTED, fontFamily: FONT_BODY, padding: "10px 2px 2px" }}>{talks ? "No one in talks right now." : "No one on the list yet."}</div>}
               {mine.map(c => <WhiteboardCard key={c.key} c={c} onOpen={() => setOpen(c)} />)}
             </div>
           );
         })}
       </div>
       <PdNote>
-        Everyone whose prospect visit is now a Qualified Opportunity appears here by themselves, plus each Active Negotiation and the names advisors add. A card leaves the list when a deal moves past Active Negotiation, or when the Lead Status is set to {WHITEBOARD_OFF_STATUSES.join(", ")}.
+        {talks ? <>People who have not come yet but are in talks: a note or meeting an advisor logged in HubSpot in the last {WB_YELLOW} days (emails don't count), or a name the advisor added. They move up to the whiteboard once they arrive. Unresponsive and No Contact leads are left out.</> : <>Only people who have already come. Everyone whose prospect visit is now a Qualified Opportunity appears here by themselves, plus each Active Negotiation, the names advisors add, and anyone who has visited and has a note or meeting an advisor logged in HubSpot in the last {WB_YELLOW} days (emails don't count).</>} A card leaves the list when a deal moves past Active Negotiation, or when the Lead Status is set to {WHITEBOARD_OFF_STATUSES.join(", ")}.
       </PdNote>
       {open && <WhiteboardDetail c={open} onClose={() => setOpen(null)} />}
     </div>
@@ -2410,22 +2477,111 @@ function topOppsFrom(row) {
   })).filter(o => o.prospect);
 }
 
+// Progress toward the $270M goal, with the $350M raised target as the second mark (Eli, Nov 2 call).
+function RpGoalBar({ value }) {
+  const pct = (v, g) => g ? `${Math.round((v / g) * 100)}%` : "—";
+  const max = RAISED_TARGET, w = v => `${Math.min(100, (v / max) * 100)}%`;
+  const left270 = Math.max(0, CONTRACTED_GOAL - value), left350 = Math.max(0, RAISED_TARGET - value);
+  return (
+    <div className="rp-goal">
+      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6, alignItems: "baseline" }}>
+        <div><span style={{ fontFamily: FONT_DISPLAY, fontSize: 24 }}>{money(value)}</span> <span style={{ fontSize: 12.5 }}>contracted YTD</span></div>
+        <div style={{ fontSize: 12.5 }}><strong>{pct(value, CONTRACTED_GOAL)}</strong> of the {money(CONTRACTED_GOAL)} goal{left270 > 0 ? <> · <strong>{money(left270)}</strong> to go</> : " · reached"}</div>
+      </div>
+      <div style={{ position: "relative", height: 30, fontSize: 11.5, marginTop: 10 }}>
+        <div style={{ position: "absolute", left: w(CONTRACTED_GOAL), bottom: 8, transform: "translateX(-50%)", textAlign: "center", whiteSpace: "nowrap" }}><strong>{money(CONTRACTED_GOAL)}</strong> Goal</div>
+      </div>
+      <div className="rp-goal-track" style={{ marginTop: 0 }}>
+        <div className="rp-goal-fill" style={{ width: w(value) }} />
+        <div className="rp-goal-mark" style={{ left: w(CONTRACTED_GOAL) }} />
+      </div>
+      <div style={{ position: "relative", height: 34, fontSize: 11.5, marginTop: 6 }}>
+        <div style={{ position: "absolute", right: 0, textAlign: "right", whiteSpace: "nowrap" }}><strong>{money(RAISED_TARGET)}</strong><br />Raised target · {money(left350)} to go</div>
+      </div>
+    </div>
+  );
+}
+
 const RP_CSS = `
 .rp{font-family:${FONT_BODY};color:${C.gray}}
-.rp h2{font-family:${FONT_BODY};font-size:13px;letter-spacing:.12em;text-transform:uppercase;margin:26px 0 8px;padding-bottom:6px;border-bottom:1.5px solid ${C.gray}}
+.rp h2{font-family:${FONT_BODY};font-size:13px;letter-spacing:.12em;text-transform:uppercase;margin:26px 0 8px;padding-bottom:6px;border-bottom:1.5px solid ${C.gray};break-after:avoid;page-break-after:avoid}
 .rp table{width:100%;border-collapse:collapse;font-size:13.5px}
 .rp th{background:${C.gray};color:#fff;text-align:left;padding:8px 10px;font-weight:bold;font-size:12px}
 .rp td{padding:8px 10px;border-bottom:1px solid rgba(54,67,74,0.12);vertical-align:top}
 .rp tr:nth-child(even) td{background:rgba(245,243,234,0.7)}
 .rp td.n,.rp th.n{text-align:right;white-space:nowrap}
+.rp-goal{margin:14px 0 4px;padding:14px 16px 8px;border:1px solid rgba(54,67,74,0.15);border-radius:10px;background:${C.white};break-inside:avoid;page-break-inside:avoid}
+.rp-goal-track{position:relative;height:16px;border-radius:8px;background:rgba(54,67,74,0.12);margin-top:10px;overflow:visible;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.rp-goal-fill{position:absolute;left:0;top:0;bottom:0;border-radius:8px;background:${C.teal};-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.rp-goal-mark{position:absolute;top:-5px;bottom:-5px;width:2px;margin-left:-1px;background:${C.gray};-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.rp tr{break-inside:avoid;page-break-inside:avoid}
 .rp .house{display:block;font-size:11px;color:${PD_MUTED};margin-top:2px}
-.rp .cm{font-size:13px;line-height:1.55;margin-top:10px}
+.rp .cm{font-size:13px;line-height:1.55;margin-top:10px;break-inside:avoid;page-break-inside:avoid}
 .rp .cm b{letter-spacing:.06em;font-size:11px;text-transform:uppercase;color:${PD_MUTED}}
 .rp .todo{color:${PD_MUTED};font-style:italic}
-.rp-wrap{overflow-x:auto}
-@media (max-width:700px){.rp table{font-size:12.5px}.rp th,.rp td{padding:7px 6px}}
-@media print{.nk-topnav,.nk-bottomnav,.nk-header,.rp-noprint{display:none !important}body{background:#fff}}
+.rp-stack{display:none}
+.rp-card{border:1px solid rgba(54,67,74,0.14);border-radius:8px;background:${C.white};padding:10px 12px;margin-top:8px;break-inside:avoid;page-break-inside:avoid}
+.rp-card-t{font-size:14px;font-weight:bold;line-height:1.3}
+.rp-kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 12px;margin-top:8px}
+.rp-kv div{min-width:0}
+.rp-kv span{display:block;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:${PD_MUTED}}
+.rp-kv strong{font-family:${FONT_DISPLAY};font-size:17px;font-weight:normal}
+.rp-kv.wide{grid-template-columns:1fr}
+.rp-kv.wide strong{font-family:${FONT_BODY};font-size:13px}
+@media (max-width:700px){
+  .rp .rp-t{display:none}
+  .rp .rp-stack{display:block}
+  .rp h2{font-size:12px;margin-top:22px}
+}
+@media print{
+  .nk-topnav,.nk-bottomnav,.nk-header,.nk-footmark,.rp-noprint{display:none !important}
+  html,body{background:#fff !important}
+  .nk-root{padding:0 !important;max-width:none !important}
+  .rp{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .rp .rp-t{display:block}
+  .rp .rp-stack{display:none}
+  body[data-rp-print="phone"] .rp .rp-t{display:none}
+  body[data-rp-print="phone"] .rp .rp-stack{display:block}
+  body[data-rp-print="phone"] .rp{font-size:12px}
+  body[data-rp-print="phone"] .rp-card{padding:8px 10px}
+}
 `;
+// Opens the browser's print dialog at the chosen page size: Letter (tables) or
+// phone (5 × 10 in, stacked blocks). "Save as PDF" in that dialog makes the file.
+function printReport(mode) {
+  try {
+    const css = mode === "phone" ? "@page{size:5in 10in;margin:0.3in}" : "@page{size:letter;margin:0.5in}";
+    let el = document.getElementById("rp-page-size");
+    if (!el) { el = document.createElement("style"); el.id = "rp-page-size"; document.head.appendChild(el); }
+    el.textContent = css;
+    document.body.setAttribute("data-rp-print", mode);
+    const done = () => { document.body.removeAttribute("data-rp-print"); window.removeEventListener("afterprint", done); };
+    window.addEventListener("afterprint", done);
+    window.print();
+  } catch { /* printing not available */ }
+}
+// One table, two layouts: a real table on wide screens and Letter prints, and a
+// stack of small cards (label + each column as label/value) on phones.
+const RpTable = ({ cols, rows, wide }) => (
+  <>
+    <div className="rp-t" style={{ overflowX: "auto" }}>
+      <table>
+        <thead><tr>{cols.map((c, i) => <th key={i} className={c.n ? "n" : undefined}>{c.h}</th>)}</tr></thead>
+        <tbody>{rows.map((r, i) => <tr key={i}>{r.map((v, j) => <td key={j} className={cols[j].n ? "n" : undefined}>{v}</td>)}</tr>)}</tbody>
+      </table>
+    </div>
+    <div className="rp-stack">
+      {rows.map((r, i) => (
+        <div key={i} className="rp-card">
+          <div className="rp-card-t">{r[0]}</div>
+          <div className={`rp-kv${wide ? " wide" : ""}`}>
+            {r.slice(1).map((v, j) => <div key={j}><span>{cols[j + 1].h}</span><strong>{v}</strong></div>)}
+          </div>
+        </div>
+      ))}
+    </div>
+  </>
+);
 
 const ReportView = ({ model, openDeals, qoCount, ceoRows }) => {
   const today = model.today;
@@ -2472,10 +2628,12 @@ const ReportView = ({ model, openDeals, qoCount, ceoRows }) => {
           style={{ fontFamily: FONT_BODY, fontSize: 14, padding: "8px 10px", borderRadius: 8, border: `1px solid rgba(54,67,74,0.3)`, background: C.white, color: C.gray }}>
           {weeks.map((w, i) => <option key={i} value={i}>{weekLabel(w)}{ceoRowFor(ceoRows, w.end) ? " ✓" : ""}</option>)}
         </select>
-        <button onClick={() => { try { window.print(); } catch { /* no print */ } }}
-          style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: "bold", padding: "9px 14px", borderRadius: 8, border: "none", background: C.gray, color: C.white, cursor: "pointer" }}>
-          Print / save as PDF
-        </button>
+        {[["letter", "PDF · Letter"], ["phone", "PDF · Phone"]].map(([mode, label]) => (
+          <button key={mode} onClick={() => printReport(mode)}
+            style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: "bold", padding: "9px 14px", borderRadius: 8, border: "none", background: mode === "letter" ? C.gray : C.teal, color: mode === "letter" ? C.white : C.gray, cursor: "pointer" }}>
+            {label}
+          </button>
+        ))}
         <span style={{ fontSize: 12, color: PD_MUTED }}>✓ = Eli's parts saved for that week</span>
       </div>
 
@@ -2486,59 +2644,48 @@ const ReportView = ({ model, openDeals, qoCount, ceoRows }) => {
       </div>
 
       <h2>1. Sales performance | Actual vs. goal</h2>
-      <div className="rp-wrap"><table>
-        <thead><tr><th>KPI</th><th className="n">This Week</th><th className="n">YTD</th><th className="n">Annual Goal</th><th className="n">% Achieved</th></tr></thead>
-        <tbody>
-          <tr><td><H house="Signed OTPs">Offers to Purchase (OTPs)</H></td><td className="n">{otpW}</td><td className="n">{otpY}</td><td className="n">—</td><td className="n">—</td></tr>
-          <tr><td><H house="Signed PSAs">Executed PSAs (Sales)</H></td><td className="n">{psaW}</td><td className="n">{psaY}</td><td className="n">—</td><td className="n">—</td></tr>
-          <tr><td><H house="All sales, incl. related party and re-sales">Contracted Sales Volume</H></td><td className="n">{money(volW)}</td><td className="n">{money(volY)}</td><td className="n">{money(CONTRACTED_GOAL)}</td><td className="n">{pct(volY, CONTRACTED_GOAL)}</td></tr>
-          <tr><td><H house="Definition pending (Paul)">Closed Sales Volume</H></td><td className="n">—</td><td className="n">—</td><td className="n">—</td><td className="n">—</td></tr>
-        </tbody>
-      </table></div>
+      <RpTable cols={[{ h: "KPI" }, { h: "This Week", n: 1 }, { h: "YTD", n: 1 }, { h: "Annual Goal", n: 1 }, { h: "% Achieved", n: 1 }]} rows={[
+        [<H house="Signed OTPs">Offers to Purchase (OTPs)</H>, otpW, otpY, "—", "—"],
+        [<H house="Signed PSAs">Executed PSAs (Sales)</H>, psaW, psaY, "—", "—"],
+        [<H house="All sales, incl. related party and re-sales">Contracted Sales Volume</H>, money(volW), money(volY), money(CONTRACTED_GOAL), pct(volY, CONTRACTED_GOAL)],
+        [<H house="Definition pending (Paul)">Closed Sales Volume</H>, "—", "—", "—", "—"],
+      ]} />
+      <RpGoalBar value={volY} />
       <div className="cm"><b>Sales Status:</b> {f("status") || todo}</div>
       <div className="cm"><b>Comments / context:</b> {f("s1") || <>Raised target: {money(RAISED_TARGET)} ({pct(volY, RAISED_TARGET)} achieved). {todo}</>}</div>
 
       <h2>2. Weekly sales activity</h2>
-      <div className="rp-wrap"><table>
-        <thead><tr><th>KPI</th><th className="n">This Week</th><th className="n">YTD / Current</th></tr></thead>
-        <tbody>
-          <tr><td><H house="Excludes hotel guests and Unqualified">New Qualified Leads</H></td><td className="n">{c("qlead", wk.start, until)}</td><td className="n">{c("qlead", jan1, until)} YTD</td></tr>
-          <tr><td><H house="Lead Source: Siari Hotel Guest">New Hotel Leads</H></td><td className="n">{c("hlead", wk.start, until)}</td><td className="n">{c("hlead", jan1, until)} YTD</td></tr>
-          <tr><td><H house="Prospect Visits">Site Tours / Immersions Completed</H></td><td className="n">{c("tour", wk.start, until)}</td><td className="n">{c("tour", jan1, until)} YTD</td></tr>
-          <tr><td><H house="Upcoming Prospect Visits">Upcoming Site Tours Booked</H></td><td className="n">—</td><td className="n">{upcoming} Scheduled</td></tr>
-          <tr><td><H house="Qualified Opportunities, today">Active Qualified Prospects</H></td><td className="n">{qoCount} Active</td><td className="n">—</td></tr>
-          <tr><td><H house="Working toward an OTP, today">Active Negotiations</H></td><td className="n">{negN} Active</td><td className="n">—</td></tr>
-          <tr><td><H house="Pending OTP · inventory on hold">OTPs Submitted</H></td><td className="n">{c("hold", wk.start, until)}</td><td className="n">{c("hold", jan1, until)} YTD</td></tr>
-          <tr><td><H house="Signed OTP, today">OTPs Accepted / Pending PSA</H></td><td className="n">{sotpN} Active</td><td className="n">—</td></tr>
-          <tr><td><H house="Signed PSAs">PSAs Executed</H></td><td className="n">{psaW}</td><td className="n">{psaY} YTD</td></tr>
-          <tr><td><H house="Definition pending (Paul)">Sales Closed</H></td><td className="n">—</td><td className="n">—</td></tr>
-        </tbody>
-      </table></div>
+      <RpTable cols={[{ h: "KPI" }, { h: "This Week", n: 1 }, { h: "YTD / Current", n: 1 }]} rows={[
+        [<H house="Excludes hotel guests and Unqualified">New Qualified Leads</H>, c("qlead", wk.start, until), `${c("qlead", jan1, until)} YTD`],
+        [<H house="Lead Source: Siari Hotel Guest">New Hotel Leads</H>, c("hlead", wk.start, until), `${c("hlead", jan1, until)} YTD`],
+        [<H house="Prospect Visits">Site Tours / Immersions Completed</H>, c("tour", wk.start, until), `${c("tour", jan1, until)} YTD`],
+        [<H house="Upcoming Prospect Visits">Upcoming Site Tours Booked</H>, "—", `${upcoming} Scheduled`],
+        [<H house="Qualified Opportunities, today">Active Qualified Prospects</H>, `${qoCount} Active`, "—"],
+        [<H house="Working toward an OTP, today">Active Negotiations</H>, `${negN} Active`, "—"],
+        [<H house="Pending OTP · inventory on hold">OTPs Submitted</H>, c("hold", wk.start, until), `${c("hold", jan1, until)} YTD`],
+        [<H house="Signed OTP, today">OTPs Accepted / Pending PSA</H>, `${sotpN} Active`, "—"],
+        [<H house="Signed PSAs">PSAs Executed</H>, psaW, `${psaY} YTD`],
+        [<H house="Definition pending (Paul)">Sales Closed</H>, "—", "—"],
+      ]} />
       <div className="cm"><b>Comments / context:</b> {txt("s2")}</div>
 
       <h2>3. Sales pipeline &amp; forecast</h2>
-      <div className="rp-wrap"><table>
-        <thead><tr><th>Pipeline Stage</th><th className="n"># Deals</th><th className="n">Estimated Value</th></tr></thead>
-        <tbody>
-          <tr><td><H house="After the prospect visit, no deal yet">Qualified Opportunities</H></td><td className="n">{qoCount}</td><td className="n">—</td></tr>
-          <tr><td>Active Negotiations</td><td className="n">{negN}</td><td className="n">{money(negV)}</td></tr>
-          <tr><td><H house="Pending OTP">OTPs Submitted / Pending Acceptance</H></td><td className="n">{potpN}</td><td className="n">{money(potpV)}</td></tr>
-          <tr><td><H house="Signed OTP">Accepted OTPs / Pending PSA</H></td><td className="n">{sotpN}</td><td className="n">{money(sotpV)}</td></tr>
-          <tr><td><strong>TOTAL OPEN PIPELINE</strong></td><td className="n"><strong>{openN}</strong></td><td className="n"><strong>{money(openV)}</strong></td></tr>
-        </tbody>
-      </table></div>
+      <RpTable cols={[{ h: "Pipeline Stage" }, { h: "# Deals", n: 1 }, { h: "Estimated Value", n: 1 }]} rows={[
+        [<H house="After the prospect visit, no deal yet">Qualified Opportunities</H>, qoCount, "—"],
+        ["Active Negotiations", negN, money(negV)],
+        [<H house="Pending OTP">OTPs Submitted / Pending Acceptance</H>, potpN, money(potpV)],
+        [<H house="Signed OTP">Accepted OTPs / Pending PSA</H>, sotpN, money(sotpV)],
+        [<strong>TOTAL OPEN PIPELINE</strong>, <strong>{openN}</strong>, <strong>{money(openV)}</strong>],
+      ]} />
       <div className="cm"><b>Next 30 Days:</b> {txt("next30")}</div>
       <div className="cm"><b>Next 60 Days:</b> {txt("next60")}</div>
       <div className="cm"><b>Comments / context:</b> {txt("s3")}</div>
 
       <h2>4. Top 3 sales opportunities</h2>
-      <div className="rp-wrap"><table>
-        <thead><tr><th>Prospect</th><th>Product / Value</th><th>Status / Next Step</th><th>Target PSA Date</th></tr></thead>
-        <tbody>
-          {top3.length === 0 && <tr><td colSpan={4}>{todo}</td></tr>}
-          {top3.map((o, i) => <tr key={i}><td><strong>{i + 1}.</strong> {o.prospect}</td><td>{o.product}</td><td>{o.status}</td><td>{o.target || "—"}</td></tr>)}
-        </tbody>
-      </table></div>
+      {top3.length === 0 ? <div className="cm">{todo}</div> : (
+        <RpTable wide cols={[{ h: "Prospect" }, { h: "Product / Value" }, { h: "Status / Next Step" }, { h: "Target PSA Date" }]}
+          rows={top3.map((o, i) => [<><strong>{i + 1}.</strong> {o.prospect}</>, o.product, o.status, o.target || "—"])} />
+      )}
       {!opps.length && top3.length > 0 && <div className="cm todo">Showing the largest open deals until Eli's top 3 are in the CEO_Report tab.</div>}
       <div className="cm"><b>Comments / context:</b> {txt("s4")}</div>
 
@@ -2549,10 +2696,9 @@ const ReportView = ({ model, openDeals, qoCount, ceoRows }) => {
       <div className="cm"><b>Comments / context:</b> {txt("s5")}</div>
 
       <h2>LIFE | Consolidated portfolio dashboard · Nauka row</h2>
-      <div className="rp-wrap"><table>
-        <thead><tr><th>Project</th><th className="n">Sales Goal</th><th className="n">OTPs YTD</th><th className="n">PSAs YTD</th><th className="n">% Goal</th><th className="n">Open Pipeline</th><th className="n">30-Day OTP Forecast</th></tr></thead>
-        <tbody><tr><td>Nauka</td><td className="n">{money(CONTRACTED_GOAL)}</td><td className="n">{otpY}</td><td className="n">{psaY}</td><td className="n">{pct(volY, CONTRACTED_GOAL)}</td><td className="n">{money(openV)}</td><td className="n">{f("forecast30") || "—"}</td></tr></tbody>
-      </table></div>
+      <RpTable cols={[{ h: "Project" }, { h: "Sales Goal", n: 1 }, { h: "OTPs YTD", n: 1 }, { h: "PSAs YTD", n: 1 }, { h: "% Goal", n: 1 }, { h: "Open Pipeline", n: 1 }, { h: "30-Day OTP Forecast", n: 1 }]} rows={[
+        ["Nauka", money(CONTRACTED_GOAL), otpY, psaY, pct(volY, CONTRACTED_GOAL), money(openV), f("forecast30") || "—"],
+      ]} />
       {f("portfolio") && <div className="cm"><b>Comments / context:</b> {f("portfolio")}</div>}
       <PdNote>
         Same data as the rest of the app. Pipeline and "Active" lines show today's numbers, also for past weeks. OTPs Submitted = inventory placed on hold (deal created at Pending OTP). Before {twDayFmt(model.mastersFrom)}, signed OTPs come from the weekly counts reported at the time.
@@ -3552,6 +3698,8 @@ export default function NaukaDashboard() {
   const whiteboard = buildWhiteboard({ calRecords, people: model.people, openDeals, activeLeads, contactNotes, today: model.today, winStart: model.win.start });
   // Qualified Opportunities = people after a prospect visit (names added by hand who have not visited are on the board, not in the count).
   const qoCount = whiteboard.filter(c => c.kind === "qo").length;
+  const boardCards = whiteboard.filter(c => c.visited);
+  const talkCards = whiteboard.filter(c => !c.visited);
   const go = key => {
     setView(key);
     try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch { /* old browsers */ }
@@ -3632,7 +3780,9 @@ export default function NaukaDashboard() {
             <PdSectionHead text="Sales pipeline" right={`Today · ${twDayFmt(model.today)}`} first />
             <SalesPipelineTable qoCount={qoCount} openDeals={openDeals} onOpenStage={k => setOpenModal({ type: "pipeStage", key: k })} />
             <PdSectionHead text="Qualified Opportunities & Active Negotiations · by advisor" right="Tap a name for the notes" />
-            <Whiteboard cards={whiteboard} />
+            <Whiteboard cards={boardCards} />
+            <PdSectionHead text={`In talks to visit · ${talkCards.length}`} right="Not on property yet" />
+            <Whiteboard cards={talkCards} talks />
             <div style={{ height: 18 }} />
             <ProspectStages model={model} />
             {sectionHead("Due diligence", true)}
@@ -3696,7 +3846,7 @@ export default function NaukaDashboard() {
       {renderModal()}
 
       {/* Footer mark */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "1.75rem 0 0.5rem" }}>
+      <div className="nk-footmark" style={{ display: "flex", alignItems: "center", gap: 16, padding: "1.75rem 0 0.5rem" }}>
         <div style={{ flex: 1, height: 1, background: "rgba(54,67,74,0.12)" }} />
         <img src="/Nauka_Icon_Primary_HEX.png" alt="Nauka" style={{ height: 38, width: "auto", display: "block", opacity: 0.85 }} />
         <div style={{ flex: 1, height: 1, background: "rgba(54,67,74,0.12)" }} />

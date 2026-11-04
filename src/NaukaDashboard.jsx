@@ -627,7 +627,7 @@ function parseCalendarSheet(rows) {
 function withLatestNote(records, contactNotes) {
   const latest = new Map();
   (contactNotes || []).forEach(n => {
-    if (!n.rid || /^task$/i.test(n.type) || !n.date) return;
+    if (!n.rid || /^task$/i.test(n.type) || !n.date || !noteHasText(n)) return;
     const cur = latest.get(n.rid);
     if (!cur || n.date > cur.date) latest.set(n.rid, n);
   });
@@ -1340,6 +1340,7 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
       key: rid, rid, name, src: e.src, advisor: e.advisor, status,
       contactType: pdStr(r["Contact Type"]),
       lifecycle: pdStr(r["Lifecycle Stage"]), // optional column in Funnel_Contacts
+      ref: pdStr(r["Referral Source"]),
       hubspotTour: tourDate && tourDate <= today ? tourDate : null,
       tourDate: tourDate && tourDate <= today ? tourDate : null,
       psa: ["1", "yes", "true"].includes(pdStr(r["PSA"]).toLowerCase()) || pdStr(r["HubSpot PSA"]).toLowerCase() === "yes",
@@ -1371,6 +1372,7 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
         lifecycle: pdStr(r["Lifecycle Stage"]) || p.lifecycle || "",
         lossReason: pdStr(r["Loss Reason"]) || p.lossReason,
         lostDate: twParseDate(r["Lost Date"]) || p.lostDate,
+        ref: pdStr(r["Referral Source"]) || p.ref || "",
       });
     }
   });
@@ -1420,6 +1422,7 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
     people.set(key, {
       ...p,
       src: p.src || pdStr(r.source), advisor: r.coveredBy || r.owner || p.advisor,
+      ref: pdStr(r.referral) || p.ref || "",
       status: pdStr(r.leadStatus) || p.status,
       lifecycle: pdStr(r.lifecycle) || p.lifecycle || "",
       tourDate: !p.tourDate || d > p.tourDate ? d : p.tourDate,
@@ -2169,6 +2172,7 @@ function openDealsByStage(masterDeals) {
       name, amount: twAmount(r["Amount ($)"]), advisor: pdStr(r["Advisor"]) || "Unassigned",
       rid: pdId(r["Buyer HubSpot Record ID"]), created: twParseDate(r["Create Date"]),
       dd: twParseDate(r["DD Expiry"]), notes: pdStr(r["Notes"]), stageKey: stage.key,
+      src: pdStr(r["Source"]), ref: pdStr(r["Referral Source"]),
     });
   });
   Object.values(out).forEach(list => list.sort((a, b) => b.amount - a.amount));
@@ -2188,6 +2192,10 @@ const wbLight = days => days == null ? "none" : days <= WB_GREEN ? "green" : day
 // Qualified Opportunities: one card per person who toured Nauka in the last 60
 // days, has Lead Status = Active and a note, call or meeting this month or last
 // month. An open deal shows as its own stage instead.
+// A note worth showing has real text: not empty, not an image-only note, and not
+// just the HubSpot title of the meeting or call ("Meeting logged", "Call with …").
+const NOTE_PLACEHOLDER = /^(meeting logged|call logged|note logged|\(note with no text\)|call with .+|meeting with .+|property tour|on-site meeting|virtual call|meeting|call|note)$/i;
+const noteHasText = n => { const t = pdStr(n && n.text); return !!t && !NOTE_PLACEHOLDER.test(t); };
 function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNotes, today, winStart }) {
   const off = WHITEBOARD_OFF_STATUSES.map(s => s.toLowerCase());
   const skipTypes = NOT_A_PROSPECT_TYPES.map(s => s.toLowerCase());
@@ -2220,6 +2228,7 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
     g.advisor = r.coveredBy || r.owner || g.advisor;
     g.leadStatus = pdStr(r.leadStatus) || g.leadStatus;
     g.src = pdStr(r.source) || g.src;
+    g.ref = pdStr(r.referral) || g.ref || "";
     if (r.lastActivity && (!g.lastActivity || r.lastActivity > g.lastActivity)) g.lastActivity = r.lastActivity;
     (r.notes || []).forEach(n => g.notes.push(n));
     persons.set(key, g);
@@ -2357,11 +2366,13 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
     const visited = c.kind === "qo" || c.kind === "neg" || hasCome(g);
     const p = c.rid ? people.get(c.rid) : null;
     const src = c.src || (g && g.src) || hs.find(n => n.source)?.source || (p ? pdStr(p.src) : "");
+    const deal = c.rid ? [...openDeals.neg, ...openDeals.potp, ...openDeals.sotp].find(d => d.rid === c.rid) : null;
+    const ref = c.ref || (g && g.ref) || (p ? pdStr(p.ref) : "") || (deal ? deal.ref : "");
     const leadStatus = c.leadStatus || hs.find(n => n.leadStatus)?.leadStatus || (p ? pdStr(p.status) : ""); // hs is newest first
     const nextTask = c.rid ? [...(tasksByRid.get(c.rid) || [])].sort((a, b) => a.date - b.date)[0] || null : null;
     const baseLight = wbLight(days);
     const light = nextTask && (baseLight === "red" || baseLight === "none") ? "yellow" : baseLight; // follow-up scheduled = yellow
-    return { ...c, src, leadStatus, visited, nextTask, light, lastActivity, fromNotes: !!lastTouch, hubspotNotes: hs, lastNote: hs[0] || null, days };
+    return { ...c, src, leadStatus, visited, nextTask, light, lastActivity, fromNotes: !!lastTouch, hubspotNotes: hs, ref, lastNote: hs[0] || null, shownNote: hs.find(noteHasText) || null, days };
   });
 }
 
@@ -2418,6 +2429,7 @@ const WhiteboardCard = ({ c, onOpen }) => {
           <span className="wb-d">{WB_KIND_LABEL(c)}{c.interest ? ` · ${c.interest}` : ""}</span><span className="wb-m">{c.kind === "qo" ? "Qualified Opp." : WB_KIND_LABEL(c)}</span>
         </div>
       )}
+      {c.ref && <div className="wb-m wb-ref" style={{ fontSize: 10, color: PD_MUTED, fontFamily: FONT_BODY, marginTop: 3, lineHeight: 1.25 }}>via {c.ref}</div>}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7, alignItems: "center" }}>
         <span className="wb-light" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontFamily: FONT_BODY, color: C.gray }}>
           <span className="wb-dot" style={{ width: 9, height: 9, borderRadius: "50%", background: L.color, flex: "none" }} />
@@ -2426,7 +2438,8 @@ const WhiteboardCard = ({ c, onOpen }) => {
         </span>
       </div>
       <div className="wb-chips" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignItems: "center" }}>
-        {c.src && <span className="wb-chip">{c.src}</span>}
+        {c.src && <span className="wb-chip">{c.src}{c.ref ? ` · via ${c.ref}` : ""}</span>}
+        {!c.src && c.ref && <span className="wb-chip">Referred by {c.ref}</span>}
         {c.leadStatus && <span className="wb-chip">Lead Status: {c.leadStatus}</span>}
         {c.nextVisit && <span className="wb-chip wb-chip-on">{nextVisitLabel(c.nextVisit, pdDay(new Date()))}</span>}
         {!c.nextVisit && c.lastVisit && <span className="wb-chip">Visited {visitWhen(c.lastVisit)}</span>}
@@ -2441,7 +2454,7 @@ const WhiteboardCard = ({ c, onOpen }) => {
 
 const WhiteboardDetail = ({ c, onClose }) => {
   const L = WB_LIGHT[c.light];
-  const meta = [c.advisor, c.leadStatus && `Lead Status: ${c.leadStatus}`, c.src].filter(Boolean).join(" · ");
+  const meta = [c.advisor, c.leadStatus && `Lead Status: ${c.leadStatus}`, c.src, c.ref && `Referral Source: ${c.ref}`].filter(Boolean).join(" · ");
   const noteRow = (n, i) => (
     <div key={i} style={{ ...ROW_STYLE, fontFamily: FONT_BODY }}>
       {(n.date || n.author || n.type) && (
@@ -2456,7 +2469,7 @@ const WhiteboardDetail = ({ c, onClose }) => {
     <Modal title={c.name} subtitle={meta} onClose={onClose}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
         <span className="wb-chip" style={{ background: L.color, color: c.light === "none" ? C.gray : C.white, fontWeight: "bold" }}>
-          {L.label}{c.days != null ? ` · ${c.days} day${c.days === 1 ? "" : "s"}` : ""}
+          {c.days != null ? `${c.days} day${c.days === 1 ? "" : "s"} since the last note, call or meeting` : "No note, call or meeting yet"}
         </span>
         {c.kind === "neg" && <span className="wb-chip wb-chip-on">Active Negotiation{c.amount ? ` · ${money(c.amount)}` : ""}{c.property ? ` · ${c.property}` : ""}</span>}
         {c.lastVisit && <span className="wb-chip">Visited {visitWhen(c.lastVisit)}</span>}
@@ -2466,11 +2479,11 @@ const WhiteboardDetail = ({ c, onClose }) => {
       {c.interest && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Interest:</strong> {c.interest}</div>}
       {c.dealNotes && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Deal notes:</strong> {c.dealNotes}</div>}
       {c.nextTask && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 10 }}><strong>Next step · {twDayFmt(c.nextTask.date)}:</strong> {c.nextTask.text}{c.nextTask.author ? ` (${c.nextTask.author})` : ""}</div>}
-      {c.lastNote && <PdSectionHead text="Most recent note, call or meeting · HubSpot" first />}
-      {c.lastNote && noteRow(c.lastNote, "last")}
-      {!c.lastNote && c.notes.length > 0 && <PdSectionHead text="Most recent note" first />}
-      {!c.lastNote && c.notes.length > 0 && noteRow(c.notes[c.notes.length - 1], "n")}
-      {!c.lastNote && c.notes.length === 0 && (
+      {c.shownNote && <PdSectionHead text="Most recent note, call or meeting · HubSpot" first />}
+      {c.shownNote && noteRow(c.shownNote, "last")}
+      {!c.shownNote && c.notes.length > 0 && <PdSectionHead text="Most recent note" first />}
+      {!c.shownNote && c.notes.length > 0 && noteRow(c.notes[c.notes.length - 1], "n")}
+      {!c.shownNote && c.notes.length === 0 && (
         <div style={{ fontSize: 13, color: PD_MUTED, fontFamily: FONT_BODY }}>No notes yet.</div>
       )}
     </Modal>
@@ -2497,7 +2510,7 @@ function buildTaskLeads({ contactNotes, cards, people, today }) {
     const p = people.get(rid);
     const status = t.leadStatus || (p ? pdStr(p.status) : "");
     if (off.includes(status.toLowerCase())) return;
-    out.push({ rid, name: t.name || (p ? p.name : ""), advisor: t.advisor || t.author || "Unassigned", status, src: t.source || (p ? pdStr(p.src) : ""), task: t, more: list.length - 1 });
+    out.push({ rid, name: t.name || (p ? p.name : ""), advisor: t.advisor || t.author || "Unassigned", status, src: t.source || (p ? pdStr(p.src) : ""), ref: p ? pdStr(p.ref) : "", task: t, more: list.length - 1 });
   });
   return out.sort((a, b) => a.task.date - b.task.date);
 }
@@ -2528,7 +2541,7 @@ const TaskLeads = ({ leads, today }) => {
                     <div className="wb-kind" style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "#4E8F8F", fontFamily: FONT_BODY, marginTop: 3 }}>Upcoming task</div>
                     <div className="wb-task" style={{ fontSize: 12.5, color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.4, marginTop: 5, overflowWrap: "anywhere" }}>{l.task.text}{l.more > 0 ? ` (+${l.more} more)` : ""}</div>
                     <div className="wb-chips" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
-                      {l.src && <span className="wb-chip">{l.src}</span>}
+                      {l.src && <span className="wb-chip">{l.src}{l.ref ? ` · via ${l.ref}` : ""}</span>}
                       {l.status && <span className="wb-chip">Lead Status: {l.status}</span>}
                     </div>
                   </div>
@@ -2579,6 +2592,7 @@ const Whiteboard = ({ cards, talks = false }) => {
           .wb-task{font-size:10.5px !important;line-height:1.35 !important}
           .wb-d{display:none}
           .wb-m{display:inline}
+          div.wb-m{display:block}
         }
       `}</style>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 10, fontSize: 12, color: "rgba(54,67,74,0.75)", fontFamily: FONT_BODY }}>
@@ -2635,7 +2649,7 @@ const SalesPipelineTable = ({ qoCount, openDeals, onOpenStage }) => {
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 30, lineHeight: 1, color: C.gray }}>{totalN}</div>
           {totalV > 0 && <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: "bold", color: C.teal, marginTop: 2 }}>{money(totalV)}</div>}
         </div>
-        <span style={{ width: 14 }} />
+        <span aria-hidden="true" style={{ fontSize: 22, color: "transparent", lineHeight: 1, marginLeft: -4 }}>›</span>
       </div>
     </div>
   );
@@ -2660,7 +2674,7 @@ const QualifiedOppList = ({ cards, onClose }) => {
                 return label ? <span style={{ fontSize: 12, color: onProp ? C.gray : PD_MUTED, fontWeight: onProp ? "bold" : "normal", fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{label}</span> : null;
               })()}
             </div>
-            <RowMeta>{[c.advisor, c.src, c.leadStatus && `Lead Status: ${c.leadStatus}`].filter(Boolean).join(" · ")}</RowMeta>
+            <RowMeta>{[c.advisor, c.src, c.ref && `via ${c.ref}`, c.leadStatus && `Lead Status: ${c.leadStatus}`].filter(Boolean).join(" · ")}</RowMeta>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontSize: 12.5, color: C.gray, fontFamily: FONT_BODY }}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: L.color }} />
               {c.days == null ? "No note, call or meeting yet" : `Last ${activityLabel(c.lastNote)} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}
@@ -2691,7 +2705,7 @@ const PipelineDealList = ({ stageKey, openDeals, onClose }) => {
               </div>
               <div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, color: C.gray, whiteSpace: "nowrap" }}>{money(d.amount)}</div>
             </div>
-            <RowMeta>{[d.advisor, d.created && `Created ${twDayFmt(d.created)}`, d.dd && `DD ${twDayFmt(d.dd)}`, d.notes].filter(Boolean).join(" · ")}</RowMeta>
+            <RowMeta>{[d.advisor, d.src && `${d.src}${d.ref ? ` · via ${d.ref}` : ""}`, d.created && `Created ${twDayFmt(d.created)}`, d.dd && `DD ${twDayFmt(d.dd)}`, d.notes].filter(Boolean).join(" · ")}</RowMeta>
           </div>
         );
       })}

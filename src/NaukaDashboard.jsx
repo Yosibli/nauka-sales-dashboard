@@ -2357,7 +2357,11 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
 
   // The last note or meeting (any author, any date, from Contact_Notes) sets the light.
   return [...cards.values()].map(c => {
-    const hs = c.rid ? [...(notesByRid.get(c.rid) || [])].sort((a, b) => (b.date || 0) - (a.date || 0)) : [];
+    // Deal notes count too: the note typed on the deal (Master_Deals Notes) is
+    // activity on the day the deal was created or last moved.
+    const myDeals = c.rid ? [...openDeals.neg, ...openDeals.potp, ...openDeals.sotp].filter(d => d.rid === c.rid && d.notes && d.created) : [];
+    const dealNotes = myDeals.map(d => ({ rid: c.rid, date: d.created, type: "Note", activityType: "Deal note", author: d.advisor, text: d.notes }));
+    const hs = c.rid ? [...(notesByRid.get(c.rid) || []), ...dealNotes].sort((a, b) => (b.date || 0) - (a.date || 0)) : [];
     const lastTouch = hs.find(n => n.date)?.date || null;
     const lastActivity = lastTouch; // notes and meetings only; emails never count
     const days = lastActivity ? Math.max(pdDiff(lastActivity, today), 0) : null;
@@ -2477,7 +2481,7 @@ const WhiteboardDetail = ({ c, onClose }) => {
         {c.nextStep && <span className="wb-chip wb-chip-on">{c.nextStep}</span>}
       </div>
       {c.interest && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Interest:</strong> {c.interest}</div>}
-      {c.dealNotes && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Deal notes:</strong> {c.dealNotes}</div>}
+      {c.dealNotes && !(c.shownNote && c.shownNote.text === c.dealNotes) && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Deal notes:</strong> {c.dealNotes}</div>}
       {c.nextTask && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 10 }}><strong>Next step · {twDayFmt(c.nextTask.date)}:</strong> {c.nextTask.text}{c.nextTask.author ? ` (${c.nextTask.author})` : ""}</div>}
       {c.shownNote && <PdSectionHead text="Most recent note, call or meeting · HubSpot" first />}
       {c.shownNote && noteRow(c.shownNote, "last")}

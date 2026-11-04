@@ -2729,8 +2729,8 @@ const RP_CSS = `
 .rp-kpi-n{font-weight:bold;font-size:14px}
 .rp-kpi-g{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));column-gap:8px;margin-top:6px}
 .rp-kpi-g span{display:block;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:${RP_RULE}}
-.rp-kpi-g b{display:block;font-weight:normal;font-size:18px;margin-top:3px;white-space:nowrap;color:${RP_INK}}
-.rp-kpi-g div:nth-child(2) b{font-weight:bold}
+.rp-kpi-g b{display:block;font-weight:normal;font-size:14.5px;margin-top:3px;white-space:nowrap;color:${RP_INK}}
+.rp-kpi-g div:nth-child(2) b,.rp-kpi-g div:nth-child(2) span{font-weight:bold}
 .rp-kpi-g div:nth-child(3) b{color:${RP_GREY}}
 .rp-kpi-g div:nth-child(4) b{color:${RP_BLUE}}
 .rp-hl{background:#FFF200;color:inherit;padding:0 2px;border-radius:2px}
@@ -2739,11 +2739,13 @@ const RP_CSS = `
 .rp-lbl{font-size:10px;letter-spacing:.18em;text-transform:uppercase;font-weight:bold;color:${RP_BLUE};margin:20px 0 6px;break-after:avoid;page-break-after:avoid}
 .rp-cm p{margin:0 0 9px;font-size:13.5px;line-height:1.55;color:#333}
 .rp-cm p,.rp li{orphans:3;widows:3}
+.rp-list-h b{font-weight:bold}
 .rp-list-h{text-align:right;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:${RP_RULE};margin-bottom:2px}
 .rp-row{display:flex;justify-content:space-between;align-items:baseline;gap:14px;padding:8px 0;border-bottom:1px solid #ECECEC;break-inside:avoid;page-break-inside:avoid}
 .rp-row > span:first-child{color:#333}
 .rp-row > span:last-child{text-align:right;white-space:nowrap}
-.rp-row .v{font-weight:bold;font-size:15px}
+.rp-row .v{font-size:14px}
+.rp-row .v.y,.rp-row .v.y + .u{font-weight:bold}
 .rp-row .d{color:#B5B5B5;margin:0 5px}
 .rp-row .u{color:${RP_GREY};font-size:12px;margin-left:3px}
 .rp-row.tot{border-top:1.5px solid ${RP_INK};border-bottom:none;margin-top:-1px;padding-top:10px}
@@ -2755,7 +2757,7 @@ const RP_CSS = `
 .rp-opp-i{width:24px;height:24px;border-radius:50%;border:1.5px solid ${RP_BLUE};color:${RP_BLUE};font-weight:bold;font-size:12px;line-height:21px;text-align:center}
 .rp-opp-n{font-weight:bold;font-size:14.5px}
 .rp-opp-p{display:flex;justify-content:space-between;gap:10px;align-items:baseline;margin-top:2px;font-size:13.5px}
-.rp-opp-p strong{white-space:nowrap;font-size:15px}
+.rp-opp-p strong{white-space:nowrap;font-size:14px}
 .rp-opp-s{font-size:12px;color:${RP_GREY};margin-top:3px;line-height:1.4}
 .rp-opp-t{font-size:11.5px;margin-top:5px;color:${RP_GREY};letter-spacing:.02em}
 .rp-total{display:flex;justify-content:space-between;font-weight:bold;padding:10px 0 0;border-top:1.5px solid ${RP_INK};margin-top:-1px}
@@ -2770,7 +2772,7 @@ const RP_CSS = `
 @media (max-width:700px){
   .rp-wrap{padding:20px 16px 24px;border-radius:10px}
   .rp-title{font-size:34px}
-  .rp h2{font-size:20px}
+  .rp h2{font-size:min(20px,3.75vw);white-space:nowrap;gap:7px}
 }
 @media print{
   .nk-topnav,.nk-bottomnav,.nk-header,.nk-footmark,.rp-noprint{display:none !important}
@@ -2782,14 +2784,14 @@ const RP_CSS = `
   @page{size:3.6in 7.8in;margin:0.3in 0.3in 0.45in;@bottom-center{content:"LIFE  |  INTERNAL SALES REPORTING";font-family:Arial,sans-serif;font-size:7px;letter-spacing:.24em;color:#6B6B6B}}
   .rp{font-size:12px}
   .rp-title{font-size:28px}
-  .rp h2{font-size:17px;margin:22px 0 8px;padding-bottom:6px}
+  .rp h2{font-size:13.5px;white-space:nowrap;gap:6px;margin:22px 0 8px;padding-bottom:6px}
   .rp h2 .no{font-size:10px;min-width:17px;height:17px;line-height:17px}
   .rp-kpi{padding:7px 0 8px}
   .rp-kpi-n,.rp-opp-n{font-size:12px}
-  .rp-kpi-g b{font-size:13.5px}
+  .rp-kpi-g b{font-size:11.5px}
   .rp-kpi-g span{font-size:7px}
   .rp-row{padding:5px 0}
-  .rp-row .v{font-size:12.5px}
+  .rp-row .v{font-size:11.5px}
   .rp-row .u{font-size:10px}
   .rp-cm p,.rp li,.rp-opp-p,.rp-fc div div:last-child{font-size:11.5px}
   .rp-opp{padding:8px 0;grid-template-columns:20px 1fr;column-gap:8px}
@@ -2877,7 +2879,7 @@ const ReportView = ({ model, openDeals, qoCount, ceoRows, masterDeals }) => {
   );
   const Row = ({ l, v, tot }) => <div className={`rp-row${tot ? " tot" : ""}`}><span>{l}</span><span>{v}</span></div>;
   // "3 · 188 YTD": numbers bold, separator and unit light.
-  const two = (a, b, ua, ub) => <><span className="v">{a}</span>{ua && <span className="u">{ua}</span>}<span className="d">·</span><span className="v">{b}</span>{ub && <span className="u">{ub}</span>}</>;
+  const two = (a, b, ua, ub) => <><span className="v">{a}</span>{ua && <span className="u">{ua}</span>}<span className="d">·</span><span className="v y">{b}</span>{ub && <span className="u">{ub}</span>}</>;
   const pair = (lw, ytd) => two(lw, ytd, "", "YTD");
   const status = f("status") || "";
   const statusLine = ["On Track", "At Risk", "Behind Plan"].map((s, i) => (
@@ -2917,7 +2919,7 @@ const ReportView = ({ model, openDeals, qoCount, ceoRows, masterDeals }) => {
         {f("paul") && <p className="rp-cm"><mark className="rp-hl"><strong>QUESTION FOR PAUL</strong> &nbsp;<RpText text={f("paul")} /></mark></p>}
 
         <h2><span className="no">2</span><span>Weekly Sales Activity</span></h2>
-        <div className="rp-list-h">Last week · YTD / Current</div>
+        <div className="rp-list-h">Last week · <b>YTD / Current</b></div>
         <Row l="New Qualified Leads" v={pair(S("Qualified Leads LW", c("qlead", wk.start, until)), S("Qualified Leads YTD", c("qlead", jan1, until)))} />
         <Row l="New Web Leads" v={pair(S("Web Leads LW", c("wlead", wk.start, until)), S("Web Leads YTD", c("wlead", jan1, until)))} />
         <Row l="New Hotel Leads" v={pair(S("Hotel Leads LW", c("hlead", wk.start, until)), S("Hotel Leads YTD", c("hlead", jan1, until)))} />
@@ -3203,7 +3205,7 @@ const NAV_ITEMS = [
   { key: "active",      label: "Pipeline",  icon: "briefcase" },
   { key: "inventories", label: "Inventory", icon: "building" },
   { key: "conversions", label: "Funnel",    icon: "funnel" },
-  { key: "report",      label: "Report",    cap: "CEO weekly", icon: "report" },
+  { key: "report",      label: "Weekly",    cap: "CEO report", icon: "report" },
 ];
 
 const NavIcon = ({ name, size = 22 }) => {

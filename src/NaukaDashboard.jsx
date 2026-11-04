@@ -2500,7 +2500,7 @@ const Whiteboard = ({ cards, talks = false }) => {
 // The CEO report's pipeline table, live.
 const SalesPipelineTable = ({ qoCount, openDeals, onOpenStage }) => {
   const rows = [
-    { key: "qo", label: "Qualified Opportunities", house: "Toured in the last 60 days · Lead Status Active · contact this month or last", n: qoCount, value: null },
+    { key: "qo", label: "Qualified Opportunities", house: "Active prospect that visited in the last 60 days", n: qoCount, value: null },
     ...PIPE_STAGES.map(s => ({ key: s.key, label: s.label, house: s.house, n: openDeals[s.key].length, value: openDeals[s.key].reduce((t, d) => t + d.amount, 0) })),
   ];
   const totalN = rows.reduce((t, r) => t + r.n, 0);
@@ -2529,7 +2529,7 @@ const SalesPipelineTable = ({ qoCount, openDeals, onOpenStage }) => {
 const QualifiedOppList = ({ cards, onClose }) => {
   const list = [...cards].sort((a, b) => (a.advisor || "").localeCompare(b.advisor || "") || (b.lastVisit?.departure || 0) - (a.lastVisit?.departure || 0));
   return (
-    <Modal title="Qualified Opportunities" subtitle={`${list.length} · Toured in the last 60 days · Lead Status Active · contact this month or last`} onClose={onClose}>
+    <Modal title="Qualified Opportunities" subtitle={`${list.length} · Active prospect that visited in the last 60 days`} onClose={onClose}>
       {list.length === 0 && <div style={{ fontSize: 13, color: PD_MUTED, fontFamily: FONT_BODY }}>None right now.</div>}
       {list.map(c => {
         const L = WB_LIGHT[c.light];

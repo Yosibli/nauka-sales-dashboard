@@ -2537,7 +2537,12 @@ const QualifiedOppList = ({ cards, onClose }) => {
           <div key={c.key} style={ROW_STYLE}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
               <Subhead>{c.name}</Subhead>
-              {c.lastVisit && <span style={{ fontSize: 12, color: PD_MUTED, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>Visited {visitWhen(c.lastVisit)}</span>}
+              {(() => {
+                const today = pdDay(new Date());
+                const onProp = c.nextVisit && c.nextVisit.arrival <= today;
+                const label = onProp ? nextVisitLabel(c.nextVisit, today) : c.lastVisit ? `Visited ${visitWhen(c.lastVisit)}` : "";
+                return label ? <span style={{ fontSize: 12, color: onProp ? C.gray : PD_MUTED, fontWeight: onProp ? "bold" : "normal", fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{label}</span> : null;
+              })()}
             </div>
             <RowMeta>{[c.advisor, c.src, c.leadStatus && `Lead Status: ${c.leadStatus}`].filter(Boolean).join(" · ")}</RowMeta>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontSize: 12.5, color: C.gray, fontFamily: FONT_BODY }}>

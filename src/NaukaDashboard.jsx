@@ -2118,11 +2118,9 @@ const WB_LIGHT = {
 };
 const wbLight = days => days == null ? "none" : days <= WB_GREEN ? "green" : days <= WB_YELLOW ? "yellow" : "red";
 
-// Qualified Opportunities: one card per person. A person is on the board when
-// any of their visits has Pipeline Stage = Qualified Opportunity. Until the
-// sheet has that column filled in, a visit that departed in the last 60 days
-// with no Pipeline Stage counts. Off the board: Lead Status Not Interested /
-// Unqualified / Unsubscribed, or an open deal (they show as a negotiation).
+// Qualified Opportunities: one card per person who toured Nauka in the last 60
+// days, has Lead Status = Active and a note, call or meeting this month or last
+// month. An open deal shows as its own stage instead.
 function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNotes, today, winStart }) {
   const off = WHITEBOARD_OFF_STATUSES.map(s => s.toLowerCase());
   const skipTypes = NOT_A_PROSPECT_TYPES.map(s => s.toLowerCase());
@@ -2160,14 +2158,21 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
     persons.set(key, g);
   });
 
+  // Qualified Opportunity (Nov 3): toured in the last 60 days, Lead Status = Active,
+  // and a note, call or meeting this month or last month.
+  const qoFrom = new Date(today.getTime() - 60 * 864e5);
+  const recentFrom = new Date(today.getFullYear(), today.getMonth() - 1, 1);
   const cards = new Map();
   persons.forEach(g => {
-    const ps = v => pdStr(v.pipelineStage).toLowerCase();
-    const explicit = g.visits.some(v => ps(v) === "qualified opportunity");
-    const fallback = !explicit && g.visits.some(v => !v.pipelineStage && v.stage !== "Canceled" && v.departure && v.departure < today && v.departure >= winStart);
-    if (!explicit && !fallback) return;
+    // 1 · toured in the last 60 days (on property now counts)
+    if (!g.visits.some(v => v.stage !== "Canceled" && v.arrival && v.arrival <= today && v.arrival >= qoFrom)) return;
+    // 2 · Lead Status = Active
     const status = g.leadStatus || (g.rid && people.get(g.rid) ? pdStr(people.get(g.rid).status) : "");
-    if (off.includes(status.toLowerCase())) return;
+    if (status.toLowerCase() !== "active") return;
+    // 3 · last note, call or meeting this month or last month
+    const touch = g.rid ? (notesByRid.get(g.rid) || []).reduce((m, n) => (n.date && (!m || n.date > m) ? n.date : m), null) : null;
+    if (!touch || touch < recentFrom) return;
+    // an open deal is counted in its own stage instead (no double counting)
     if (g.rid && openByRid.has(g.rid)) return;
     const past = g.visits.filter(v => v.stage !== "Canceled" && v.departure && v.departure < today).sort((a, b) => b.departure - a.departure)[0];
     const next = g.visits.filter(v => v.stage !== "Canceled" && v.arrival && (v.departure || v.arrival) >= today).sort((a, b) => a.arrival - b.arrival)[0];
@@ -2250,7 +2255,8 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
     if (byName) { byName.rid = rid; return; }
     // Not visited yet: goes to "In talks to visit", only when they are really in talks.
     const g = [...persons.values()].find(p => p.rid === rid);
-    if (!hasCome(g) && TALKS_OFF_STATUSES.includes(status.toLowerCase())) return;
+    if (hasCome(g)) return; // visited people: the Qualified Opportunity rule decides
+    if (TALKS_OFF_STATUSES.includes(status.toLowerCase())) return;
     const host = foldInto(rid);
     if (host) { if (!also.has(host)) also.set(host, []); also.get(host).push(list[0].name); return; }
     const latest = [...list].sort((a, b) => (b.date || 0) - (a.date || 0))[0];
@@ -2484,7 +2490,7 @@ const Whiteboard = ({ cards, talks = false }) => {
         })}
       </div>
       <PdNote>
-        {talks ? <>People who have not come yet but are in talks: a note, call or meeting an advisor logged in HubSpot in the last {WB_YELLOW} days (emails don't count), or a name the advisor added. They move up to the whiteboard once they arrive. Unresponsive, Gone Dark and No Contact leads are left out.</> : <>Only people who have already come. Everyone whose prospect visit is now a Qualified Opportunity appears here by themselves, plus each Active Negotiation, the names advisors add, and anyone who has visited and has a note, call or meeting an advisor logged in HubSpot in the last {WB_YELLOW} days (emails don't count).</>} A card leaves the list when a deal moves past Active Negotiation, or when the Lead Status is set to {WHITEBOARD_OFF_STATUSES.join(", ")}.
+        {talks ? <>People who have not come yet but are in talks: a note, call or meeting an advisor logged in HubSpot in the last {WB_YELLOW} days (emails don't count), or a name the advisor added. They move up to the whiteboard once they arrive. Unresponsive, Gone Dark and No Contact leads are left out.</> : <>Only people who have already come. Qualified Opportunities (toured in the last 60 days, Lead Status = Active, a note, call or meeting this month or last month) appear by themselves, plus each Active Negotiation and the names advisors add who have visited.</>} A card leaves the list when a deal moves past Active Negotiation, or when the Lead Status is set to {WHITEBOARD_OFF_STATUSES.join(", ")}.
       </PdNote>
       {open && <WhiteboardDetail c={open} onClose={() => setOpen(null)} />}
     </div>
@@ -2494,7 +2500,7 @@ const Whiteboard = ({ cards, talks = false }) => {
 // The CEO report's pipeline table, live.
 const SalesPipelineTable = ({ qoCount, openDeals, onOpenStage }) => {
   const rows = [
-    { key: "qo", label: "Qualified Opportunities", house: "Active Qualified Prospects · after the prospect visit, no deal yet", n: qoCount, value: null },
+    { key: "qo", label: "Qualified Opportunities", house: "Toured in the last 60 days · Lead Status Active · contact this month or last", n: qoCount, value: null },
     ...PIPE_STAGES.map(s => ({ key: s.key, label: s.label, house: s.house, n: openDeals[s.key].length, value: openDeals[s.key].reduce((t, d) => t + d.amount, 0) })),
   ];
   const totalN = rows.reduce((t, r) => t + r.n, 0);
@@ -2503,7 +2509,7 @@ const SalesPipelineTable = ({ qoCount, openDeals, onOpenStage }) => {
     <div>
       {rows.map((r, i) => (
         <PdRow key={r.key} stat={{ label: r.label, house: r.house, money: true }} n={r.n} total={r.value || 0} first={i === 0}
-          onOpen={r.key === "qo" ? undefined : () => onOpenStage(r.key)} />
+          onOpen={() => onOpenStage(r.key)} />
       ))}
       <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 0", borderTop: `1.5px solid ${C.gray}` }}>
         <div style={{ flex: 1, fontSize: 15, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, letterSpacing: "0.04em" }}>TOTAL OPEN PIPELINE
@@ -2516,6 +2522,33 @@ const SalesPipelineTable = ({ qoCount, openDeals, onOpenStage }) => {
         <span style={{ width: 14 }} />
       </div>
     </div>
+  );
+};
+
+// Qualified Opportunities list (Sales pipeline row), same people the count uses.
+const QualifiedOppList = ({ cards, onClose }) => {
+  const list = [...cards].sort((a, b) => (a.advisor || "").localeCompare(b.advisor || "") || (b.lastVisit?.departure || 0) - (a.lastVisit?.departure || 0));
+  return (
+    <Modal title="Qualified Opportunities" subtitle={`${list.length} · Toured in the last 60 days · Lead Status Active · contact this month or last`} onClose={onClose}>
+      {list.length === 0 && <div style={{ fontSize: 13, color: PD_MUTED, fontFamily: FONT_BODY }}>None right now.</div>}
+      {list.map(c => {
+        const L = WB_LIGHT[c.light];
+        return (
+          <div key={c.key} style={ROW_STYLE}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
+              <Subhead>{c.name}</Subhead>
+              {c.lastVisit && <span style={{ fontSize: 12, color: PD_MUTED, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>Visited {visitWhen(c.lastVisit)}</span>}
+            </div>
+            <RowMeta>{[c.advisor, c.src, c.leadStatus && `Lead Status: ${c.leadStatus}`].filter(Boolean).join(" · ")}</RowMeta>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontSize: 12.5, color: C.gray, fontFamily: FONT_BODY }}>
+              <span style={{ width: 9, height: 9, borderRadius: "50%", background: L.color }} />
+              {c.days == null ? "No note, call or meeting yet" : `Last ${c.lastNote.type.toLowerCase()} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}
+            </div>
+            {c.nextTask && <div className="wb-next" style={{ marginTop: 6 }}><strong>Next · {twDayFmt(c.nextTask.date)}</strong> {c.nextTask.text}</div>}
+          </div>
+        );
+      })}
+    </Modal>
   );
 };
 
@@ -3753,6 +3786,7 @@ export default function NaukaDashboard() {
 
   const renderModal = () => {
     if (!openModal) return null;
+    if (openModal.type === "pipeStage" && openModal.key === "qo") return <QualifiedOppList cards={whiteboard.filter(c => c.kind === "qo")} onClose={() => setOpenModal(null)} />;
     if (openModal.type === "pipeStage") return <PipelineDealList stageKey={openModal.key} openDeals={openDealsByStage(masterDeals)} onClose={() => setOpenModal(null)} />;
     if (openModal.type === "active") {
       const stage = openModal.key;

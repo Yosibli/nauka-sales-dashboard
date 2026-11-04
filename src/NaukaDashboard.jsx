@@ -578,6 +578,23 @@ function parseCalendarSheet(rows) {
     .filter(r => r.name && r.arrival && r.departure);
 }
 
+// Visits show only the latest note, call or meeting logged in HubSpot for that
+// contact (Contact_Notes tab, tasks excluded). The calendar's own Notes cell is
+// used only when HubSpot has nothing for the contact (Nov 3).
+function withLatestNote(records, contactNotes) {
+  const latest = new Map();
+  (contactNotes || []).forEach(n => {
+    if (!n.rid || /^task$/i.test(n.type) || !n.date) return;
+    const cur = latest.get(n.rid);
+    if (!cur || n.date > cur.date) latest.set(n.rid, n);
+  });
+  return records.map(r => {
+    const n = latest.get(pdId(r.recordId));
+    if (!n) return r.notes && r.notes.length ? { ...r, notes: [r.notes[r.notes.length - 1]] } : r;
+    return { ...r, notes: [{ date: [twDayFmt(n.date), n.type, n.author && n.author.split(" ")[0]].filter(Boolean).join(" · "), text: n.text }] };
+  });
+}
+
 // Fallback data — used only if the Prospect_Calendar sheet tab isn't set up yet.
 const FALLBACK_CALENDAR_RECORDS = [
   {
@@ -857,12 +874,12 @@ const CalendarRecordCard = ({ r, showIssues, advisorColors = CAL_ADVISOR_COLORS 
       {r.notes && r.notes.length > 0 && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: "0.5px solid rgba(54,67,74,0.12)" }}>
           <div style={{ fontSize: 10, fontWeight: "bold", color: "rgba(54,67,74,0.55)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, fontFamily: FONT_BODY }}>
-            Notes
+            Last note
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {r.notes.map((n, i) => (
               <div key={i} style={{ fontSize: 13, color: C.gray, lineHeight: 1.5, fontFamily: FONT_BODY, whiteSpace: "pre-line" }}>
-                {n.date && <span style={{ fontWeight: "bold", color: "rgba(54,67,74,0.55)" }}>Note added {n.date}: </span>}
+                {n.date && <span style={{ fontWeight: "bold", color: "rgba(54,67,74,0.55)" }}>{n.date}: </span>}
                 {n.text}
               </div>
             ))}
@@ -1714,7 +1731,7 @@ const TWEntryRow = ({ e, showDate }) => {
       {e.notes && e.notes.length > 0 && (
         <div style={{ marginTop: 10 }}>
           <div style={{ fontSize: 10, fontWeight: "bold", color: PD_MUTED, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, fontFamily: FONT_BODY }}>
-            Notes
+            Last note
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {e.notes.map((n, i) => (
@@ -3770,7 +3787,7 @@ export default function NaukaDashboard() {
     }
   };
 
-  const calRecords = calendarRows.length ? parseCalendarSheet(calendarRows) : FALLBACK_CALENDAR_RECORDS;
+  const calRecords = withLatestNote(calendarRows.length ? parseCalendarSheet(calendarRows) : FALLBACK_CALENDAR_RECORDS, contactNotes);
   const model = buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis, kpiArchive, settings, now });
   const todayCount = model.entries.filter(e => calSameDay(e.date, model.today)).length;
   const openDeals = openDealsByStage(masterDeals);

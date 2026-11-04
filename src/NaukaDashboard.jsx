@@ -2319,6 +2319,9 @@ const WB_ORDER = { red: 0, yellow: 1, none: 2, green: 3 };
 const visitWhen = v => v ? (calSameDay(v.arrival, v.departure || v.arrival) ? twDayFmt(v.arrival) : pdShortRange(v.arrival, v.departure)) : "";
 const nextVisitLabel = (v, today) => v ? `${v.arrival <= today ? "On property" : "Next visit"} ${visitWhen(v)}` : "";
 
+// Title on each card, like "Active Negotiation" on deals.
+const WB_KIND_LABEL = c => c.kind === "qo" ? "Qualified Opportunity" : !c.visited ? "In talks to visit" : "Added by advisor";
+
 const WhiteboardCard = ({ c, onOpen }) => {
   const L = WB_LIGHT[c.light];
   return (
@@ -2333,8 +2336,10 @@ const WhiteboardCard = ({ c, onOpen }) => {
           Active Negotiation{c.property ? ` · ${c.property}` : ""}
         </div>
       )}
-      {c.kind !== "neg" && c.interest && (
-        <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "#4E8F8F", fontFamily: FONT_BODY, marginTop: 3 }}>{c.interest}</div>
+      {c.kind !== "neg" && (
+        <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "#4E8F8F", fontFamily: FONT_BODY, marginTop: 3 }}>
+          {WB_KIND_LABEL(c)}{c.interest ? ` · ${c.interest}` : ""}
+        </div>
       )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7, alignItems: "center" }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontFamily: FONT_BODY, color: C.gray }}>
@@ -2442,6 +2447,7 @@ const TaskLeads = ({ leads, today }) => {
                       <span style={{ fontSize: 14.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.25 }}>{l.name}</span>
                       <span style={{ fontSize: 11.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{days <= 0 ? "Due today" : `${twDayFmt(l.task.date)} · ${days}d`}</span>
                     </div>
+                    <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "#4E8F8F", fontFamily: FONT_BODY, marginTop: 3 }}>Upcoming task</div>
                     <div style={{ fontSize: 12.5, color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.4, marginTop: 5 }}>{l.task.text}{l.more > 0 ? ` (+${l.more} more)` : ""}</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
                       {l.src && <span className="wb-chip">{l.src}</span>}
@@ -2482,7 +2488,7 @@ const Whiteboard = ({ cards, talks = false }) => {
         {["green", "yellow", "red"].map(k => (
           <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
             <span style={{ width: 10, height: 10, borderRadius: "50%", background: WB_LIGHT[k].color }} />
-            <strong>{WB_LIGHT[k].label}</strong> · {WB_LIGHT[k].hint}
+            {WB_LIGHT[k].hint}
           </span>
         ))}
       </div>

@@ -1272,10 +1272,23 @@ function twParseDate(raw) {
   if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
   m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
   if (m) { let y = +m[3]; if (y < 100) y += 2000; return new Date(y, +m[1] - 1, +m[2]); }
-  let d = new Date(s);
-  if (isNaN(d) && !/\d{4}/.test(s)) d = new Date(`${s}, ${new Date().getFullYear()}`);
+  // Month names ("Oct 31, 2026", "Saturday, October 31, 2026", "31 Oct 2026",
+  // "Oct 15, 2026, 3:04 PM", "Oct 31") are read by hand: Safari on iPhone / iPad
+  // cannot read several of these, so the same sheet gave different counts there.
+  const mon = s.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?/i);
+  if (mon) {
+    const mi = TW_MONTHS.indexOf(mon[1].toLowerCase());
+    const after = s.slice(mon.index + mon[0].length), before = s.slice(0, mon.index);
+    let dm = after.match(/^\s*(\d{1,2})(?:st|nd|rd|th)?\b/), day = dm ? +dm[1] : null;
+    if (day == null) { const bm = before.match(/(\d{1,2})\s*$/); day = bm ? +bm[1] : null; }
+    const ym = s.match(/\b(\d{4})\b/);
+    const year = ym ? +ym[1] : new Date().getFullYear();
+    if (day != null && day >= 1 && day <= 31) return new Date(year, mi, day);
+  }
+  const d = new Date(s);
   return isNaN(d) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
+const TW_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 
 function twAmount(v) {
   if (v == null || v === "") return 0;
@@ -3785,8 +3798,7 @@ export default function NaukaDashboard() {
     // Try parsing as-is first (handles "6/3/2026", "2026-06-03", "Jun 3, 2026", etc).
     // Only fall back to appending a year if that produced an invalid date AND the
     // string doesn't already end in a 4-digit year (e.g. a bare "Jun 3").
-    let exp = new Date(raw);
-    if (isNaN(exp) && !/\d{4}\s*$/.test(raw)) exp = new Date(`${raw}, 2026`);
+    let exp = twParseDate(raw) || new Date(NaN);
     const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     return !isNaN(exp) && exp < todayStart;
   });

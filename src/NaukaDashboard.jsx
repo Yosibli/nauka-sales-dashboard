@@ -591,7 +591,8 @@ function withLatestNote(records, contactNotes) {
   return records.map(r => {
     const n = latest.get(pdId(r.recordId));
     if (!n) return r.notes && r.notes.length ? { ...r, notes: [r.notes[r.notes.length - 1]] } : r;
-    return { ...r, notes: [{ date: [twDayFmt(n.date), n.type, n.author && n.author.split(" ")[0]].filter(Boolean).join(" · "), text: n.text }] };
+    const kind = activityLabel(n);
+    return { ...r, notes: [{ date: [twDayFmt(n.date), kind.charAt(0).toUpperCase() + kind.slice(1), n.author && n.author.split(" ")[0]].filter(Boolean).join(" · "), text: n.text }] };
   });
 }
 
@@ -2287,6 +2288,17 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
   });
 }
 
+// What the last activity was, in HubSpot's "Call and meeting type" words
+// (Property Tour, On-site Meeting, Text / Whats App Messages…), lower case for
+// "Last …". Falls back to note / call / meeting.
+const ACTIVITY_LABELS = { "text / whats app messages": "text / WhatsApp", "siari hotel guest property tour": "Siari hotel guest property tour" };
+const activityLabel = n => {
+  if (!n) return "";
+  const t = pdStr(n.activityType);
+  if (t) return ACTIVITY_LABELS[t.toLowerCase()] || t.toLowerCase();
+  return pdStr(n.type).toLowerCase() || "note";
+};
+
 function parseContactNotes(rows) {
   return (rows || []).map(r => ({
     rid: pdId(pdStr(r["HubSpot Record ID"]).replace(/[,\s]/g, "")),
@@ -2298,6 +2310,7 @@ function parseContactNotes(rows) {
     leadStatus: pdStr(r["Lead Status"]),
     advisor: pdStr(r["Advisor"]),
     source: pdStr(r["Lead Source"]),
+    activityType: pdStr(r["Activity Type"]),
     text: pdStr(r["Note"]),
   })).filter(n => n.rid && n.text && !/^email$/i.test(n.type));
 }
@@ -2326,7 +2339,7 @@ const WhiteboardCard = ({ c, onOpen }) => {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7, alignItems: "center" }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontFamily: FONT_BODY, color: C.gray }}>
           <span style={{ width: 9, height: 9, borderRadius: "50%", background: L.color }} />
-          {c.days == null ? "No note, call or meeting yet" : `Last ${c.lastNote.type.toLowerCase()} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}
+          {c.days == null ? "No note, call or meeting yet" : `Last ${activityLabel(c.lastNote)} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}
         </span>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignItems: "center" }}>
@@ -2350,7 +2363,7 @@ const WhiteboardDetail = ({ c, onClose }) => {
     <div key={i} style={{ ...ROW_STYLE, fontFamily: FONT_BODY }}>
       {(n.date || n.author || n.type) && (
         <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: PD_MUTED, marginBottom: 3 }}>
-          {[n.type, n.date ? (n.date instanceof Date ? twDayFmt(n.date) : n.date) : null, n.author].filter(Boolean).join(" · ")}
+          {[n.activityType ? activityLabel(n) : n.type, n.date ? (n.date instanceof Date ? twDayFmt(n.date) : n.date) : null, n.author].filter(Boolean).join(" · ")}
         </div>
       )}
       <div style={{ fontSize: 13.5, color: C.gray, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{n.text}</div>
@@ -2547,7 +2560,7 @@ const QualifiedOppList = ({ cards, onClose }) => {
             <RowMeta>{[c.advisor, c.src, c.leadStatus && `Lead Status: ${c.leadStatus}`].filter(Boolean).join(" · ")}</RowMeta>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontSize: 12.5, color: C.gray, fontFamily: FONT_BODY }}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: L.color }} />
-              {c.days == null ? "No note, call or meeting yet" : `Last ${c.lastNote.type.toLowerCase()} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}
+              {c.days == null ? "No note, call or meeting yet" : `Last ${activityLabel(c.lastNote)} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}
             </div>
             {c.nextTask && <div className="wb-next" style={{ marginTop: 6 }}><strong>Next · {twDayFmt(c.nextTask.date)}</strong> {c.nextTask.text}</div>}
           </div>

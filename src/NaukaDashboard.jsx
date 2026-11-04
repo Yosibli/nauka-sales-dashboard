@@ -1671,9 +1671,9 @@ function pdShortRange(start, end) {
 }
 
 const PD_MUTED = "rgba(54,67,74,0.55)";
-const PdSectionHead = ({ text, right, first }) => (
-  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, padding: first ? "0 0 10px" : "26px 0 10px", borderBottom: `1.5px solid ${C.gray}` }}>
-    <span style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: "bold", color: PD_MUTED, fontFamily: FONT_BODY }}>{text}</span>
+const PdSectionHead = ({ text, right, first, big }) => (
+  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, padding: first ? "0 0 10px" : big ? "34px 0 10px" : "26px 0 10px", borderBottom: `1.5px solid ${C.gray}` }}>
+    <span style={big ? { fontSize: 15, letterSpacing: "0.05em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.3 } : { fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: "bold", color: PD_MUTED, fontFamily: FONT_BODY }}>{text}</span>
     {right && <span style={{ fontSize: 11, color: PD_MUTED, fontFamily: FONT_BODY, textAlign: "right" }}>{right}</span>}
   </div>
 );
@@ -1738,7 +1738,7 @@ const PdPairBars = ({ curLabel, cur, prevLabel, prev, prevNote }) => {
 };
 
 // A tappable metric row: label + comparison on the left, count (and $) on the right.
-const PdRow = ({ stat, n, total, first, onOpen, children }) => {
+const PdRow = ({ stat, n, total, first, onOpen, children, numSize = 40 }) => {
   const zero = n === 0;
   const isLost = stat.danger && !zero;
   return (
@@ -1756,7 +1756,7 @@ const PdRow = ({ stat, n, total, first, onOpen, children }) => {
         {children}
       </div>
       <div style={{ textAlign: "right", opacity: zero ? 0.5 : 1 }}>
-        <div style={{ fontFamily: FONT_DISPLAY, fontSize: zero ? 28 : 40, lineHeight: 1, color: isLost ? C.red : C.gray }}>{stat.display ?? n}</div>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: zero ? Math.min(28, numSize) : numSize, lineHeight: 1, color: isLost ? C.red : C.gray }}>{stat.display ?? n}</div>
         {total > 0 && stat.money && (
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: "bold", color: isLost ? C.red : C.teal, marginTop: 2 }}>{money(total)}</div>
         )}
@@ -2624,7 +2624,7 @@ const SalesPipelineTable = ({ qoCount, openDeals, onOpenStage }) => {
   return (
     <div>
       {rows.map((r, i) => (
-        <PdRow key={r.key} stat={{ label: r.label, house: r.house, money: true }} n={r.n} total={r.value || 0} first={i === 0}
+        <PdRow key={r.key} numSize={30} stat={{ label: r.label, house: r.house, money: true }} n={r.n} total={r.value || 0} first={i === 0}
           onOpen={() => onOpenStage(r.key)} />
       ))}
       <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 0", borderTop: `1.5px solid ${C.gray}` }}>
@@ -2632,7 +2632,7 @@ const SalesPipelineTable = ({ qoCount, openDeals, onOpenStage }) => {
           <div style={{ fontSize: 11.5, fontWeight: "normal", color: PD_MUTED, marginTop: 2, letterSpacing: 0 }}>Each opportunity in one stage only · executed PSAs excluded</div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 40, lineHeight: 1, color: C.gray }}>{totalN}</div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 30, lineHeight: 1, color: C.gray }}>{totalN}</div>
           {totalV > 0 && <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: "bold", color: C.teal, marginTop: 2 }}>{money(totalV)}</div>}
         </div>
         <span style={{ width: 14 }} />
@@ -4016,7 +4016,7 @@ export default function NaukaDashboard() {
           <div>
             <PdSectionHead text="Sales pipeline" right={`Today · ${twDayFmt(model.today)}`} first />
             <SalesPipelineTable qoCount={qoCount} openDeals={openDeals} onOpenStage={k => setOpenModal({ type: "pipeStage", key: k })} />
-            <PdSectionHead text="Qualified Opportunities & Active Negotiations · by advisor" right="Tap a name for the notes" />
+            <PdSectionHead big text="Qualified Opportunities & Active Negotiations · by advisor" right="Tap a name for the notes" />
             <Whiteboard cards={boardCards} />
             <PdSectionHead text={`Leads with upcoming tasks · ${taskLeads.length}`} right={`Next ${TASKS_AHEAD_DAYS} days`} />
             <TaskLeads leads={taskLeads} today={model.today} />

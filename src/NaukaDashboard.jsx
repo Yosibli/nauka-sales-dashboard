@@ -617,7 +617,8 @@ function parseCalendarSheet(rows) {
       chargeNote: r["Charge Note"] || null,
       notes: parseNotes(r["Notes"]),
     }))
-    .filter(r => r.name && r.arrival && r.departure);
+    .filter(r => r.name && r.arrival)
+    .map(r => (r.departure ? r : { ...r, departure: r.arrival })); // a day visit may leave Departure empty
 }
 
 // Visits show only the latest note, call or meeting logged in HubSpot for that
@@ -1270,7 +1271,9 @@ function twParseDate(raw) {
   if (!s) return null;
   let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
-  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  m = s.match(/^(\d{4})[\/.](\d{1,2})[\/.](\d{1,2})/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
   if (m) { let y = +m[3]; if (y < 100) y += 2000; return new Date(y, +m[1] - 1, +m[2]); }
   // Month names ("Oct 31, 2026", "Saturday, October 31, 2026", "31 Oct 2026",
   // "Oct 15, 2026, 3:04 PM", "Oct 31") are read by hand: Safari on iPhone / iPad
@@ -1279,8 +1282,8 @@ function twParseDate(raw) {
   if (mon) {
     const mi = TW_MONTHS.indexOf(mon[1].toLowerCase());
     const after = s.slice(mon.index + mon[0].length), before = s.slice(0, mon.index);
-    let dm = after.match(/^\s*(\d{1,2})(?:st|nd|rd|th)?\b/), day = dm ? +dm[1] : null;
-    if (day == null) { const bm = before.match(/(\d{1,2})\s*$/); day = bm ? +bm[1] : null; }
+    let dm = after.match(/^[\s\-.,\/]*(\d{1,2})(?:st|nd|rd|th)?(?!\d)/), day = dm ? +dm[1] : null;
+    if (day == null) { const bm = before.match(/(?:^|\D)(\d{1,2})[\s\-.,\/]*$/); day = bm ? +bm[1] : null; }
     const ym = s.match(/\b(\d{4})\b/);
     const year = ym ? +ym[1] : new Date().getFullYear();
     if (day != null && day >= 1 && day <= 31) return new Date(year, mi, day);
@@ -2401,27 +2404,28 @@ const WhiteboardCard = ({ c, onOpen }) => {
   return (
     <div role="button" tabIndex={0} onClick={onOpen} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}
       className="wb-card" style={{ borderLeft: `5px solid ${L.color}` }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
-        <span style={{ fontSize: 14.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.25 }}>{c.name}</span>
-        {c.kind === "neg" && c.amount > 0 && <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, color: C.gray, whiteSpace: "nowrap" }}>{money(c.amount)}</span>}
+      <div className="wb-top" style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+        <span className="wb-name" style={{ fontSize: 14.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.25 }}>{c.name}</span>
+        {c.kind === "neg" && c.amount > 0 && <span className="wb-amt" style={{ fontFamily: FONT_DISPLAY, fontSize: 16, color: C.gray, whiteSpace: "nowrap" }}>{money(c.amount)}</span>}
       </div>
       {c.kind === "neg" && (
-        <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "#4E8F8F", fontFamily: FONT_BODY, marginTop: 3 }}>
-          Active Negotiation{c.property ? ` · ${c.property}` : ""}
+        <div className="wb-kind" style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "#4E8F8F", fontFamily: FONT_BODY, marginTop: 3 }}>
+          <span className="wb-d">Active Negotiation{c.property ? ` · ${c.property}` : ""}</span><span className="wb-m">Active Negotiation</span>
         </div>
       )}
       {c.kind !== "neg" && (
-        <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "#4E8F8F", fontFamily: FONT_BODY, marginTop: 3 }}>
-          {WB_KIND_LABEL(c)}{c.interest ? ` · ${c.interest}` : ""}
+        <div className="wb-kind" style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "#4E8F8F", fontFamily: FONT_BODY, marginTop: 3 }}>
+          <span className="wb-d">{WB_KIND_LABEL(c)}{c.interest ? ` · ${c.interest}` : ""}</span><span className="wb-m">{c.kind === "qo" ? "Qualified Opp." : WB_KIND_LABEL(c)}</span>
         </div>
       )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7, alignItems: "center" }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontFamily: FONT_BODY, color: C.gray }}>
-          <span style={{ width: 9, height: 9, borderRadius: "50%", background: L.color }} />
-          {c.days == null ? "No note, call or meeting yet" : `Last ${activityLabel(c.lastNote)} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}
+        <span className="wb-light" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontFamily: FONT_BODY, color: C.gray }}>
+          <span className="wb-dot" style={{ width: 9, height: 9, borderRadius: "50%", background: L.color, flex: "none" }} />
+          <span className="wb-d">{c.days == null ? "No note, call or meeting yet" : `Last ${activityLabel(c.lastNote)} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}</span>
+          <span className="wb-m">{c.days == null ? "No activity" : `${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days}d`}`}</span>
         </span>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignItems: "center" }}>
+      <div className="wb-chips" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignItems: "center" }}>
         {c.src && <span className="wb-chip">{c.src}</span>}
         {c.leadStatus && <span className="wb-chip">Lead Status: {c.leadStatus}</span>}
         {c.nextVisit && <span className="wb-chip wb-chip-on">{nextVisitLabel(c.nextVisit, pdDay(new Date()))}</span>}
@@ -2429,7 +2433,7 @@ const WhiteboardCard = ({ c, onOpen }) => {
         {c.nextStep && <span className="wb-chip wb-chip-on">{c.nextStep}</span>}
       </div>
       {c.nextTask && (
-        <div className="wb-next"><strong>Next · {twDayFmt(c.nextTask.date)}</strong> {c.nextTask.text}</div>
+        <div className="wb-next"><strong>Next · {twDayFmt(c.nextTask.date)}</strong><span className="wb-d"> {c.nextTask.text}</span></div>
       )}
     </div>
   );
@@ -2508,7 +2512,7 @@ const TaskLeads = ({ leads, today }) => {
           return (
             <div key={a} className="wb-col">
               <div style={{ height: 4, borderRadius: 2, background: CAL_ADVISOR_COLORS[a] || CAL_UNASSIGNED_COLOR, marginBottom: 8 }} />
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontFamily: FONT_BODY }}>
+              <div className="wb-col-h" style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 4, fontFamily: FONT_BODY }}>
                 <span style={{ fontSize: 14, fontWeight: "bold", color: C.gray }}>{a}</span>
                 <span style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.gray }}>{mine.length}</span>
               </div>
@@ -2517,13 +2521,13 @@ const TaskLeads = ({ leads, today }) => {
                 const days = pdDiff(today, l.task.date);
                 return (
                   <div key={l.rid} className="wb-card" style={{ borderLeft: `5px solid ${C.teal}`, cursor: "default" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
-                      <span style={{ fontSize: 14.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.25 }}>{l.name}</span>
-                      <span style={{ fontSize: 11.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{days <= 0 ? "Due today" : `${twDayFmt(l.task.date)} · ${days}d`}</span>
+                    <div className="wb-top" style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+                      <span className="wb-name" style={{ fontSize: 14.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.25 }}>{l.name}</span>
+                      <span className="wb-due" style={{ fontSize: 11.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{days <= 0 ? "Due today" : `${twDayFmt(l.task.date)} · ${days}d`}</span>
                     </div>
-                    <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "#4E8F8F", fontFamily: FONT_BODY, marginTop: 3 }}>Upcoming task</div>
-                    <div style={{ fontSize: 12.5, color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.4, marginTop: 5 }}>{l.task.text}{l.more > 0 ? ` (+${l.more} more)` : ""}</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
+                    <div className="wb-kind" style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "#4E8F8F", fontFamily: FONT_BODY, marginTop: 3 }}>Upcoming task</div>
+                    <div className="wb-task" style={{ fontSize: 12.5, color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.4, marginTop: 5, overflowWrap: "anywhere" }}>{l.task.text}{l.more > 0 ? ` (+${l.more} more)` : ""}</div>
+                    <div className="wb-chips" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
                       {l.src && <span className="wb-chip">{l.src}</span>}
                       {l.status && <span className="wb-chip">Lead Status: {l.status}</span>}
                     </div>
@@ -2556,7 +2560,26 @@ const Whiteboard = ({ cards, talks = false }) => {
         .wb-last{margin-top:8px;padding-top:7px;border-top:1px solid rgba(54,67,74,0.1);font-family:${FONT_BODY}}
         .wb-last-meta{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:bold;color:${PD_MUTED}}
         .wb-last-text{font-size:12.5px;color:${C.gray};line-height:1.4;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line;overflow-wrap:anywhere}
-        @media (max-width:900px){.wb-board{grid-template-columns:1fr}}
+        .wb-m{display:none}
+        @media (max-width:700px){
+          .wb-board{gap:6px}
+          .wb-col{padding:7px 5px 8px;border-radius:8px}
+          .wb-col-h span:first-child{font-size:11.5px !important;line-height:1.2}
+          .wb-col-h span:last-child{font-size:16px !important}
+          .wb-card{padding:7px 7px 8px;margin-top:6px;border-left-width:4px !important;border-radius:6px}
+          .wb-top{display:block !important}
+          .wb-name{display:block;font-size:12px !important;line-height:1.25 !important;overflow-wrap:anywhere}
+          .wb-amt{display:block;font-size:13px !important;margin-top:2px}
+          .wb-kind{font-size:8.5px !important;letter-spacing:.04em !important;margin-top:3px !important;line-height:1.25}
+          .wb-light{font-size:10.5px !important;gap:4px !important}
+          .wb-dot{width:7px !important;height:7px !important}
+          .wb-chips{display:none !important}
+          .wb-next{font-size:10px;padding:3px 5px;margin-top:5px}
+          .wb-due{display:block;font-size:10.5px !important;margin-top:2px}
+          .wb-task{font-size:10.5px !important;line-height:1.35 !important}
+          .wb-d{display:none}
+          .wb-m{display:inline}
+        }
       `}</style>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 10, fontSize: 12, color: "rgba(54,67,74,0.75)", fontFamily: FONT_BODY }}>
         {["green", "yellow", "red"].map(k => (
@@ -2572,7 +2595,7 @@ const Whiteboard = ({ cards, talks = false }) => {
           return (
             <div key={a} className="wb-col">
               <div style={{ height: 4, borderRadius: 2, background: CAL_ADVISOR_COLORS[a] || CAL_UNASSIGNED_COLOR, marginBottom: 8 }} />
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontFamily: FONT_BODY }}>
+              <div className="wb-col-h" style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 4, fontFamily: FONT_BODY }}>
                 <span style={{ fontSize: 14, fontWeight: "bold", color: C.gray }}>{a}</span>
                 <span style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.gray }}>{mine.length}</span>
               </div>

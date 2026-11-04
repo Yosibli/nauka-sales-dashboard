@@ -2358,6 +2358,71 @@ const WhiteboardDetail = ({ c, onClose }) => {
   );
 };
 
+// Upcoming tasks (Nov 3): open HubSpot tasks due in the next 30 days for leads
+// who are not already on the whiteboard or in "In talks to visit", by advisor.
+const TASKS_AHEAD_DAYS = 30;
+function buildTaskLeads({ contactNotes, cards, people, today }) {
+  const until = new Date(today.getTime() + TASKS_AHEAD_DAYS * 864e5);
+  const onCards = new Set(cards.map(c => c.rid).filter(Boolean));
+  const off = ["not interested", "unqualified", "unsubscribed"];
+  const byRid = new Map();
+  (contactNotes || []).filter(n => /^task$/i.test(n.type) && n.rid && n.date && n.date >= today && n.date <= until).forEach(n => {
+    if (onCards.has(n.rid)) return;
+    if (!byRid.has(n.rid)) byRid.set(n.rid, []);
+    byRid.get(n.rid).push(n);
+  });
+  const out = [];
+  byRid.forEach((list, rid) => {
+    list.sort((a, b) => a.date - b.date);
+    const t = list[0];
+    const p = people.get(rid);
+    const status = t.leadStatus || (p ? pdStr(p.status) : "");
+    if (off.includes(status.toLowerCase())) return;
+    out.push({ rid, name: t.name || (p ? p.name : ""), advisor: t.advisor || t.author || "Unassigned", status, src: t.source || (p ? pdStr(p.src) : ""), task: t, more: list.length - 1 });
+  });
+  return out.sort((a, b) => a.task.date - b.task.date);
+}
+
+const TaskLeads = ({ leads, today }) => {
+  const advisors = [...AL_ADVISORS, ...[...new Set(leads.map(l => l.advisor))].filter(a => !AL_ADVISORS.includes(a)).sort()];
+  return (
+    <div>
+      <div className="wb-board">
+        {advisors.map(a => {
+          const mine = leads.filter(l => l.advisor === a);
+          return (
+            <div key={a} className="wb-col">
+              <div style={{ height: 4, borderRadius: 2, background: CAL_ADVISOR_COLORS[a] || CAL_UNASSIGNED_COLOR, marginBottom: 8 }} />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontFamily: FONT_BODY }}>
+                <span style={{ fontSize: 14, fontWeight: "bold", color: C.gray }}>{a}</span>
+                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.gray }}>{mine.length}</span>
+              </div>
+              {mine.length === 0 && <div style={{ fontSize: 12.5, color: PD_MUTED, fontFamily: FONT_BODY, padding: "10px 2px 2px" }}>No upcoming tasks.</div>}
+              {mine.map(l => {
+                const days = pdDiff(today, l.task.date);
+                return (
+                  <div key={l.rid} className="wb-card" style={{ borderLeft: `5px solid ${C.teal}`, cursor: "default" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+                      <span style={{ fontSize: 14.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.25 }}>{l.name}</span>
+                      <span style={{ fontSize: 11.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{days <= 0 ? "Due today" : `${twDayFmt(l.task.date)} · ${days}d`}</span>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.4, marginTop: 5 }}>{l.task.text}{l.more > 0 ? ` (+${l.more} more)` : ""}</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
+                      {l.src && <span className="wb-chip">{l.src}</span>}
+                      {l.status && <span className="wb-chip">Lead Status: {l.status}</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+      <PdNote>Open HubSpot tasks due in the next {TASKS_AHEAD_DAYS} days, for leads who are not on the whiteboard or in talks to visit. Earliest task first.</PdNote>
+    </div>
+  );
+};
+
 const Whiteboard = ({ cards, talks = false }) => {
   const [open, setOpen] = useState(null);
   const advisors = [...AL_ADVISORS, ...[...new Set(cards.map(c => c.advisor))].filter(a => !AL_ADVISORS.includes(a)).sort()];
@@ -3411,7 +3476,7 @@ const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo,
       {/* 3 · Year-end target */}
       <PdSectionHead text="Year-end target" right={`${homeM(HOME_TOTAL_TARGET, 0)} total property transactions`} />
       <div style={{ position: "relative", marginTop: 34, marginBottom: 34 }}>
-        <div style={{ position: "absolute", right: 0, top: -22, fontSize: 11.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{homeM(HOME_TOTAL_TARGET, 0)}</div>
+        <div style={{ position: "absolute", right: 0, top: -22, fontSize: 11.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{homeM(HOME_TOTAL_TARGET, 0)} new milestone</div>
         <div style={{ display: "flex", height: 22, borderRadius: 6, overflow: "hidden", background: "rgba(54,67,74,0.08)" }}>
           <div style={{ width: w(total), background: C.teal }} title={`Signed ${homeM(total)}`} />
           <div style={{ width: w(closing), background: `repeating-linear-gradient(135deg, rgba(136,209,209,0.85) 0 6px, rgba(136,209,209,0.4) 6px 12px)` }} title={`Set to close ${homeM(closing, 2)}`} />
@@ -3714,6 +3779,7 @@ export default function NaukaDashboard() {
   const qoCount = whiteboard.filter(c => c.kind === "qo").length;
   const boardCards = whiteboard.filter(c => c.visited);
   const talkCards = whiteboard.filter(c => !c.visited);
+  const taskLeads = buildTaskLeads({ contactNotes, cards: whiteboard, people: model.people, today: model.today });
   const go = key => {
     setView(key);
     try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch { /* old browsers */ }
@@ -3795,6 +3861,8 @@ export default function NaukaDashboard() {
             <SalesPipelineTable qoCount={qoCount} openDeals={openDeals} onOpenStage={k => setOpenModal({ type: "pipeStage", key: k })} />
             <PdSectionHead text="Qualified Opportunities & Active Negotiations · by advisor" right="Tap a name for the notes" />
             <Whiteboard cards={boardCards} />
+            <PdSectionHead text={`Leads with upcoming tasks · ${taskLeads.length}`} right={`Next ${TASKS_AHEAD_DAYS} days`} />
+            <TaskLeads leads={taskLeads} today={model.today} />
             <PdSectionHead text={`In talks to visit · ${talkCards.length}`} right="Not on property yet" />
             <Whiteboard cards={talkCards} talks />
             <div style={{ height: 18 }} />

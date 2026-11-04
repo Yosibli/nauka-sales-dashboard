@@ -2735,7 +2735,13 @@ const RP_CSS = `
 .rp-kpi-g div:nth-child(4) b{color:${RP_BLUE}}
 .rp-hl{background:#FFF200;color:inherit;padding:0 2px;border-radius:2px}
 .rp-status{margin-top:16px;padding-top:12px;font-size:14.5px}
-.rp-status .rp-kpi-n{margin-bottom:3px}
+.rp-status .rp-kpi-n{margin-bottom:6px}
+.rp-st{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+.rp-pill{display:inline-block;font-weight:bold;font-size:13px;letter-spacing:.03em;padding:4px 12px;border-radius:999px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.rp-pill.ok{background:#F6E3A1;color:#6B5200;border:1px solid #E2C463}
+.rp-pill.risk{background:#F8D3CF;color:#8A1C12;border:1px solid #E7A39B}
+.rp-pill.behind{background:#FBDDBE;color:#8A4A00;border:1px solid #EDB57E}
+.rp-off{font-size:11px;color:#A3A3A3}
 .rp-lbl{font-size:10px;letter-spacing:.18em;text-transform:uppercase;font-weight:bold;color:${RP_BLUE};margin:20px 0 6px;break-after:avoid;page-break-after:avoid}
 .rp-cm p{margin:0 0 9px;font-size:13.5px;line-height:1.55;color:#333}
 .rp-cm p,.rp li{orphans:3;widows:3}
@@ -2801,6 +2807,8 @@ const RP_CSS = `
   .rp-list-h{font-size:7px}
   .rp-meta{font-size:10.5px}
   .rp-kicker{font-size:8px}
+  .rp-pill{font-size:10.5px;padding:2px 9px}
+  .rp-off{font-size:8.5px}
   .rp-logo{width:56px}
 }
 `;
@@ -2882,10 +2890,12 @@ const ReportView = ({ model, openDeals, qoCount, ceoRows, masterDeals }) => {
   const two = (a, b, ua, ub) => <><span className="v">{a}</span>{ua && <span className="u">{ua}</span>}<span className="d">·</span><span className="v y">{b}</span>{ub && <span className="u">{ub}</span>}</>;
   const pair = (lw, ytd) => two(lw, ytd, "", "YTD");
   const status = f("status") || "";
-  const statusLine = ["On Track", "At Risk", "Behind Plan"].map((s, i) => (
-    <Fragment key={s}>{i > 0 && <span style={{ color: RP_GREY }}> / </span>}
-      {status.toLowerCase() === s.toLowerCase() ? <mark className="rp-hl"><strong>{s}</strong></mark> : <span style={{ color: RP_GREY }}>{s}</span>}
-    </Fragment>));
+  // The chosen status is a coloured pill; the other two stay small and grey.
+  const statusLine = <div className="rp-st">{[["On Track", "ok"], ["At Risk", "risk"], ["Behind Plan", "behind"]].map(([s, k]) => (
+    status.toLowerCase() === s.toLowerCase()
+      ? <span key={s} className={`rp-pill ${k}`}>{s}</span>
+      : <span key={s} className="rp-off">{s}</span>
+  ))}</div>;
   const others = ceoList(f("others")).map(x => { const i = x.lastIndexOf(":"); return i > 0 ? [x.slice(0, i).trim(), x.slice(i + 1).trim()] : [x, ""]; });
   const weekLabel = w => `Week ending ${twDayFmt(w.end)}, ${w.end.getFullYear()}${w.live ? " (in progress)" : ""}`;
 

@@ -2866,7 +2866,6 @@ const ReportView = ({ model, openDeals, qoCount, ceoRows, masterDeals }) => {
       {status.toLowerCase() === s.toLowerCase() ? <mark className="rp-hl"><strong>{s}</strong></mark> : <span style={{ color: RP_GREY }}>{s}</span>}
     </Fragment>));
   const others = ceoList(f("others")).map(x => { const i = x.lastIndexOf(":"); return i > 0 ? [x.slice(0, i).trim(), x.slice(i + 1).trim()] : [x, ""]; });
-  const cohorts = buildCohorts(model.entries, masterDeals, until);
   const weekLabel = w => `Week ending ${twDayFmt(w.end)}, ${w.end.getFullYear()}${w.live ? " (in progress)" : ""}`;
 
   return (
@@ -2972,13 +2971,6 @@ const ReportView = ({ model, openDeals, qoCount, ceoRows, masterDeals }) => {
           {others.map(([l, v], i) => <Row key={i} l={l} v={v} tot={/^total$/i.test(l)} />)}
         </>}
         {f("portfolio") && <Comments k="portfolio" />}
-
-        <h2>Conversion &nbsp;|&nbsp; Consistent Cohorts</h2>
-        <div className="rp-sub">Each group is followed forward from the quarter it started. Quarters that ended less than {COHORT_OPEN_DAYS} days ago are still open.</div>
-        <div className="rp-list-h">Prospect Visit → Signed OTP</div>
-        {cohorts.visit.map(g => <Row key={g.key} l={<>{g.key}{g.still && <span style={{ color: RP_GREY, fontWeight: "normal" }}> · still open</span>}</>} v={`${g.people.length} → ${g.conv.length} · ${cohortPct(g.conv.length, g.people.length)}`} />)}
-        <div className="rp-list-h" style={{ marginTop: 14 }}>Signed OTP → Signed PSA</div>
-        {cohorts.otp.map(g => <Row key={g.key} l={<>{g.key}{g.still && <span style={{ color: RP_GREY, fontWeight: "normal" }}> · still open</span>}</>} v={`${g.deals.length} → ${g.psa} · ${cohortPct(g.psa, g.deals.length)}`} />)}
 
         <h2>Reporting Guidelines</h2>
         <ul>{RP_GUIDELINES.map((x, i) => <li key={i}>{x}</li>)}</ul>

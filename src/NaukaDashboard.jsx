@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, Fragment } from "react";
 
 const SHEET_ID = "1hFqEicg5meAdf_VJoDQ3XCNCD6HOa_sSCeKSDRkLrYc";
 const API_KEY  = "AIzaSyAcRftC0ZLiwFiBKFnBxnXV5CD1eob6BMU";
@@ -224,6 +224,48 @@ function invClassify(ownerRaw, statusRaw) {
 // the tab's layout: Siari Ritz-Carlton Residences (B–E), Golf Villas
 // (H–J), Beach Residences (L–P), and the Cliff Residences per-building
 // floor-plan blocks (starting in column R).
+// Totals for the "Available Only" view: units and asking-price total, overall
+// and per product (Cliff Residence buildings and Cliff Estates phases combined).
+const invProduct = name => {
+  const base = String(name).split(" — ")[0].trim();
+  return base === "Siari" ? "Siari Residences" : base;
+};
+const InventoryTotals = ({ groups, allAvailable }) => {
+  const sum = units => units.reduce((t, u) => t + (u.price || 0), 0);
+  const noPrice = units => units.filter(u => u.price == null).length;
+  const byProduct = new Map();
+  groups.forEach(g => { const k = invProduct(g.name); byProduct.set(k, [...(byProduct.get(k) || []), ...g.units]); });
+  const tabUnits = groups.flatMap(g => g.units);
+  const cell = { padding: "8px 10px", borderBottom: "1px solid rgba(54,67,74,0.12)", fontFamily: FONT_BODY, fontSize: 13.5, color: C.gray };
+  const num = { ...cell, textAlign: "right", whiteSpace: "nowrap" };
+  const Row = ({ label, units, bold }) => (
+    <tr>
+      <td style={{ ...cell, fontWeight: bold ? "bold" : "normal" }}>{label}</td>
+      <td style={{ ...num, fontWeight: bold ? "bold" : "normal" }}>{units.length}</td>
+      <td style={{ ...num, fontWeight: bold ? "bold" : "normal" }}>{money(sum(units))}{noPrice(units) ? <span style={{ color: PD_MUTED, fontWeight: "normal" }}> · {noPrice(units)} no price</span> : null}</td>
+    </tr>
+  );
+  return (
+    <div style={{ background: C.white, border: "1px solid rgba(54,67,74,0.12)", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
+        <span style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: "bold", color: PD_MUTED, fontFamily: FONT_BODY }}>Available inventory</span>
+        <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.gray }}>All products: <strong>{allAvailable.length} units · {money(sum(allAvailable))}</strong></span>
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 8 }}>
+        <thead><tr>
+          <th style={{ ...cell, textAlign: "left", fontSize: 11.5, color: PD_MUTED }}>Product</th>
+          <th style={{ ...num, fontSize: 11.5, color: PD_MUTED }}>Units</th>
+          <th style={{ ...num, fontSize: 11.5, color: PD_MUTED }}>Asking price total</th>
+        </tr></thead>
+        <tbody>
+          {[...byProduct.entries()].map(([k, units]) => <Row key={k} label={k} units={units} />)}
+          <Row label="Total" units={tabUnits} bold />
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 function parseBuiltProduct(rows) {
   if (!rows || rows.length < 6) return [];
   const groups = [];
@@ -1274,6 +1316,7 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
       date, type: "lead", name, details: status, amount: 0, status,
       advisor: pdStr(r["Advisor"]) || pdStr(r["Contact Owner"]),
       source: pdStr(r["Source"]), src: pdStr(r["Source"]), rid,
+      lifecycle: pdStr(r["Lifecycle Stage"]),
     };
     if (rid) leadById.set(rid, e); else leadNoId.push(e);
     const tourDate = twParseDate(r["HubSpot Tour Date"]);
@@ -1301,6 +1344,7 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
       advisor: pdStr(r["Advisor"]) || (prev ? prev.advisor : ""),
       source: [pdStr(r["Lead Source"]), pdStr(r["Referral Source"]) ? `via ${pdStr(r["Referral Source"])}` : ""].filter(Boolean).join(" · "),
       src: pdStr(r["Lead Source"]) || (prev ? prev.src : ""), rid,
+      lifecycle: pdStr(r["Lifecycle Stage"]) || (prev ? prev.lifecycle : ""),
     };
     if (rid) leadById.set(rid, e); else leadNoId.push(e);
     if (rid) {
@@ -1316,10 +1360,14 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
   });
   leadById.forEach(e => out.push(e));
   leadNoId.forEach(e => out.push(e));
-  // CEO report lead lines: New Hotel Leads (Lead Source = Siari Hotel Guest) and
-  // New Qualified Leads (every other lead except Unqualified).
+  // CEO report lead lines: Hotel = Lead Source Siari Hotel Guest; Web = Nauka
+  // or Siari website leads not yet SQL; Qualified = every other lead (a
+  // relationship source, or made SQL by an advisor), except Unqualified.
+  const isWebSource = src => /^(nauka homepage|siari website)$/i.test(pdStr(src));
+  const isSql = e => /sales qualified|opportunity|customer/i.test(pdStr(e.lifecycle));
   [...leadById.values(), ...leadNoId].forEach(e => {
     if (isHotelSource(e.src)) out.push({ ...e, type: "hlead" });
+    else if (isWebSource(e.src) && !isSql(e)) out.push({ ...e, type: "wlead" });
     else if (pdStr(e.status).toLowerCase() !== "unqualified") out.push({ ...e, type: "qlead" });
   });
 
@@ -2623,13 +2671,15 @@ const PipelineDealList = ({ stageKey, openDeals, onClose }) => {
 // keyed by "Week Ending" (the Sunday). Past weeks stay visible.
 // Point-in-time lines (pipeline, active counts) always show today's numbers.
 // ══════════════════════════════════════════════════════════════════════
+const LIFE_LOGO = "data:image/jpeg;base64,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ICs4crfqhKBM+t4t8+RgjORDF5/H4MMz3UwQmgNOQ8jyFVGyg7+34qBh7u4dlFkwNXAbVrXPU9/IivCGIAbCcD6coF3UEZLHWbImGTcAD9Paab+0xs/O+AvBruvBKaFCIHk8DgP5gx/9aDpq1Jj9zyLngT/w8DsbxP8Al0eDBUx0RtDbIO4X2jW6aUa/uKExCsG4Qg3t/hQKtmMN9f5eBhEa1hrcwcc7ABdlDwByiDVCW10lMB5gyDz/AC2OGj7wIvA+zm8RQFjMwJfgkbgtdsPE/uXVhUh1nfA8Dpi/aLwVGfHCtuwZihyXtFqUFgTby84jAJ8BW3FuJ2mTgoycteqh5G+daJxQKDcVQhgO4BBgGuZGw7C3E7Sk8VxuXZCBysKCDmAwJwC1FE6hHg5v9KOIFvhCv7mRbtB5nwLoM3rCjAStvYhzzpEVWZhgjE7KN05ibEqokqh9CIAeSSh55Kmssws7CDpYS8/jRdRcGwHMYyQCydWxCK4wKcwimC6AEQIEkPVN/ohvyStG93H+76TQCAbgk0RArOLkITLJhhFBA6guKUQLT0kzxHKAZFjMi/tBsgaoMoegxVWxhkD4SDS5LIg7TR2hNIE7D7QfN7oCDou2OMYpfIADGUOJg02xpaoIMDIJgA2Netw9NhwETW7xwSSpdp4DSNEQFbJ8owZQvIa5OIJNcFqxDUc5QDLGahzBAyBhQSzkM6bNu8TqjroebJlIXYKAi/WabsQAslxVq6gWa3C4Z/XEfpgaOFmVRkhXRa5wZ6jGAmgbFnmYkgAYD8dodZIloCE4U6zMkE+2kKrEgQVrQHOMqUtBpdeohZJo4AoIE8ri03CAq3yRfF7gqbH+I//aAAwDAQACAAMAAAAQ88888888888888888888888888888o888888888888888884j8888888888888888823888888888888888dUI+8888888888888888+yc88888888888888882FfU8888888888888808884888488888S8888A88830888h8888HJ888p888j8884F88881995191591xxx1x8888Mtsd888s8sdds9M888888888888888888888//8QAHxEAAgICAwADAAAAAAAAAAAAAREAIDFAECFBMFBh/9oACAEDAQE/EPsOgA0gZmegP2EKD7MtFHRmNIgCzCMw3h7U4FC/KZQuonVCeqEugKNk4oooouFFFFFwrv4Xy9f/xAAZEQEBAQADAAAAAAAAAAAAAAABQAARUGD/2gAIAQIBAT8Q7AicROIWTi987//EACsQAQEAAgECBQMDBQEAAAAAAAERACExQWEwUFFxgSCRoRCxwWBw0fDx4f/aAAgBAQABPxD+wxmgof8A0InzicyK3o6+98lqwTjaAjspTswjBA0eSGAAqnQeuGFKHSH/ALrw4HkgTNxHbUU/1jKLAC9FL8eSLozlNUNT0PcJ92V44N9xPweQPGHuLWfM8HTcekwb+gN1OeEL9sfZZHQtHYgOwY6h0T6mh9/IVIWga3Dcz1Op8YNQAa60eY6bEl6Yk16LnqDtdn4zmaMDsivz+R+jXBruKPseRCFypH57qHTkziZ+AeSnJNlojhBGoRKsFYqU41nawuAARvO4L8+RuvetTBPqK7cj2uHGcINPcD+cION+gA/jyN4Sw13x7tfj+nRoB2CvwZqYADSCNjpiPXBiTogfFHt12YN8gchHDRNAhrq+7n/cYczZXsVMb0ssAMU+3CO64AQCNEYj64RQc0UQqVCatfOxUUFtB7mzvPBpMcVNaC7dnHr4GoKjo540uAKOdv8APnDgYyfJ9YYCUCSfLgpRv9PXFwgxQF+PBeMA6Nj34LuOSfWsYgZE1a1S5dAdC/vGc4nS2qpVeV+u7BAAOnAmOqbmt90YyXgjWAuy8B4LxhvYfgu54B9YSZoxCa8evTviLs+tgXYgbh6YfWgnboPTLHeOHBKBXAu3jjTEJKDQfBeMNyd9/tl8AQfXz7zIENHgb29FyEy+FXsRpIhDqBfbLe55pftgLZzr5OtNaOn1lSEN9rZjHS118Dupa3AF5rrm4eA1aGydUKneOqM9Dfw4FzA1Ak1IPL5fos2T9SIQaNRSgmluNgqNm6YSNE42tCYPYi7Gtk4IUqnTCATcJFRp4gHUTVxUdThFA0ailBOUcuX6YYJB1AenvkmGrBAkBGm9LgPTuzrHUnBXuTCZfC1zjNmxJXCUkQVCMLvhdl7YPWcEByTpv0164O5iCSEkpFQCjseOHLsIp1KGDWbBD2h0GJWKc5tpp52kelWjSOJroEnVnUIb53heN1StSD0f9wE/k4ESQGw7urjtCEOXVVBb2tLjRh1xYtoAjelORzlyNU+H03q9ByHRNZKWCBXRki4Cwh0gEd05zYGfIhbrcQC8piRBUTEE0pAAoomqvt1W5ge7gGSjMUHBIaUM3Kr2HLal+DQrwClyOOWpWIdCvgpRMjY0kcGCyF3drirVlgUzVEiPBGBIptOBIcCIRETG4lwisBwwV7BwYOdq4LRCyB3drku2ECJAu0cyZLBCVhwU4RsP2xtQPxVRAruKqEOmOiUEAsNBoUHbAg7CWtDScko97iALWhIVsVD2yb6BTMCk9DodWu8mC+iDJLql642SkmiPGbKZNmD8UlI7NKLYcXfVw3IvRACNW2OZli5ZD6QLb3mPkCGMXBTSGwmbEn20N02i8iDOAxcvmhARm20jijjFC60KhGcgnuOcK2RoFlNmXibwXzPKoCiX3M3L1NGEJEUiiIuCmYiTqbiqrtYdDKHS0iackjs5FHFZGGiKCepE6t6GQH1dUA14Ww3a4k8poCBbFh7f0j//2Q=="; // LIFE Properties International logo (from the report PDF)
 const CONTRACTED_GOAL = 270000000;   // Contracted Sales Volume goal in the report (Eli, Nov 2)
-const RAISED_TARGET = 350000000;      // raised target, noted in the comments
+const RAISED_TARGET = 350000000;      // updated goal (Eli, Nov 2): its own row in Section 1
 const CEO_FIELDS = {
   status: "Sales Status", s1: "Sales Performance Comments", s2: "Weekly Activity Comments",
   next30: "Next 30 Days", next60: "Next 60 Days", s3: "Pipeline Comments", s4: "Top Opportunities Comments",
   wins: "Key Wins", priorities: "Top 3 Priorities", support: "Challenges / Leadership Support", s5: "Director Comments",
   forecast30: "30-Day OTP Forecast", portfolio: "Portfolio Comments", director: "Director of Sales",
+  paul: "Question for Paul", others: "Other Projects", oppTotal: "Top Opportunities Total",
 };
 const ceoList = v => pdStr(v).split(/\s*(?:\|\||\n)\s*/).map(x => x.trim()).filter(Boolean);
 function ceoRowFor(rows, weekEnd) {
@@ -2637,86 +2687,96 @@ function ceoRowFor(rows, weekEnd) {
 }
 function topOppsFrom(row) {
   if (!row) return [];
-  return [1, 2, 3].map(i => ({
+  return [1, 2, 3, 4, 5].map(i => ({
     prospect: pdStr(row[`Opp ${i} Prospect`]), product: pdStr(row[`Opp ${i} Product / Value`]),
     status: pdStr(row[`Opp ${i} Status / Next Step`]), target: pdStr(row[`Opp ${i} Target PSA Date`]),
   })).filter(o => o.prospect);
 }
+// "Saved …" columns in CEO_Report keep the numbers as they were sent that
+// Monday; when a cell is empty the report uses the live number.
+const ceoSaved = (row, name) => {
+  const v = row ? pdStr(row[`Saved ${name}`]).replace(/[$,\s]/g, "") : "";
+  return v === "" || isNaN(Number(v)) ? null : Number(v);
+};
+// Inline markup typed in CEO_Report: **bold**, ^^yellow (still open)^^.
+const RpText = ({ text }) => {
+  const parts = String(text || "").split(/(\^\^[\s\S]+?\^\^|\*\*[\s\S]+?\*\*)/g).filter(Boolean);
+  return <>{parts.map((p, i) => p.startsWith("^^") ? <mark key={i} className="rp-hl"><RpText text={p.slice(2, -2)} /></mark>
+    : p.startsWith("**") ? <strong key={i}>{p.slice(2, -2)}</strong> : <Fragment key={i}>{p}</Fragment>)}</>;
+};
+// $5.85M · $257.3M (one decimal from $100M) · $270M for round goals.
+const rpM = v => {
+  if (v == null) return "—";
+  const m = v / 1e6;
+  if (Number.isInteger(m)) return `$${m}M`;
+  return `$${m >= 100 ? m.toFixed(1) : m.toFixed(2)}M`;
+};
+const rpLongDate = d => d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
-// Progress toward the $270M goal, with the $350M raised target as the second mark (Eli, Nov 2 call).
-function RpGoalBar({ value }) {
-  const pct = (v, g) => g ? `${Math.round((v / g) * 100)}%` : "—";
-  const max = RAISED_TARGET, w = v => `${Math.min(100, (v / max) * 100)}%`;
-  const left270 = Math.max(0, CONTRACTED_GOAL - value), left350 = Math.max(0, RAISED_TARGET - value);
-  return (
-    <div className="rp-goal">
-      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6, alignItems: "baseline" }}>
-        <div><span style={{ fontFamily: FONT_DISPLAY, fontSize: 24 }}>{money(value)}</span> <span style={{ fontSize: 12.5 }}>contracted YTD</span></div>
-        <div style={{ fontSize: 12.5 }}><strong>{pct(value, CONTRACTED_GOAL)}</strong> of the {money(CONTRACTED_GOAL)} goal{left270 > 0 ? <> · <strong>{money(left270)}</strong> to go</> : " · reached"}</div>
-      </div>
-      <div style={{ position: "relative", height: 30, fontSize: 11.5, marginTop: 10 }}>
-        <div style={{ position: "absolute", left: w(CONTRACTED_GOAL), bottom: 8, transform: "translateX(-50%)", textAlign: "center", whiteSpace: "nowrap" }}><strong>{money(CONTRACTED_GOAL)}</strong> Goal</div>
-      </div>
-      <div className="rp-goal-track" style={{ marginTop: 0 }}>
-        <div className="rp-goal-fill" style={{ width: w(value) }} />
-        <div className="rp-goal-mark" style={{ left: w(CONTRACTED_GOAL) }} />
-      </div>
-      <div style={{ position: "relative", height: 34, fontSize: 11.5, marginTop: 6 }}>
-        <div style={{ position: "absolute", right: 0, textAlign: "right", whiteSpace: "nowrap" }}><strong>{money(RAISED_TARGET)}</strong><br />Raised target · {money(left350)} to go</div>
-      </div>
-    </div>
-  );
-}
-
+const RP_BLUE = "#365F91", RP_RULE = "#4F81BD", RP_INK = "#222222", RP_GREY = "#6B6B6B";
 const RP_CSS = `
-.rp{font-family:${FONT_BODY};color:${C.gray}}
-.rp h2{font-family:${FONT_BODY};font-size:13px;letter-spacing:.12em;text-transform:uppercase;margin:26px 0 8px;padding-bottom:6px;border-bottom:1.5px solid ${C.gray};break-after:avoid;page-break-after:avoid}
-.rp table{width:100%;border-collapse:collapse;font-size:13.5px}
-.rp th{background:${C.gray};color:#fff;text-align:left;padding:8px 10px;font-weight:bold;font-size:12px}
-.rp td{padding:8px 10px;border-bottom:1px solid rgba(54,67,74,0.12);vertical-align:top}
-.rp tr:nth-child(even) td{background:rgba(245,243,234,0.7)}
-.rp td.n,.rp th.n{text-align:right;white-space:nowrap}
-.rp-goal{margin:14px 0 4px;padding:14px 16px 8px;border:1px solid rgba(54,67,74,0.15);border-radius:10px;background:${C.white};break-inside:avoid;page-break-inside:avoid}
-.rp-goal-track{position:relative;height:16px;border-radius:8px;background:rgba(54,67,74,0.12);margin-top:10px;overflow:visible;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.rp-goal-fill{position:absolute;left:0;top:0;bottom:0;border-radius:8px;background:${C.teal};-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.rp-goal-mark{position:absolute;top:-5px;bottom:-5px;width:2px;margin-left:-1px;background:${C.gray};-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.rp tr{break-inside:avoid;page-break-inside:avoid}
-.rp .house{display:block;font-size:11px;color:${PD_MUTED};margin-top:2px}
-.rp .cm{font-size:13px;line-height:1.55;margin-top:10px;break-inside:avoid;page-break-inside:avoid}
-.rp .cm b{letter-spacing:.06em;font-size:11px;text-transform:uppercase;color:${PD_MUTED}}
-.rp .todo{color:${PD_MUTED};font-style:italic}
-.rp-stack{display:none}
-.rp-card{border:1px solid rgba(54,67,74,0.14);border-radius:8px;background:${C.white};padding:10px 12px;margin-top:8px;break-inside:avoid;page-break-inside:avoid}
-.rp-card-t{font-size:14px;font-weight:bold;line-height:1.3}
-.rp-kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 12px;margin-top:8px}
-.rp-kv div{min-width:0}
-.rp-kv span{display:block;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:${PD_MUTED}}
-.rp-kv strong{font-family:${FONT_DISPLAY};font-size:17px;font-weight:normal}
-.rp-kv.wide{grid-template-columns:1fr}
-.rp-kv.wide strong{font-family:${FONT_BODY};font-size:13px}
+.rp-wrap{background:#fff;border-radius:10px;border:1px solid rgba(54,67,74,0.12);padding:22px 18px 26px}
+.rp{max-width:560px;margin:0 auto;font-family:Arial,"Liberation Sans",Helvetica,sans-serif;color:${RP_INK};font-size:14.5px;line-height:1.38}
+.rp-logo{display:block;width:86px;height:auto;margin:0 0 10px}
+.rp-kicker{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:${RP_GREY}}
+.rp-title{font-family:Georgia,"DejaVu Serif",serif;font-size:36px;line-height:1.1;margin:2px 0 6px;color:${RP_INK}}
+.rp-meta{font-size:13px;color:${RP_GREY};padding-bottom:6px;border-bottom:1px solid #D8D8D8}
+.rp-meta span{color:${RP_INK};margin-left:4px}
+.rp h2{font-family:Georgia,"DejaVu Serif",serif;font-weight:normal;font-size:24px;line-height:1.2;color:${RP_BLUE};margin:30px 0 14px;padding-bottom:10px;border-bottom:1.5px solid ${RP_RULE};break-after:avoid;page-break-after:avoid}
+.rp-kpi{padding:8px 0 9px;border-bottom:1px solid #E2E2E2;break-inside:avoid;page-break-inside:avoid}
+.rp-kpi-n{font-weight:bold;font-size:15px}
+.rp-kpi-g{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));column-gap:8px;margin-top:4px}
+.rp-kpi-g span{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:${RP_RULE}}
+.rp-kpi-g b{display:block;font-weight:normal;font-size:16px;margin-top:6px;white-space:nowrap}
+.rp-hl{background:#FFFF00;color:inherit;padding:0 1px}
+.rp-lbl{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;font-weight:bold;color:${RP_BLUE};margin:16px 0 4px;break-after:avoid;page-break-after:avoid}
+.rp-cm p,.rp li{orphans:3;widows:3}
+.rp-cm p{margin:0 0 8px}
+.rp-list-h{text-align:right;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:${RP_RULE};margin-bottom:2px}
+.rp-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid #E2E2E2;break-inside:avoid;page-break-inside:avoid}
+.rp-row > span:last-child{font-weight:bold;text-align:right;white-space:nowrap}
+.rp-row.tot{border-top:1.5px solid ${RP_INK};font-weight:bold}
+.rp-opp{padding:8px 0 6px;border-bottom:1px solid #E2E2E2;break-inside:avoid;page-break-inside:avoid}
+.rp-opp-n{font-weight:bold;font-size:15px}
+.rp-opp-s{font-size:12px;color:${RP_GREY};margin-top:2px}
+.rp-opp-t{font-size:12.5px;margin-top:2px}
+.rp ul,.rp ol{margin:4px 0 0 18px;padding:0}
+.rp li{margin-bottom:6px}
+.rp-sub{font-size:12px;font-style:italic;color:${RP_GREY};margin:-4px 0 10px}
+.rp-small{font-size:12px;color:${RP_GREY};margin:12px 0 2px}
+.rp-def li strong{font-weight:bold}
+.rp-foot{text-align:center;font-size:9.5px;letter-spacing:.24em;color:${RP_GREY};margin-top:28px}
 @media (max-width:700px){
-  .rp .rp-t{display:none}
-  .rp .rp-stack{display:block}
-  .rp h2{font-size:12px;margin-top:22px}
+  .rp-wrap{padding:18px 14px 22px}
+  .rp-title{font-size:32px}
+  .rp h2{font-size:22px}
 }
 @media print{
   .nk-topnav,.nk-bottomnav,.nk-header,.nk-footmark,.rp-noprint{display:none !important}
   html,body{background:#fff !important}
   .nk-root{padding:0 !important;max-width:none !important}
-  .rp{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .rp .rp-t{display:block}
-  .rp .rp-stack{display:none}
-  body[data-rp-print="phone"] .rp .rp-t{display:none}
-  body[data-rp-print="phone"] .rp .rp-stack{display:block}
-  body[data-rp-print="phone"] .rp{font-size:12px}
-  body[data-rp-print="phone"] .rp-card{padding:8px 10px}
+  .rp-wrap{border:none;padding:0;border-radius:0}
+  .rp{-webkit-print-color-adjust:exact;print-color-adjust:exact;max-width:none}
+  .rp-foot{display:none}
+  body[data-rp-print="phone"] .rp{font-size:12.5px}
+  body[data-rp-print="phone"] .rp-title{font-size:26px}
+  body[data-rp-print="phone"] .rp h2{font-size:17px;margin:20px 0 10px;padding-bottom:6px}
+  body[data-rp-print="phone"] .rp-kpi-n,body[data-rp-print="phone"] .rp-opp-n{font-size:13px}
+  body[data-rp-print="phone"] .rp-kpi-g b{font-size:13.5px}
+  body[data-rp-print="phone"] .rp-kpi-g span{font-size:8px}
+  body[data-rp-print="phone"] .rp-opp-s{font-size:10px}
+  body[data-rp-print="phone"] .rp-opp-t,body[data-rp-print="phone"] .rp-sub,body[data-rp-print="phone"] .rp-small{font-size:10.5px}
+  body[data-rp-print="phone"] .rp-lbl{font-size:9px}
+  body[data-rp-print="phone"] .rp-list-h{font-size:8px}
+  body[data-rp-print="phone"] .rp-logo{width:62px}
 }
 `;
-// Opens the browser's print dialog at the chosen page size: Letter (tables) or
-// phone (5 × 10 in, stacked blocks). "Save as PDF" in that dialog makes the file.
+// Opens the browser's print dialog at the chosen page size: phone (3.6 × 7.8 in,
+// the size of the report sent on Mondays) or Letter. "Save as PDF" makes the file.
 function printReport(mode) {
   try {
-    const css = mode === "phone" ? "@page{size:5in 10in;margin:0.3in}" : "@page{size:letter;margin:0.5in}";
+    const foot = "@bottom-center{content:\"LIFE  |  INTERNAL SALES REPORTING\";font-family:Arial,sans-serif;font-size:7px;letter-spacing:.24em;color:#6B6B6B}";
+    const css = mode === "phone" ? `@page{size:3.6in 7.8in;margin:0.3in 0.3in 0.45in;${foot}}` : `@page{size:letter;margin:0.6in 1.4in 0.7in;${foot}}`;
     let el = document.getElementById("rp-page-size");
     if (!el) { el = document.createElement("style"); el.id = "rp-page-size"; document.head.appendChild(el); }
     el.textContent = css;
@@ -2726,30 +2786,28 @@ function printReport(mode) {
     window.print();
   } catch { /* printing not available */ }
 }
-// One table, two layouts: a real table on wide screens and Letter prints, and a
-// stack of small cards (label + each column as label/value) on phones.
-const RpTable = ({ cols, rows, wide }) => (
-  <>
-    <div className="rp-t" style={{ overflowX: "auto" }}>
-      <table>
-        <thead><tr>{cols.map((c, i) => <th key={i} className={c.n ? "n" : undefined}>{c.h}</th>)}</tr></thead>
-        <tbody>{rows.map((r, i) => <tr key={i}>{r.map((v, j) => <td key={j} className={cols[j].n ? "n" : undefined}>{v}</td>)}</tr>)}</tbody>
-      </table>
-    </div>
-    <div className="rp-stack">
-      {rows.map((r, i) => (
-        <div key={i} className="rp-card">
-          <div className="rp-card-t">{r[0]}</div>
-          <div className={`rp-kv${wide ? " wide" : ""}`}>
-            {r.slice(1).map((v, j) => <div key={j}><span>{cols[j + 1].h}</span><strong>{v}</strong></div>)}
-          </div>
-        </div>
-      ))}
-    </div>
-  </>
-);
 
-const ReportView = ({ model, openDeals, qoCount, ceoRows }) => {
+const RP_GUIDELINES = [
+  "Submit Monday morning for the prior Monday–Sunday reporting period.",
+  "Use HubSpot as the source of record; apply consistent pipeline stages across projects.",
+  "Count a sale upon fully executed PSA; report OTPs separately.",
+  "Each opportunity belongs to one open pipeline stage; exclude executed PSAs.",
+  "30-day and 60-day forecasts represent expected conversions; the 60-day period is cumulative.",
+  "Status should reflect performance against the approved year-to-date plan.",
+  "Central Sales Operations tracks Tour-to-OTP and OTP-to-PSA conversion using consistent cohorts.",
+  "Project sales goals shown above are planning targets; confirm against approved budgets.",
+];
+const RP_DEFINITIONS = [
+  ["Goal:", "$270M in contracted sales, raised to $350M; includes related-party sales and re-sales. No goal for OTP or PSA counts."],
+  ["New leads:", "Qualified = relationship source or made SQL by an advisor. Web = Nauka or Siari website leads not yet SQL. Hotel = Siari Hotel Guest source only."],
+  ["Prospect visits (Site Tours):", "every visit on property (experience, property tour or on-site meeting); second visits count again."],
+  ["Qualified Opportunities:", "visited in the last 60 days, Lead Status Active and in contact with their advisor."],
+  ["Active Negotiations:", "new deal stage before Pending OTP; the advisor is working toward an OTP. Value = advisor's estimate."],
+  ["OTPs:", "Submitted = Pending OTP (Decision stage). Accepted = OTP signed."],
+  ["Closed Sales Volume:", <>definition pending. <mark className="rp-hl"><strong>To confirm: Paul</strong></mark></>],
+];
+
+const ReportView = ({ model, openDeals, qoCount, ceoRows, masterDeals }) => {
   const today = model.today;
   // Weeks run Monday–Sunday. The list: this week (in progress) and the 8 before it.
   const thisMon = twWeekStart(today);
@@ -2763,112 +2821,172 @@ const ReportView = ({ model, openDeals, qoCount, ceoRows }) => {
   const jan1 = new Date(until.getFullYear(), 0, 1);
   const row = ceoRowFor(ceoRows, wk.end);
   const f = k => (row ? pdStr(row[CEO_FIELDS[k]]) : "");
-  const todo = <span className="todo">To fill in (CEO_Report tab)</span>;
-  const txt = k => f(k) || todo;
+  const todo = <span className="rp-hl">[Eli]</span>;
+  const S = (name, live) => { const v = ceoSaved(row, name); return v == null ? live : v; };
 
   const c = (t, a, b) => model.count(t, a, b);
   const amt = (t, a, b) => model.amount(t, a, b);
-  const otpW = c("sotp", wk.start, until), otpY = c("sotp", jan1, until);
-  const psaW = c("psa", wk.start, until), psaY = c("psa", jan1, until);
-  const volW = amt("psa", wk.start, until), volY = amt("psa", jan1, until);
+  // Signed OTPs straight from Master_Deals (every OTP signed, also deals later Lost).
+  const otpDates = (masterDeals || []).map(r => twParseDate(r["OTP Signed Date"])).filter(Boolean);
+  const otpIn = (a, b) => otpDates.filter(d => d >= a && d <= b).length;
+  const otpW = S("OTPs LW", otpIn(wk.start, until)), otpY = S("OTPs YTD", otpIn(jan1, until));
+  const psaW = S("PSAs LW", c("psa", wk.start, until)), psaY = S("PSAs YTD", c("psa", jan1, until));
+  const volW = S("Contracted LW", amt("psa", wk.start, until)), volY = S("Contracted YTD", amt("psa", jan1, until));
   const pct = (v, g) => g ? `${Math.round((v / g) * 100)}%` : "—";
-  const negN = openDeals.neg.length, negV = openDeals.neg.reduce((t, d) => t + d.amount, 0);
-  const potpN = openDeals.potp.length, potpV = openDeals.potp.reduce((t, d) => t + d.amount, 0);
-  const sotpN = openDeals.sotp.length, sotpV = openDeals.sotp.reduce((t, d) => t + d.amount, 0);
-  const openN = qoCount + negN + potpN + sotpN, openV = negV + potpV + sotpV;
-  const upcoming = model.visits.length;
+  const qo = S("Qualified Opportunities", qoCount);
+  const negN = S("Active Negotiations", openDeals.neg.length), negV = S("Active Negotiations $", openDeals.neg.reduce((t, d) => t + d.amount, 0));
+  const potpN = S("Pending Acceptance", openDeals.potp.length), potpV = S("Pending Acceptance $", openDeals.potp.reduce((t, d) => t + d.amount, 0));
+  const sotpN = S("Pending PSA", openDeals.sotp.length), sotpV = S("Pending PSA $", openDeals.sotp.reduce((t, d) => t + d.amount, 0));
+  const openN = qo + negN + potpN + sotpN, openV = negV + potpV + sotpV;
+  const booked = ceoSaved(row, "Tours Booked New"), scheduled = S("Tours Scheduled", model.visits.length);
   const opps = topOppsFrom(row);
   const autoOpps = [...openDeals.neg, ...openDeals.potp, ...openDeals.sotp].sort((a, b) => b.amount - a.amount).slice(0, 3)
-    .map(d => { const { property, buyer } = splitDealName(d.name); return { prospect: buyer || d.name, product: `${property} · ${money(d.amount)}`, status: PIPE_STAGES.find(s => s.key === d.stageKey).label, target: "—" }; });
-  const top3 = opps.length ? opps : autoOpps;
-  const H = ({ children, house }) => <>{children}{house && <span className="house">{house}</span>}</>;
-  const bullets = k => { const items = ceoList(f(k)); return items.length ? <ul style={{ margin: "4px 0 0 18px", padding: 0 }}>{items.map((x, i) => <li key={i} style={{ marginBottom: 3 }}>{x}</li>)}</ul> : <div>{todo}</div>; };
-  const numbered = k => { const items = ceoList(f(k)); return items.length ? <ol style={{ margin: "4px 0 0 18px", padding: 0 }}>{items.map((x, i) => <li key={i} style={{ marginBottom: 3 }}>{x}</li>)}</ol> : <div>{todo}</div>; };
+    .map(d => { const { property, buyer } = splitDealName(d.name); return { prospect: buyer || d.name, product: `${property} · ${money(d.amount)}`, status: PIPE_STAGES.find(s => s.key === d.stageKey).label, target: "" }; });
+  const top = opps.length ? opps : autoOpps;
+  const paras = k => ceoList(f(k)).map((x, i) => <p key={i}><RpText text={x} /></p>);
+  const Comments = ({ k }) => (
+    <div className="rp-cm"><div className="rp-lbl">Comments / context</div>{f(k) ? paras(k) : <p>{todo}</p>}</div>
+  );
+  const Kpi = ({ name, lw, ytd, goal, pc, hl }) => (
+    <div className="rp-kpi">
+      <div className="rp-kpi-n">{name}</div>
+      <div className="rp-kpi-g">
+        <div><span>Last week</span><b>{hl ? <mark className="rp-hl">—</mark> : lw}</b></div>
+        <div><span>YTD</span><b>{hl ? <mark className="rp-hl">—</mark> : ytd}</b></div>
+        <div><span>Goal</span><b>{goal}</b></div>
+        <div><span>% Achieved</span><b>{pc}</b></div>
+      </div>
+    </div>
+  );
+  const Row = ({ l, v, tot }) => <div className={`rp-row${tot ? " tot" : ""}`}><span>{l}</span><span>{v}</span></div>;
+  const pair = (lw, ytd) => `${lw} · ${ytd} YTD`;
+  const status = f("status") || "";
+  const statusLine = ["On Track", "At Risk", "Behind Plan"].map((s, i) => (
+    <Fragment key={s}>{i > 0 && <span style={{ color: RP_GREY }}> / </span>}
+      {status.toLowerCase() === s.toLowerCase() ? <mark className="rp-hl"><strong>{s}</strong></mark> : <span style={{ color: RP_GREY }}>{s}</span>}
+    </Fragment>));
+  const others = ceoList(f("others")).map(x => { const i = x.lastIndexOf(":"); return i > 0 ? [x.slice(0, i).trim(), x.slice(i + 1).trim()] : [x, ""]; });
+  const cohorts = buildCohorts(model.entries, masterDeals, until);
   const weekLabel = w => `Week ending ${twDayFmt(w.end)}, ${w.end.getFullYear()}${w.live ? " (in progress)" : ""}`;
 
   return (
-    <div className="rp">
+    <div>
       <style>{RP_CSS}</style>
       <div className="rp-noprint" style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBottom: 14 }}>
         <select value={idx} onChange={e => setIdx(Number(e.target.value))}
           style={{ fontFamily: FONT_BODY, fontSize: 14, padding: "8px 10px", borderRadius: 8, border: `1px solid rgba(54,67,74,0.3)`, background: C.white, color: C.gray }}>
           {weeks.map((w, i) => <option key={i} value={i}>{weekLabel(w)}{ceoRowFor(ceoRows, w.end) ? " ✓" : ""}</option>)}
         </select>
-        {[["letter", "PDF · Letter"], ["phone", "PDF · Phone"]].map(([mode, label]) => (
+        {[["phone", "PDF · Phone"], ["letter", "PDF · Letter"]].map(([mode, label]) => (
           <button key={mode} onClick={() => printReport(mode)}
             style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: "bold", padding: "9px 14px", borderRadius: 8, border: "none", background: mode === "letter" ? C.gray : C.teal, color: mode === "letter" ? C.white : C.gray, cursor: "pointer" }}>
             {label}
           </button>
         ))}
-        <span style={{ fontSize: 12, color: PD_MUTED }}>✓ = Eli's parts saved for that week</span>
+        <span style={{ fontSize: 12, color: PD_MUTED, fontFamily: FONT_BODY }}>✓ = saved in the CEO_Report tab</span>
       </div>
 
-      <div style={{ fontSize: 12, letterSpacing: ".1em", textTransform: "uppercase", fontWeight: "bold", color: PD_MUTED }}>LIFE · Weekly CEO Sales Report</div>
-      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, marginTop: 4 }}>Nauka</div>
-      <div style={{ fontSize: 13, marginTop: 4 }}>
-        <strong>Director of Sales:</strong> {f("director") || "Eli Pacino"} · <strong>Week ending:</strong> {twDayFmt(wk.end)}, {wk.end.getFullYear()} ({twRangeLabel(wk.start, wk.end)}){wk.live ? " · in progress" : ""}
-      </div>
+      <div className="rp-wrap"><div className="rp">
+        <img className="rp-logo" src={LIFE_LOGO} alt="LIFE Properties International" />
+        <div className="rp-kicker">LIFE &nbsp;|&nbsp; CEO Weekly Sales Report</div>
+        <div className="rp-title">Nauka</div>
+        <div className="rp-meta">
+          <div>Director of Sales<span>{f("director") || "Eli Pacino"}</span></div>
+          <div>Week ending<span>{rpLongDate(wk.end)}{wk.live ? " (in progress)" : ""}</span></div>
+        </div>
 
-      <h2>1. Sales performance | Actual vs. goal</h2>
-      <RpTable cols={[{ h: "KPI" }, { h: "This Week", n: 1 }, { h: "YTD", n: 1 }, { h: "Annual Goal", n: 1 }, { h: "% Achieved", n: 1 }]} rows={[
-        [<H house="Signed OTPs">Offers to Purchase (OTPs)</H>, otpW, otpY, "—", "—"],
-        [<H house="Signed PSAs">Executed PSAs (Sales)</H>, psaW, psaY, "—", "—"],
-        [<H house="All sales, incl. related party and re-sales">Contracted Sales Volume</H>, money(volW), money(volY), money(CONTRACTED_GOAL), pct(volY, CONTRACTED_GOAL)],
-        [<H house="Definition pending (Paul)">Closed Sales Volume</H>, "—", "—", "—", "—"],
-      ]} />
-      <RpGoalBar value={volY} />
-      <div className="cm"><b>Sales Status:</b> {f("status") || todo}</div>
-      <div className="cm"><b>Comments / context:</b> {f("s1") || <>Raised target: {money(RAISED_TARGET)} ({pct(volY, RAISED_TARGET)} achieved). {todo}</>}</div>
+        <h2>1.&nbsp; Sales Performance &nbsp;|&nbsp; Actual vs. Goal</h2>
+        <Kpi name="Offers to Purchase (OTPs)" lw={otpW} ytd={otpY} goal="—" pc="—" />
+        <Kpi name="Executed PSAs (Sales)" lw={psaW} ytd={psaY} goal="—" pc="—" />
+        <Kpi name="Contracted Sales Volume" lw={rpM(volW)} ytd={rpM(volY)} goal={rpM(CONTRACTED_GOAL)} pc={pct(volY, CONTRACTED_GOAL)} />
+        <Kpi name="Contracted Sales Volume (updated goal)" lw="—" ytd={rpM(volY)} goal={rpM(RAISED_TARGET)} pc={pct(volY, RAISED_TARGET)} />
+        <Kpi name="Closed Sales Volume" hl goal="—" pc="—" />
+        <div className="rp-kpi-n" style={{ marginTop: 18 }}>Sales Status</div>
+        <div style={{ fontSize: 15, marginTop: 2 }}>{statusLine}</div>
+        <Comments k="s1" />
+        {f("paul") && <p className="rp-cm"><mark className="rp-hl"><strong>QUESTION FOR PAUL</strong> &nbsp;<RpText text={f("paul")} /></mark></p>}
 
-      <h2>2. Weekly sales activity</h2>
-      <RpTable cols={[{ h: "KPI" }, { h: "This Week", n: 1 }, { h: "YTD / Current", n: 1 }]} rows={[
-        [<H house="Excludes hotel guests and Unqualified">New Qualified Leads</H>, c("qlead", wk.start, until), `${c("qlead", jan1, until)} YTD`],
-        [<H house="Lead Source: Siari Hotel Guest">New Hotel Leads</H>, c("hlead", wk.start, until), `${c("hlead", jan1, until)} YTD`],
-        [<H house="Prospect Visits">Site Tours / Immersions Completed</H>, c("tour", wk.start, until), `${c("tour", jan1, until)} YTD`],
-        [<H house="Upcoming Prospect Visits">Upcoming Site Tours Booked</H>, "—", `${upcoming} Scheduled`],
-        [<H house="Qualified Opportunities, today">Active Qualified Prospects</H>, `${qoCount} Active`, "—"],
-        [<H house="Working toward an OTP, today">Active Negotiations</H>, `${negN} Active`, "—"],
-        [<H house="Pending OTP · inventory on hold">OTPs Submitted</H>, c("hold", wk.start, until), `${c("hold", jan1, until)} YTD`],
-        [<H house="Signed OTP, today">OTPs Accepted / Pending PSA</H>, `${sotpN} Active`, "—"],
-        [<H house="Signed PSAs">PSAs Executed</H>, psaW, `${psaY} YTD`],
-        [<H house="Definition pending (Paul)">Sales Closed</H>, "—", "—"],
-      ]} />
-      <div className="cm"><b>Comments / context:</b> {txt("s2")}</div>
+        <h2>2.&nbsp; Weekly Sales Activity</h2>
+        <div className="rp-list-h">Last week · YTD / Current</div>
+        <Row l="New Qualified Leads" v={pair(S("Qualified Leads LW", c("qlead", wk.start, until)), S("Qualified Leads YTD", c("qlead", jan1, until)))} />
+        <Row l="New Web Leads" v={pair(S("Web Leads LW", c("wlead", wk.start, until)), S("Web Leads YTD", c("wlead", jan1, until)))} />
+        <Row l="New Hotel Leads" v={pair(S("Hotel Leads LW", c("hlead", wk.start, until)), S("Hotel Leads YTD", c("hlead", jan1, until)))} />
+        <Row l="Site Tours / Immersions Completed" v={pair(S("Site Tours LW", c("tour", wk.start, until)), S("Site Tours YTD", c("tour", jan1, until)))} />
+        <Row l="Upcoming Site Tours Booked" v={`${booked == null ? "—" : booked} New · ${scheduled} Scheduled`} />
+        <Row l="Active Qualified Prospects" v={`${qo} Active · —`} />
+        <Row l="Active Negotiations" v={`${negN} Active · —`} />
+        <Row l="OTPs Submitted" v={pair(S("OTPs Submitted LW", c("hold", wk.start, until)), S("OTPs Submitted YTD", c("hold", jan1, until)))} />
+        <Row l="OTPs Accepted / Pending PSA" v={pair(S("OTPs Accepted LW", otpW), S("OTPs Accepted YTD", otpY))} />
+        <Row l="PSAs Executed" v={pair(psaW, psaY)} />
+        <Row l="Sales Closed" v={<mark className="rp-hl">— · —</mark>} />
+        <Comments k="s2" />
 
-      <h2>3. Sales pipeline &amp; forecast</h2>
-      <RpTable cols={[{ h: "Pipeline Stage" }, { h: "# Deals", n: 1 }, { h: "Estimated Value", n: 1 }]} rows={[
-        [<H house="After the prospect visit, no deal yet">Qualified Opportunities</H>, qoCount, "—"],
-        ["Active Negotiations", negN, money(negV)],
-        [<H house="Pending OTP">OTPs Submitted / Pending Acceptance</H>, potpN, money(potpV)],
-        [<H house="Signed OTP">Accepted OTPs / Pending PSA</H>, sotpN, money(sotpV)],
-        [<strong>TOTAL OPEN PIPELINE</strong>, <strong>{openN}</strong>, <strong>{money(openV)}</strong>],
-      ]} />
-      <div className="cm"><b>Next 30 Days:</b> {txt("next30")}</div>
-      <div className="cm"><b>Next 60 Days:</b> {txt("next60")}</div>
-      <div className="cm"><b>Comments / context:</b> {txt("s3")}</div>
+        <h2>3.&nbsp; Sales Pipeline &amp; Forecast</h2>
+        <div className="rp-list-h"># Deals · Estimated value</div>
+        <Row l="Qualified Opportunities" v={`${qo} · —`} />
+        <Row l="Active Negotiations" v={`${negN} · ${money(negV)}`} />
+        <Row l="OTPs Submitted / Pending Acceptance" v={`${potpN} · ${money(potpV)}`} />
+        <Row l="Accepted OTPs / Pending PSA" v={`${sotpN} · ${money(sotpV)}`} />
+        <Row tot l="TOTAL OPEN PIPELINE" v={`${openN} · ${money(openV)}`} />
+        <div className="rp-lbl">Next 30 days</div><div>{f("next30") ? <RpText text={f("next30")} /> : todo}</div>
+        <div className="rp-lbl">Next 60 days</div><div>{f("next60") ? <RpText text={f("next60")} /> : todo}</div>
+        <Comments k="s3" />
 
-      <h2>4. Top 3 sales opportunities</h2>
-      {top3.length === 0 ? <div className="cm">{todo}</div> : (
-        <RpTable wide cols={[{ h: "Prospect" }, { h: "Product / Value" }, { h: "Status / Next Step" }, { h: "Target PSA Date" }]}
-          rows={top3.map((o, i) => [<><strong>{i + 1}.</strong> {o.prospect}</>, o.product, o.status, o.target || "—"])} />
-      )}
-      {!opps.length && top3.length > 0 && <div className="cm todo">Showing the largest open deals until Eli's top 3 are in the CEO_Report tab.</div>}
-      <div className="cm"><b>Comments / context:</b> {txt("s4")}</div>
+        <h2>4.&nbsp; Top 3 Sales Opportunities</h2>
+        {top.map((o, i) => {
+          const j = o.product.lastIndexOf(" · ");
+          const product = j > 0 ? o.product.slice(0, j) : o.product, value = j > 0 ? o.product.slice(j + 3) : "";
+          return (
+            <div key={i} className="rp-opp">
+              <div className="rp-opp-n">{i + 1}. {o.prospect}</div>
+              <div>{product}{value && <> &nbsp;·&nbsp; <strong>{value}</strong></>}</div>
+              {o.status && <div className="rp-opp-s">{o.status}</div>}
+              <div className="rp-opp-t">Target PSA date &nbsp;{o.target ? <RpText text={o.target} /> : <mark className="rp-hl"><em>[Eli]</em></mark>}</div>
+            </div>
+          );
+        })}
+        {f("oppTotal") && <div style={{ fontWeight: "bold", marginTop: 8 }}>Total &nbsp;{f("oppTotal")}</div>}
+        {!opps.length && top.length > 0 && <p className="rp-small">Largest open deals until Eli's list is in the CEO_Report tab.</p>}
+        <Comments k="s4" />
 
-      <h2>5. Director of Sales update</h2>
-      <div className="cm"><b>Key Wins This Week</b>{bullets("wins")}</div>
-      <div className="cm"><b>Top 3 Priorities for Next Week</b>{numbered("priorities")}</div>
-      <div className="cm"><b>Challenges / Leadership Support Needed</b>{bullets("support")}</div>
-      <div className="cm"><b>Comments / context:</b> {txt("s5")}</div>
+        <h2>5.&nbsp; Director of Sales Update</h2>
+        <div className="rp-lbl">Key wins this week</div>
+        {ceoList(f("wins")).length ? <ul>{ceoList(f("wins")).map((x, i) => <li key={i}><RpText text={x} /></li>)}</ul> : <p>{todo}</p>}
+        <div className="rp-lbl">Top 3 priorities for next week</div>
+        {ceoList(f("priorities")).length ? <ol>{ceoList(f("priorities")).map((x, i) => <li key={i}><RpText text={x} /></li>)}</ol> : <p>{todo}</p>}
+        <div className="rp-lbl">Challenges / leadership support needed</div>
+        {ceoList(f("support")).length ? <ul>{ceoList(f("support")).map((x, i) => <li key={i}><RpText text={x} /></li>)}</ul> : <p>{todo}</p>}
+        {f("s5") && <Comments k="s5" />}
 
-      <h2>LIFE | Consolidated portfolio dashboard · Nauka row</h2>
-      <RpTable cols={[{ h: "Project" }, { h: "Sales Goal", n: 1 }, { h: "OTPs YTD", n: 1 }, { h: "PSAs YTD", n: 1 }, { h: "% Goal", n: 1 }, { h: "Open Pipeline", n: 1 }, { h: "30-Day OTP Forecast", n: 1 }]} rows={[
-        ["Nauka", money(CONTRACTED_GOAL), otpY, psaY, pct(volY, CONTRACTED_GOAL), money(openV), f("forecast30") || "—"],
-      ]} />
-      {f("portfolio") && <div className="cm"><b>Comments / context:</b> {f("portfolio")}</div>}
-      <PdNote>
-        Same data as the rest of the app. Pipeline and "Active" lines show today's numbers, also for past weeks. OTPs Submitted = inventory placed on hold (deal created at Pending OTP). Before {twDayFmt(model.mastersFrom)}, signed OTPs come from the weekly counts reported at the time.
-      </PdNote>
+        <h2>LIFE &nbsp;|&nbsp; Consolidated Portfolio Dashboard</h2>
+        <div className="rp-sub">Prepared by Sales Operations each Monday from individual project reports.</div>
+        <div style={{ fontWeight: "bold", margin: "4px 0 2px" }}>Nauka</div>
+        <Row l="Sales Goal" v={rpM(RAISED_TARGET)} />
+        <Row l="OTPs YTD" v={otpY} />
+        <Row l="PSAs YTD" v={psaY} />
+        <Row l="% Goal" v={pct(volY, RAISED_TARGET)} />
+        <Row l="Open Pipeline" v={money(openV)} />
+        <Row l="30-Day OTP Forecast" v={f("forecast30") || "—"} />
+        {others.length > 0 && <>
+          <div className="rp-small">Other projects &nbsp;(Sales Goal; other columns to be completed)</div>
+          {others.map(([l, v], i) => <Row key={i} l={l} v={v} tot={/^total$/i.test(l)} />)}
+        </>}
+        {f("portfolio") && <Comments k="portfolio" />}
+
+        <h2>Conversion &nbsp;|&nbsp; Consistent Cohorts</h2>
+        <div className="rp-sub">Each group is followed forward from the quarter it started. Quarters that ended less than {COHORT_OPEN_DAYS} days ago are still open.</div>
+        <div className="rp-list-h">Prospect Visit → Signed OTP</div>
+        {cohorts.visit.map(g => <Row key={g.key} l={<>{g.key}{g.still && <span style={{ color: RP_GREY, fontWeight: "normal" }}> · still open</span>}</>} v={`${g.people.length} → ${g.conv.length} · ${cohortPct(g.conv.length, g.people.length)}`} />)}
+        <div className="rp-list-h" style={{ marginTop: 14 }}>Signed OTP → Signed PSA</div>
+        {cohorts.otp.map(g => <Row key={g.key} l={<>{g.key}{g.still && <span style={{ color: RP_GREY, fontWeight: "normal" }}> · still open</span>}</>} v={`${g.deals.length} → ${g.psa} · ${cohortPct(g.psa, g.deals.length)}`} />)}
+
+        <h2>Reporting Guidelines</h2>
+        <ul>{RP_GUIDELINES.map((x, i) => <li key={i}>{x}</li>)}</ul>
+        <div className="rp-lbl" style={{ marginTop: 18 }}>Nauka definitions</div>
+        <ul className="rp-def">{RP_DEFINITIONS.map(([b, t], i) => <li key={i}><strong>{b}</strong> {t}</li>)}</ul>
+
+        <div className="rp-foot">LIFE &nbsp;|&nbsp; INTERNAL SALES REPORTING</div>
+      </div></div>
     </div>
   );
 };
@@ -3192,7 +3310,113 @@ const SectionLabel = ({ children, style }) => (
   <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, margin: "24px 0 10px", fontFamily: FONT_BODY, ...style }}>{children}</div>
 );
 
-const FunnelView = ({ allTime, byYear, advAllTime, advByYear, leadStatus, tabStyle, tab, setTab, dim, setDim, year, setYear }) => {
+// ── Cohort conversion (Paul's guideline: Visit → OTP and OTP → PSA with
+// consistent cohorts). A cohort is a fixed group followed forward:
+//   Visit → OTP: each person counts once, in the quarter of their first
+//   Prospect Visit; converted = a signed OTP on or after that visit.
+//   OTP → PSA: each deal counts once, in the quarter its OTP was signed;
+//   then PSA signed, Lost, or still open.
+// Master_Deals dates are complete from COHORT_FROM, so cohorts start there.
+// Related-party deals are left out.
+const COHORT_FROM = new Date(2026, 0, 1);
+const COHORT_OPEN_DAYS = 90; // a cohort younger than this is still open
+const qKey = d => `${d.getFullYear()} Q${Math.floor(d.getMonth() / 3) + 1}`;
+const qEnd = d => new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3 + 3, 0);
+const median = xs => { if (!xs.length) return null; const a = [...xs].sort((x, y) => x - y); const m = Math.floor(a.length / 2); return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2); };
+function buildCohorts(entries, masterDeals, today) {
+  const deals = (masterDeals || []).filter(r => pdStr(r["Deal Name"]) && pdStr(r["Related Party"]).toLowerCase() !== "yes").map(r => {
+    const otp = twParseDate(r["OTP Signed Date"]), psa = twParseDate(r["PSA Date Signed"]);
+    return { name: pdStr(r["Deal Name"]), rid: pdId(r["Buyer HubSpot Record ID"]), otp: otp || psa, psa, lost: twParseDate(r["Lost Date"]) };
+  });
+  // Visit → OTP
+  const first = new Map();
+  (entries || []).forEach(e => {
+    if (e.type !== "tour" || e.connector || !e.date || e.date > today) return;
+    const k = e.rid || `name:${e.name}`;
+    const f = first.get(k);
+    if (!f || e.date < f.date) first.set(k, { date: e.date, rid: e.rid, name: e.name });
+  });
+  const vq = new Map();
+  first.forEach(v => {
+    if (v.date < COHORT_FROM) return;
+    const k = qKey(v.date);
+    const g = vq.get(k) || { key: k, end: qEnd(v.date), people: [], conv: [], days: [] };
+    g.people.push(v);
+    const otps = v.rid ? deals.filter(d => d.rid === v.rid && d.otp && d.otp >= v.date).map(d => d.otp) : [];
+    if (otps.length) { const o = otps.sort((a, b) => a - b)[0]; g.conv.push({ ...v, otp: o }); g.days.push(pdDiff(v.date, o)); }
+    vq.set(k, g);
+  });
+  // OTP → PSA
+  const oq = new Map();
+  deals.forEach(d => {
+    if (!d.otp || d.otp < COHORT_FROM || d.otp > today) return;
+    const k = qKey(d.otp);
+    const g = oq.get(k) || { key: k, end: qEnd(d.otp), deals: [], psa: 0, lost: 0, open: 0, days: [] };
+    g.deals.push(d);
+    if (d.psa) { g.psa++; g.days.push(pdDiff(d.otp, d.psa)); } else if (d.lost) g.lost++; else g.open++;
+    oq.set(k, g);
+  });
+  const isOpen = g => pdDiff(g.end, today) < COHORT_OPEN_DAYS;
+  const sortQ = m => [...m.values()].sort((a, b) => a.end - b.end).map(g => ({ ...g, open: g.open, still: isOpen(g), median: median(g.days) }));
+  return { visit: sortQ(vq), otp: sortQ(oq) };
+}
+const cohortPct = (n, d) => d ? `${Math.round((n / d) * 100)}%` : "—";
+const CohortView = ({ cohorts }) => {
+  const card = { background: C.white, borderRadius: 8, border: "0.5px solid rgba(54,67,74,0.12)", overflow: "hidden" };
+  const head = { padding: "10px 12px", background: "rgba(54,67,74,0.04)", fontSize: 9, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY };
+  const row = { padding: "11px 12px", borderTop: "0.5px solid rgba(54,67,74,0.08)", fontSize: 12.5, color: C.gray, fontFamily: FONT_BODY, alignItems: "baseline" };
+  const R = { textAlign: "right" };
+  const Q = ({ g }) => <span style={{ fontWeight: "bold" }}>{g.key}{g.still ? <span style={{ fontWeight: "normal", color: PD_MUTED, fontSize: 11 }}> · still open</span> : null}</span>;
+  const days = g => g.median == null ? "—" : `${g.median} d`;
+  const g1 = "minmax(0,1.5fr) repeat(4, minmax(0,0.75fr))";
+  const g2 = "minmax(0,1.5fr) repeat(5, minmax(0,0.7fr))";
+  const tot = (rows, f) => rows.reduce((s, g) => s + f(g), 0);
+  const vT = cohorts.visit, oT = cohorts.otp;
+  return (
+    <div>
+      <div style={{ background: C.beige, borderRadius: 10, padding: "1rem 1.25rem", border: "0.5px solid rgba(54,67,74,0.12)" }}>
+        <SectionLabel style={{ marginTop: 0 }}>Prospect Visit → Signed OTP</SectionLabel>
+        <div style={card}>
+          <div style={{ display: "grid", gridTemplateColumns: g1, columnGap: 8, ...head }}>
+            <span>Visit quarter</span><span style={R}>Visits</span><span style={R}>Signed OTP</span><span style={R}>Rate</span><span style={R}>Median days</span>
+          </div>
+          {vT.map(g => (
+            <div key={g.key} style={{ display: "grid", gridTemplateColumns: g1, columnGap: 8, ...row }}>
+              <Q g={g} /><span style={R}>{g.people.length}</span><span style={{ ...R, fontFamily: FONT_DISPLAY, fontSize: 15 }}>{g.conv.length}</span><span style={R}>{cohortPct(g.conv.length, g.people.length)}</span><span style={R}>{days(g)}</span>
+            </div>
+          ))}
+          <div style={{ display: "grid", gridTemplateColumns: g1, columnGap: 8, ...row, fontWeight: "bold" }}>
+            <span>2026 to date</span><span style={R}>{tot(vT, g => g.people.length)}</span><span style={R}>{tot(vT, g => g.conv.length)}</span><span style={R}>{cohortPct(tot(vT, g => g.conv.length), tot(vT, g => g.people.length))}</span><span style={R}>{(() => { const m = median(vT.flatMap(g => g.days)); return m == null ? "—" : `${m} d`; })()}</span>
+          </div>
+        </div>
+
+        <SectionLabel>Signed OTP → Signed PSA</SectionLabel>
+        <div style={card}>
+          <div style={{ display: "grid", gridTemplateColumns: g2, columnGap: 8, ...head }}>
+            <span>OTP quarter</span><span style={R}>OTPs</span><span style={R}>PSA</span><span style={R}>Lost</span><span style={R}>Open</span><span style={R}>Rate</span>
+          </div>
+          {oT.map(g => (
+            <div key={g.key} style={{ display: "grid", gridTemplateColumns: g2, columnGap: 8, ...row }}>
+              <Q g={g} /><span style={R}>{g.deals.length}</span><span style={{ ...R, fontFamily: FONT_DISPLAY, fontSize: 15 }}>{g.psa}</span><span style={R}>{g.lost}</span><span style={R}>{g.open}</span><span style={R}>{cohortPct(g.psa, g.deals.length)}</span>
+            </div>
+          ))}
+          <div style={{ display: "grid", gridTemplateColumns: g2, columnGap: 8, ...row, fontWeight: "bold" }}>
+            <span>2026 to date</span><span style={R}>{tot(oT, g => g.deals.length)}</span><span style={R}>{tot(oT, g => g.psa)}</span><span style={R}>{tot(oT, g => g.lost)}</span><span style={R}>{tot(oT, g => g.open)}</span><span style={R}>{cohortPct(tot(oT, g => g.psa), tot(oT, g => g.deals.length))}</span>
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: PD_MUTED, marginTop: 6, fontFamily: FONT_BODY }}>
+          Median days OTP → PSA: {(() => { const m = median(oT.flatMap(g => g.days)); return m == null ? "—" : `${m}`; })()}
+        </div>
+
+        <div style={{ fontSize: 10.5, color: "rgba(54,67,74,0.6)", marginTop: 12, lineHeight: 1.55, fontFamily: FONT_BODY }}>
+          <strong>Consistent cohorts:</strong> each group is fixed when it starts and followed forward. A person counts once, in the quarter of their first Prospect Visit; a deal counts once, in the quarter its OTP was signed. Quarters that ended less than {COHORT_OPEN_DAYS} days ago are still open. From Jan 1, 2026 (Master_Deals dates complete); related-party deals left out.
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const FunnelView = ({ allTime, byYear, advAllTime, advByYear, leadStatus, tabStyle, tab, setTab, dim, setDim, year, setYear, cohortData }) => {
   const years = [...new Set(byYear.map(r => r["Year"]).filter(Boolean))].sort((a, b) => b - a);
   const selectedYear = year ?? years[0] ?? null;
   const isAllTime = tab === "alltime";
@@ -3230,13 +3454,18 @@ const FunnelView = ({ allTime, byYear, advAllTime, advByYear, leadStatus, tabSty
   const grid = "minmax(0,1.6fr) repeat(3, minmax(0,0.7fr)) repeat(2, minmax(0,0.8fr))";
   const gap = { columnGap: 10 };
 
+  const tabs = (
+    <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+      <button style={tabStyle(tab === "cohorts")} onClick={() => setTab("cohorts")}>Visit → OTP → PSA</button>
+      <button style={tabStyle(tab === "alltime")} onClick={() => setTab("alltime")}>All-Time Analysis</button>
+      <button style={tabStyle(tab === "byyear")} onClick={() => setTab("byyear")}>By Year</button>
+    </div>
+  );
+  if (tab === "cohorts") return <div>{tabs}<CohortView cohorts={cohortData} /></div>;
+
   return (
     <div>
-      {/* Section toggle: All-Time vs By Year */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
-        <button style={tabStyle(isAllTime)} onClick={() => setTab("alltime")}>All-Time Analysis</button>
-        <button style={tabStyle(!isAllTime)} onClick={() => setTab("byyear")}>By Year</button>
-      </div>
+      {tabs}
 
       {/* Methodology note */}
       <div style={{ fontSize: 11, lineHeight: 1.6, color: "rgba(54,67,74,0.65)", background: "rgba(136,209,209,0.18)", border: "0.5px solid rgba(54,67,74,0.1)", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontFamily: FONT_BODY }}>
@@ -3645,7 +3874,7 @@ const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo,
 // ── Main ──────────────────────────────────────────────────────────────
 export default function NaukaDashboard() {
   const [view, setView]               = useState("home");
-  const [funnelTab, setFunnelTab]   = useState("alltime"); // "alltime" | "byyear"
+  const [funnelTab, setFunnelTab]   = useState("cohorts"); // "cohorts" | "alltime" | "byyear"
   const [funnelDim, setFunnelDim]   = useState("Source");  // "Source" | "Advisor"
   const [funnelYear, setFunnelYear] = useState(null);      // null → newest year group
   const [kpis, setKpis]           = useState([]);
@@ -3980,6 +4209,7 @@ export default function NaukaDashboard() {
                 {onlyAvailable ? "✓ Available Only" : "Show Available Only"}
               </button>
             </div>
+            {onlyAvailable && groups.length > 0 && <InventoryTotals groups={groups} allAvailable={availableUnits} />}
             {groups.length === 0 ? (
               <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>
                 {onlyAvailable ? "No available units right now." : "No inventory data available for this tab yet."}
@@ -4000,12 +4230,13 @@ export default function NaukaDashboard() {
           tab={funnelTab} setTab={setFunnelTab}
           dim={funnelDim} setDim={setFunnelDim}
           year={funnelYear} setYear={setFunnelYear}
+          cohortData={buildCohorts(model.entries, masterDeals, model.today)}
         />
       )}
 
       {/* ── REPORT · the CEO weekly report, live ─────────────────────── */}
       {view === "report" && (
-        <ReportView model={model} openDeals={openDeals} qoCount={qoCount} ceoRows={ceoRows} />
+        <ReportView model={model} openDeals={openDeals} qoCount={qoCount} ceoRows={ceoRows} masterDeals={masterDeals} />
       )}
 
       {/* ── PROSPECT CALENDAR ───────────────────────────────────────── */}

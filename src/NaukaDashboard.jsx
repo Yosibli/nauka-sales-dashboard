@@ -2715,41 +2715,62 @@ const rpLongDate = d => d.toLocaleDateString("en-US", { month: "long", day: "num
 
 const RP_BLUE = "#365F91", RP_RULE = "#4F81BD", RP_INK = "#222222", RP_GREY = "#6B6B6B";
 const RP_CSS = `
-.rp-wrap{background:#fff;border-radius:10px;border:1px solid rgba(54,67,74,0.12);padding:22px 18px 26px}
-.rp{max-width:560px;margin:0 auto;font-family:Arial,"Liberation Sans",Helvetica,sans-serif;color:${RP_INK};font-size:14.5px;line-height:1.38}
-.rp-logo{display:block;width:86px;height:auto;margin:0 0 10px}
-.rp-kicker{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:${RP_GREY}}
-.rp-title{font-family:Georgia,"DejaVu Serif",serif;font-size:36px;line-height:1.1;margin:2px 0 6px;color:${RP_INK}}
-.rp-meta{font-size:13px;color:${RP_GREY};padding-bottom:6px;border-bottom:1px solid #D8D8D8}
-.rp-meta span{color:${RP_INK};margin-left:4px}
-.rp h2{font-family:Georgia,"DejaVu Serif",serif;font-weight:normal;font-size:24px;line-height:1.2;color:${RP_BLUE};margin:30px 0 14px;padding-bottom:10px;border-bottom:1.5px solid ${RP_RULE};break-after:avoid;page-break-after:avoid}
-.rp-kpi{padding:8px 0 9px;border-bottom:1px solid #E2E2E2;break-inside:avoid;page-break-inside:avoid}
-.rp-kpi-n{font-weight:bold;font-size:15px}
-.rp-kpi-g{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));column-gap:8px;margin-top:4px}
-.rp-kpi-g span{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:${RP_RULE}}
-.rp-kpi-g b{display:block;font-weight:normal;font-size:16px;margin-top:6px;white-space:nowrap}
-.rp-hl{background:#FFFF00;color:inherit;padding:0 1px}
-.rp-lbl{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;font-weight:bold;color:${RP_BLUE};margin:16px 0 4px;break-after:avoid;page-break-after:avoid}
+.rp-wrap{background:#fff;border-radius:12px;border:1px solid rgba(54,67,74,0.10);padding:26px 20px 28px}
+.rp{max-width:540px;margin:0 auto;font-family:Arial,"Liberation Sans",Helvetica,sans-serif;color:${RP_INK};font-size:14px;line-height:1.45;font-variant-numeric:tabular-nums}
+.rp-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.rp-logo{display:block;width:74px;height:auto}
+.rp-kicker{font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:${RP_GREY};margin-top:14px}
+.rp-title{font-family:Georgia,"DejaVu Serif",serif;font-size:38px;line-height:1.05;margin:4px 0 10px;color:${RP_INK}}
+.rp-meta{display:grid;grid-template-columns:auto 1fr;column-gap:12px;row-gap:2px;font-size:12.5px;color:${RP_GREY};padding:10px 0 12px;border-top:2px solid ${RP_BLUE};border-bottom:1px solid #E4E4E4}
+.rp-meta b{font-weight:normal;color:${RP_INK}}
+.rp h2{display:flex;align-items:baseline;gap:10px;font-family:Georgia,"DejaVu Serif",serif;font-weight:normal;font-size:22px;line-height:1.2;color:${RP_BLUE};margin:34px 0 12px;padding-bottom:9px;border-bottom:1px solid ${RP_RULE};break-after:avoid;page-break-after:avoid}
+.rp h2 .no{font-size:13px;font-family:Arial,sans-serif;font-weight:bold;color:#fff;background:${RP_BLUE};border-radius:50%;min-width:22px;height:22px;line-height:22px;text-align:center;flex:none;transform:translateY(-2px)}
+.rp-kpi{padding:11px 0 12px;border-bottom:1px solid #ECECEC;break-inside:avoid;page-break-inside:avoid}
+.rp-kpi-n{font-weight:bold;font-size:14px}
+.rp-kpi-g{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));column-gap:8px;margin-top:6px}
+.rp-kpi-g span{display:block;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:${RP_RULE}}
+.rp-kpi-g b{display:block;font-weight:normal;font-size:18px;margin-top:3px;white-space:nowrap;color:${RP_INK}}
+.rp-kpi-g div:nth-child(2) b{font-weight:bold}
+.rp-kpi-g div:nth-child(3) b{color:${RP_GREY}}
+.rp-kpi-g div:nth-child(4) b{color:${RP_BLUE}}
+.rp-hl{background:#FFF200;color:inherit;padding:0 2px;border-radius:2px}
+.rp-status{margin-top:16px;padding-top:12px;font-size:14.5px}
+.rp-status .rp-kpi-n{margin-bottom:3px}
+.rp-lbl{font-size:10px;letter-spacing:.18em;text-transform:uppercase;font-weight:bold;color:${RP_BLUE};margin:20px 0 6px;break-after:avoid;page-break-after:avoid}
+.rp-cm p{margin:0 0 9px;font-size:13.5px;line-height:1.55;color:#333}
 .rp-cm p,.rp li{orphans:3;widows:3}
-.rp-cm p{margin:0 0 8px}
-.rp-list-h{text-align:right;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:${RP_RULE};margin-bottom:2px}
-.rp-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid #E2E2E2;break-inside:avoid;page-break-inside:avoid}
-.rp-row > span:last-child{font-weight:bold;text-align:right;white-space:nowrap}
-.rp-row.tot{border-top:1.5px solid ${RP_INK};font-weight:bold}
-.rp-opp{padding:8px 0 6px;border-bottom:1px solid #E2E2E2;break-inside:avoid;page-break-inside:avoid}
-.rp-opp-n{font-weight:bold;font-size:15px}
-.rp-opp-s{font-size:12px;color:${RP_GREY};margin-top:2px}
-.rp-opp-t{font-size:12.5px;margin-top:2px}
+.rp-list-h{text-align:right;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:${RP_RULE};margin-bottom:2px}
+.rp-row{display:flex;justify-content:space-between;align-items:baseline;gap:14px;padding:8px 0;border-bottom:1px solid #ECECEC;break-inside:avoid;page-break-inside:avoid}
+.rp-row > span:first-child{color:#333}
+.rp-row > span:last-child{text-align:right;white-space:nowrap}
+.rp-row .v{font-weight:bold;font-size:15px}
+.rp-row .d{color:#B5B5B5;margin:0 5px}
+.rp-row .u{color:${RP_GREY};font-size:12px;margin-left:3px}
+.rp-row.tot{border-top:1.5px solid ${RP_INK};border-bottom:none;margin-top:-1px;padding-top:10px}
+.rp-row.tot > span:first-child{font-weight:bold;color:${RP_INK};letter-spacing:.04em}
+.rp-fc{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:4px}
+.rp-fc .rp-lbl{margin-top:14px}
+.rp-fc div div:last-child{font-size:13px;line-height:1.45}
+.rp-opp{display:grid;grid-template-columns:26px 1fr;column-gap:10px;padding:12px 0;border-bottom:1px solid #ECECEC;break-inside:avoid;page-break-inside:avoid}
+.rp-opp-i{width:24px;height:24px;border-radius:50%;border:1.5px solid ${RP_BLUE};color:${RP_BLUE};font-weight:bold;font-size:12px;line-height:21px;text-align:center}
+.rp-opp-n{font-weight:bold;font-size:14.5px}
+.rp-opp-p{display:flex;justify-content:space-between;gap:10px;align-items:baseline;margin-top:2px;font-size:13.5px}
+.rp-opp-p strong{white-space:nowrap;font-size:15px}
+.rp-opp-s{font-size:12px;color:${RP_GREY};margin-top:3px;line-height:1.4}
+.rp-opp-t{font-size:11.5px;margin-top:5px;color:${RP_GREY};letter-spacing:.02em}
+.rp-total{display:flex;justify-content:space-between;font-weight:bold;padding:10px 0 0;border-top:1.5px solid ${RP_INK};margin-top:-1px}
 .rp ul,.rp ol{margin:4px 0 0 18px;padding:0}
-.rp li{margin-bottom:6px}
-.rp-sub{font-size:12px;font-style:italic;color:${RP_GREY};margin:-4px 0 10px}
-.rp-small{font-size:12px;color:${RP_GREY};margin:12px 0 2px}
-.rp-def li strong{font-weight:bold}
-.rp-foot{text-align:center;font-size:9.5px;letter-spacing:.24em;color:${RP_GREY};margin-top:28px}
+.rp li{margin-bottom:7px;font-size:13.5px;line-height:1.5;color:#333}
+.rp li::marker{color:${RP_RULE}}
+.rp-sub{font-size:12px;font-style:italic;color:${RP_GREY};margin:-2px 0 12px}
+.rp-small{font-size:11.5px;color:${RP_GREY};margin:16px 0 2px;letter-spacing:.02em}
+.rp-proj{font-weight:bold;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:${RP_INK};margin:6px 0 2px}
+.rp-def li strong{font-weight:bold;color:${RP_INK}}
+.rp-foot{text-align:center;font-size:9px;letter-spacing:.26em;color:${RP_GREY};margin-top:30px;padding-top:12px;border-top:1px solid #ECECEC}
 @media (max-width:700px){
-  .rp-wrap{padding:18px 14px 22px}
-  .rp-title{font-size:32px}
-  .rp h2{font-size:22px}
+  .rp-wrap{padding:20px 16px 24px;border-radius:10px}
+  .rp-title{font-size:34px}
+  .rp h2{font-size:20px}
 }
 @media print{
   .nk-topnav,.nk-bottomnav,.nk-header,.nk-footmark,.rp-noprint{display:none !important}
@@ -2758,35 +2779,29 @@ const RP_CSS = `
   .rp-wrap{border:none;padding:0;border-radius:0}
   .rp{-webkit-print-color-adjust:exact;print-color-adjust:exact;max-width:none}
   .rp-foot{display:none}
-  body[data-rp-print="phone"] .rp{font-size:12.5px}
-  body[data-rp-print="phone"] .rp-title{font-size:26px}
-  body[data-rp-print="phone"] .rp h2{font-size:17px;margin:20px 0 10px;padding-bottom:6px}
-  body[data-rp-print="phone"] .rp-kpi-n,body[data-rp-print="phone"] .rp-opp-n{font-size:13px}
-  body[data-rp-print="phone"] .rp-kpi-g b{font-size:13.5px}
-  body[data-rp-print="phone"] .rp-kpi-g span{font-size:8px}
-  body[data-rp-print="phone"] .rp-opp-s{font-size:10px}
-  body[data-rp-print="phone"] .rp-opp-t,body[data-rp-print="phone"] .rp-sub,body[data-rp-print="phone"] .rp-small{font-size:10.5px}
-  body[data-rp-print="phone"] .rp-lbl{font-size:9px}
-  body[data-rp-print="phone"] .rp-list-h{font-size:8px}
-  body[data-rp-print="phone"] .rp-logo{width:62px}
+  @page{size:3.6in 7.8in;margin:0.3in 0.3in 0.45in;@bottom-center{content:"LIFE  |  INTERNAL SALES REPORTING";font-family:Arial,sans-serif;font-size:7px;letter-spacing:.24em;color:#6B6B6B}}
+  .rp{font-size:12px}
+  .rp-title{font-size:28px}
+  .rp h2{font-size:17px;margin:22px 0 8px;padding-bottom:6px}
+  .rp h2 .no{font-size:10px;min-width:17px;height:17px;line-height:17px}
+  .rp-kpi{padding:7px 0 8px}
+  .rp-kpi-n,.rp-opp-n{font-size:12px}
+  .rp-kpi-g b{font-size:13.5px}
+  .rp-kpi-g span{font-size:7px}
+  .rp-row{padding:5px 0}
+  .rp-row .v{font-size:12.5px}
+  .rp-row .u{font-size:10px}
+  .rp-cm p,.rp li,.rp-opp-p,.rp-fc div div:last-child{font-size:11.5px}
+  .rp-opp{padding:8px 0;grid-template-columns:20px 1fr;column-gap:8px}
+  .rp-opp-i{width:18px;height:18px;font-size:9.5px;line-height:15px}
+  .rp-opp-s,.rp-opp-t,.rp-sub,.rp-small{font-size:9.5px}
+  .rp-lbl{font-size:8px;margin:14px 0 4px}
+  .rp-list-h{font-size:7px}
+  .rp-meta{font-size:10.5px}
+  .rp-kicker{font-size:8px}
+  .rp-logo{width:56px}
 }
 `;
-// Opens the browser's print dialog at the chosen page size: phone (3.6 × 7.8 in,
-// the size of the report sent on Mondays) or Letter. "Save as PDF" makes the file.
-function printReport(mode) {
-  try {
-    const foot = "@bottom-center{content:\"LIFE  |  INTERNAL SALES REPORTING\";font-family:Arial,sans-serif;font-size:7px;letter-spacing:.24em;color:#6B6B6B}";
-    const css = mode === "phone" ? `@page{size:3.6in 7.8in;margin:0.3in 0.3in 0.45in;${foot}}` : `@page{size:letter;margin:0.6in 1.4in 0.7in;${foot}}`;
-    let el = document.getElementById("rp-page-size");
-    if (!el) { el = document.createElement("style"); el.id = "rp-page-size"; document.head.appendChild(el); }
-    el.textContent = css;
-    document.body.setAttribute("data-rp-print", mode);
-    const done = () => { document.body.removeAttribute("data-rp-print"); window.removeEventListener("afterprint", done); };
-    window.addEventListener("afterprint", done);
-    window.print();
-  } catch { /* printing not available */ }
-}
-
 const RP_GUIDELINES = [
   "Submit Monday morning for the prior Monday–Sunday reporting period.",
   "Use HubSpot as the source of record; apply consistent pipeline stages across projects.",
@@ -2807,14 +2822,16 @@ const RP_DEFINITIONS = [
   ["Closed Sales Volume:", <>definition pending. <mark className="rp-hl"><strong>To confirm: Paul</strong></mark></>],
 ];
 
+const RP_FIRST_WEEK_END = new Date(2026, 10, 1); // first weekly report sent: week ending Nov 1, 2026
 const ReportView = ({ model, openDeals, qoCount, ceoRows, masterDeals }) => {
   const today = model.today;
-  // Weeks run Monday–Sunday. The list: this week (in progress) and the 8 before it.
+  // Weeks run Monday–Sunday. The list starts with the first report (week ending
+  // Nov 1, 2026) and ends with this week (in progress), newest first.
   const thisMon = twWeekStart(today);
-  const weeks = Array.from({ length: 9 }, (_, i) => {
-    const start = pdAdd(thisMon, -7 * i), end = pdAdd(start, 6);
-    return { start, end, live: i === 0 };
-  });
+  const weeks = [];
+  for (let start = thisMon; pdAdd(start, 6) >= RP_FIRST_WEEK_END; start = pdAdd(start, -7)) {
+    weeks.push({ start, end: pdAdd(start, 6), live: weeks.length === 0 });
+  }
   const [idx, setIdx] = useState(weeks.length > 1 ? 1 : 0); // default: last finished week (the one sent Monday)
   const wk = weeks[idx];
   const until = wk.live ? today : wk.end;
@@ -2859,7 +2876,9 @@ const ReportView = ({ model, openDeals, qoCount, ceoRows, masterDeals }) => {
     </div>
   );
   const Row = ({ l, v, tot }) => <div className={`rp-row${tot ? " tot" : ""}`}><span>{l}</span><span>{v}</span></div>;
-  const pair = (lw, ytd) => `${lw} · ${ytd} YTD`;
+  // "3 · 188 YTD": numbers bold, separator and unit light.
+  const two = (a, b, ua, ub) => <><span className="v">{a}</span>{ua && <span className="u">{ua}</span>}<span className="d">·</span><span className="v">{b}</span>{ub && <span className="u">{ub}</span>}</>;
+  const pair = (lw, ytd) => two(lw, ytd, "", "YTD");
   const status = f("status") || "";
   const statusLine = ["On Track", "At Risk", "Behind Plan"].map((s, i) => (
     <Fragment key={s}>{i > 0 && <span style={{ color: RP_GREY }}> / </span>}
@@ -2874,15 +2893,8 @@ const ReportView = ({ model, openDeals, qoCount, ceoRows, masterDeals }) => {
       <div className="rp-noprint" style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBottom: 14 }}>
         <select value={idx} onChange={e => setIdx(Number(e.target.value))}
           style={{ fontFamily: FONT_BODY, fontSize: 14, padding: "8px 10px", borderRadius: 8, border: `1px solid rgba(54,67,74,0.3)`, background: C.white, color: C.gray }}>
-          {weeks.map((w, i) => <option key={i} value={i}>{weekLabel(w)}{ceoRowFor(ceoRows, w.end) ? " ✓" : ""}</option>)}
+          {weeks.map((w, i) => <option key={i} value={i}>{weekLabel(w)}</option>)}
         </select>
-        {[["phone", "PDF · Phone"], ["letter", "PDF · Letter"]].map(([mode, label]) => (
-          <button key={mode} onClick={() => printReport(mode)}
-            style={{ fontFamily: FONT_BODY, fontSize: 13.5, fontWeight: "bold", padding: "9px 14px", borderRadius: 8, border: "none", background: mode === "letter" ? C.gray : C.teal, color: mode === "letter" ? C.white : C.gray, cursor: "pointer" }}>
-            {label}
-          </button>
-        ))}
-        <span style={{ fontSize: 12, color: PD_MUTED, fontFamily: FONT_BODY }}>✓ = saved in the CEO_Report tab</span>
       </div>
 
       <div className="rp-wrap"><div className="rp">
@@ -2890,65 +2902,69 @@ const ReportView = ({ model, openDeals, qoCount, ceoRows, masterDeals }) => {
         <div className="rp-kicker">LIFE &nbsp;|&nbsp; CEO Weekly Sales Report</div>
         <div className="rp-title">Nauka</div>
         <div className="rp-meta">
-          <div>Director of Sales<span>{f("director") || "Eli Pacino"}</span></div>
-          <div>Week ending<span>{rpLongDate(wk.end)}{wk.live ? " (in progress)" : ""}</span></div>
+          <span>Director of Sales</span><b>{f("director") || "Eli Pacino"}</b>
+          <span>Week ending</span><b>{rpLongDate(wk.end)}{wk.live ? " (in progress)" : ""}</b>
         </div>
 
-        <h2>1.&nbsp; Sales Performance &nbsp;|&nbsp; Actual vs. Goal</h2>
+        <h2><span className="no">1</span><span>Sales Performance &nbsp;|&nbsp; Actual vs. Goal</span></h2>
         <Kpi name="Offers to Purchase (OTPs)" lw={otpW} ytd={otpY} goal="—" pc="—" />
         <Kpi name="Executed PSAs (Sales)" lw={psaW} ytd={psaY} goal="—" pc="—" />
         <Kpi name="Contracted Sales Volume" lw={rpM(volW)} ytd={rpM(volY)} goal={rpM(CONTRACTED_GOAL)} pc={pct(volY, CONTRACTED_GOAL)} />
         <Kpi name="Contracted Sales Volume (updated goal)" lw="—" ytd={rpM(volY)} goal={rpM(RAISED_TARGET)} pc={pct(volY, RAISED_TARGET)} />
         <Kpi name="Closed Sales Volume" hl goal="—" pc="—" />
-        <div className="rp-kpi-n" style={{ marginTop: 18 }}>Sales Status</div>
-        <div style={{ fontSize: 15, marginTop: 2 }}>{statusLine}</div>
+        <div className="rp-status"><div className="rp-kpi-n">Sales Status</div><div>{statusLine}</div></div>
         <Comments k="s1" />
         {f("paul") && <p className="rp-cm"><mark className="rp-hl"><strong>QUESTION FOR PAUL</strong> &nbsp;<RpText text={f("paul")} /></mark></p>}
 
-        <h2>2.&nbsp; Weekly Sales Activity</h2>
+        <h2><span className="no">2</span><span>Weekly Sales Activity</span></h2>
         <div className="rp-list-h">Last week · YTD / Current</div>
         <Row l="New Qualified Leads" v={pair(S("Qualified Leads LW", c("qlead", wk.start, until)), S("Qualified Leads YTD", c("qlead", jan1, until)))} />
         <Row l="New Web Leads" v={pair(S("Web Leads LW", c("wlead", wk.start, until)), S("Web Leads YTD", c("wlead", jan1, until)))} />
         <Row l="New Hotel Leads" v={pair(S("Hotel Leads LW", c("hlead", wk.start, until)), S("Hotel Leads YTD", c("hlead", jan1, until)))} />
         <Row l="Site Tours / Immersions Completed" v={pair(S("Site Tours LW", c("tour", wk.start, until)), S("Site Tours YTD", c("tour", jan1, until)))} />
-        <Row l="Upcoming Site Tours Booked" v={`${booked == null ? "—" : booked} New · ${scheduled} Scheduled`} />
-        <Row l="Active Qualified Prospects" v={`${qo} Active · —`} />
-        <Row l="Active Negotiations" v={`${negN} Active · —`} />
+        <Row l="Upcoming Site Tours Booked" v={two(booked == null ? "—" : booked, scheduled, "New", "Scheduled")} />
+        <Row l="Active Qualified Prospects" v={two(qo, "—", "Active", "")} />
+        <Row l="Active Negotiations" v={two(negN, "—", "Active", "")} />
         <Row l="OTPs Submitted" v={pair(S("OTPs Submitted LW", c("hold", wk.start, until)), S("OTPs Submitted YTD", c("hold", jan1, until)))} />
         <Row l="OTPs Accepted / Pending PSA" v={pair(S("OTPs Accepted LW", otpW), S("OTPs Accepted YTD", otpY))} />
         <Row l="PSAs Executed" v={pair(psaW, psaY)} />
-        <Row l="Sales Closed" v={<mark className="rp-hl">— · —</mark>} />
+        <Row l="Sales Closed" v={<mark className="rp-hl"><span className="v">—</span><span className="d">·</span><span className="v">—</span></mark>} />
         <Comments k="s2" />
 
-        <h2>3.&nbsp; Sales Pipeline &amp; Forecast</h2>
+        <h2><span className="no">3</span><span>Sales Pipeline &amp; Forecast</span></h2>
         <div className="rp-list-h"># Deals · Estimated value</div>
-        <Row l="Qualified Opportunities" v={`${qo} · —`} />
-        <Row l="Active Negotiations" v={`${negN} · ${money(negV)}`} />
-        <Row l="OTPs Submitted / Pending Acceptance" v={`${potpN} · ${money(potpV)}`} />
-        <Row l="Accepted OTPs / Pending PSA" v={`${sotpN} · ${money(sotpV)}`} />
-        <Row tot l="TOTAL OPEN PIPELINE" v={`${openN} · ${money(openV)}`} />
-        <div className="rp-lbl">Next 30 days</div><div>{f("next30") ? <RpText text={f("next30")} /> : todo}</div>
-        <div className="rp-lbl">Next 60 days</div><div>{f("next60") ? <RpText text={f("next60")} /> : todo}</div>
+        <Row l="Qualified Opportunities" v={two(qo, "—")} />
+        <Row l="Active Negotiations" v={two(negN, money(negV))} />
+        <Row l="OTPs Submitted / Pending Acceptance" v={two(potpN, money(potpV))} />
+        <Row l="Accepted OTPs / Pending PSA" v={two(sotpN, money(sotpV))} />
+        <Row tot l="TOTAL OPEN PIPELINE" v={two(openN, money(openV))} />
+        <div className="rp-fc">
+          <div><div className="rp-lbl">Next 30 days</div><div>{f("next30") ? <RpText text={f("next30")} /> : todo}</div></div>
+          <div><div className="rp-lbl">Next 60 days</div><div>{f("next60") ? <RpText text={f("next60")} /> : todo}</div></div>
+        </div>
         <Comments k="s3" />
 
-        <h2>4.&nbsp; Top 3 Sales Opportunities</h2>
+        <h2><span className="no">4</span><span>Top 3 Sales Opportunities</span></h2>
         {top.map((o, i) => {
           const j = o.product.lastIndexOf(" · ");
           const product = j > 0 ? o.product.slice(0, j) : o.product, value = j > 0 ? o.product.slice(j + 3) : "";
           return (
             <div key={i} className="rp-opp">
-              <div className="rp-opp-n">{i + 1}. {o.prospect}</div>
-              <div>{product}{value && <> &nbsp;·&nbsp; <strong>{value}</strong></>}</div>
-              {o.status && <div className="rp-opp-s">{o.status}</div>}
-              <div className="rp-opp-t">Target PSA date &nbsp;{o.target ? <RpText text={o.target} /> : <mark className="rp-hl"><em>[Eli]</em></mark>}</div>
+              <div className="rp-opp-i">{i + 1}</div>
+              <div>
+                <div className="rp-opp-n">{o.prospect}</div>
+                <div className="rp-opp-p"><span>{product}</span>{value && <strong>{value}</strong>}</div>
+                {o.status && <div className="rp-opp-s">{o.status}</div>}
+                <div className="rp-opp-t">Target PSA date &nbsp;{o.target ? <RpText text={o.target} /> : <mark className="rp-hl"><em>[Eli]</em></mark>}</div>
+              </div>
             </div>
           );
         })}
-        {f("oppTotal") && <div style={{ fontWeight: "bold", marginTop: 8 }}>Total &nbsp;{f("oppTotal")}</div>}
+        {f("oppTotal") && <div className="rp-total"><span>TOTAL</span><span>{f("oppTotal")}</span></div>}
         {!opps.length && top.length > 0 && <p className="rp-small">Largest open deals until Eli's list is in the CEO_Report tab.</p>}
         <Comments k="s4" />
 
-        <h2>5.&nbsp; Director of Sales Update</h2>
+        <h2><span className="no">5</span><span>Director of Sales Update</span></h2>
         <div className="rp-lbl">Key wins this week</div>
         {ceoList(f("wins")).length ? <ul>{ceoList(f("wins")).map((x, i) => <li key={i}><RpText text={x} /></li>)}</ul> : <p>{todo}</p>}
         <div className="rp-lbl">Top 3 priorities for next week</div>
@@ -2959,7 +2975,7 @@ const ReportView = ({ model, openDeals, qoCount, ceoRows, masterDeals }) => {
 
         <h2>LIFE &nbsp;|&nbsp; Consolidated Portfolio Dashboard</h2>
         <div className="rp-sub">Prepared by Sales Operations each Monday from individual project reports.</div>
-        <div style={{ fontWeight: "bold", margin: "4px 0 2px" }}>Nauka</div>
+        <div className="rp-proj">Nauka</div>
         <Row l="Sales Goal" v={rpM(RAISED_TARGET)} />
         <Row l="OTPs YTD" v={otpY} />
         <Row l="PSAs YTD" v={psaY} />

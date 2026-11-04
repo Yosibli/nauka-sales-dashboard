@@ -2115,9 +2115,8 @@ function openDealsByStage(masterDeals) {
 const WB_GREEN = 14, WB_YELLOW = 30;
 const WB_LIGHT = {
   green:  { color: C.green, label: "Active",       hint: `note, call or meeting in the last ${WB_GREEN} days` },
-  yellow: { color: "#E0B23C", label: "Slowing down", hint: `${WB_GREEN + 1}–${WB_YELLOW} days since the last note, call or meeting` },
-  red:    { color: C.red,   label: "Stalled",      hint: `more than ${WB_YELLOW} days since the last note, call or meeting` },
-  orange: { color: "#E58A3A", label: "Follow-up set", hint: "more than 30 days, follow-up task scheduled" },
+  yellow: { color: "#E0B23C", label: "Slowing down", hint: `${WB_GREEN + 1}–${WB_YELLOW} days since the last note, call or meeting, or a follow-up task scheduled` },
+  red:    { color: C.red,   label: "Stalled",      hint: `more than ${WB_YELLOW} days since the last note, call or meeting, no follow-up task` },
   none:   { color: "#C9CED1", label: "No activity date", hint: "no note, call or meeting in HubSpot" },
 };
 const wbLight = days => days == null ? "none" : days <= WB_GREEN ? "green" : days <= WB_YELLOW ? "yellow" : "red";
@@ -2297,7 +2296,7 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
     const leadStatus = c.leadStatus || hs.find(n => n.leadStatus)?.leadStatus || (p ? pdStr(p.status) : ""); // hs is newest first
     const nextTask = c.rid ? [...(tasksByRid.get(c.rid) || [])].sort((a, b) => a.date - b.date)[0] || null : null;
     const baseLight = wbLight(days);
-    const light = nextTask && (baseLight === "red" || baseLight === "none") ? "orange" : baseLight;
+    const light = nextTask && (baseLight === "red" || baseLight === "none") ? "yellow" : baseLight; // follow-up scheduled = yellow
     return { ...c, src, leadStatus, visited, nextTask, light, lastActivity, fromNotes: !!lastTouch, hubspotNotes: hs, lastNote: hs[0] || null, days };
   });
 }
@@ -2329,7 +2328,7 @@ function parseContactNotes(rows) {
   })).filter(n => n.rid && n.text && !/^email$/i.test(n.type));
 }
 
-const WB_ORDER = { red: 0, orange: 1, yellow: 2, none: 3, green: 4 };
+const WB_ORDER = { red: 0, yellow: 1, none: 2, green: 3 };
 const visitWhen = v => v ? (calSameDay(v.arrival, v.departure || v.arrival) ? twDayFmt(v.arrival) : pdShortRange(v.arrival, v.departure)) : "";
 const nextVisitLabel = (v, today) => v ? `${v.arrival <= today ? "On property" : "Next visit"} ${visitWhen(v)}` : "";
 
@@ -2499,7 +2498,7 @@ const Whiteboard = ({ cards, talks = false }) => {
         @media (max-width:900px){.wb-board{grid-template-columns:1fr}}
       `}</style>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 10, fontSize: 12, color: "rgba(54,67,74,0.75)", fontFamily: FONT_BODY }}>
-        {["green", "yellow", "orange", "red"].map(k => (
+        {["green", "yellow", "red"].map(k => (
           <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
             <span style={{ width: 10, height: 10, borderRadius: "50%", background: WB_LIGHT[k].color }} />
             {WB_LIGHT[k].hint}

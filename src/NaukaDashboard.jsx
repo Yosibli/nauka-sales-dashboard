@@ -1193,6 +1193,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const LOST_LEAD_STATUSES = ["Not Interested", "Unqualified", "Unsubscribed"];
 // Lead statuses that take a person off the Pipeline whiteboard (one list, one place).
 const WHITEBOARD_OFF_STATUSES = ["Not Interested", "Unqualified", "Unsubscribed", "Timing"]; // Timing = not active (Nov 3)
+// Visit Pipeline Stage values that take someone off the list (HubSpot Experiences pipeline).
+const QO_CLOSED_STAGES = ["moved to active negotiation", "not this time", "canceled", "legacy"];
 const TALKS_OFF_STATUSES = ["unresponsive", "no contact", "gone dark", "closed won"]; // also kept out of "In talks to visit"
 const isHotelSource = src => /siari hotel guest/i.test(String(src || ""));
 const isNegotiationStage = st => /^active negotiation/i.test(String(st || "").trim());
@@ -2115,6 +2117,7 @@ const WB_LIGHT = {
   green:  { color: C.green, label: "Active",       hint: `note, call or meeting in the last ${WB_GREEN} days` },
   yellow: { color: "#E0B23C", label: "Slowing down", hint: `${WB_GREEN + 1}–${WB_YELLOW} days since the last note, call or meeting` },
   red:    { color: C.red,   label: "Stalled",      hint: `more than ${WB_YELLOW} days since the last note, call or meeting` },
+  orange: { color: "#E58A3A", label: "Follow-up set", hint: "more than 30 days, follow-up task scheduled" },
   none:   { color: "#C9CED1", label: "No activity date", hint: "no note, call or meeting in HubSpot" },
 };
 const wbLight = days => days == null ? "none" : days <= WB_GREEN ? "green" : days <= WB_YELLOW ? "yellow" : "red";
@@ -2165,14 +2168,23 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
   const recentFrom = new Date(today.getFullYear(), today.getMonth() - 1, 1);
   const cards = new Map();
   persons.forEach(g => {
-    // 1 · toured in the last 60 days (on property now counts)
-    if (!g.visits.some(v => v.stage !== "Canceled" && v.arrival && v.arrival <= today && v.arrival >= qoFrom)) return;
-    // 2 · Lead Status = Active
     const status = g.leadStatus || (g.rid && people.get(g.rid) ? pdStr(people.get(g.rid).status) : "");
-    if (status.toLowerCase() !== "active") return;
-    // 3 · last note, call or meeting this month or last month
-    const touch = g.rid ? (notesByRid.get(g.rid) || []).reduce((m, n) => (n.date && (!m || n.date > m) ? n.date : m), null) : null;
-    if (!touch || touch < recentFrom) return;
+    // Once on the list they stay (Pipeline Stage = Qualified Opportunity on the visit),
+    // whatever the time, until an action removes them: a deal, Not This Time /
+    // Canceled on the visit, or a Lead Status change (WHITEBOARD_OFF_STATUSES).
+    const ps = v => pdStr(v.pipelineStage).toLowerCase();
+    const staged = [...g.visits].filter(v => ps(v)).sort((a, b) => (b.arrival || 0) - (a.arrival || 0))[0];
+    if (staged && QO_CLOSED_STAGES.includes(ps(staged))) return;
+    const sticky = staged && ps(staged) === "qualified opportunity";
+    if (!sticky) {
+      // Entry: 1 · visited in the last 60 days (on property counts) · 2 · Lead Status Active
+      // · 3 · a note, call or meeting this month or last month
+      if (!g.visits.some(v => v.stage !== "Canceled" && v.arrival && v.arrival <= today && v.arrival >= qoFrom)) return;
+      if (status.toLowerCase() !== "active") return;
+      const touch = g.rid ? (notesByRid.get(g.rid) || []).reduce((m, n) => (n.date && (!m || n.date > m) ? n.date : m), null) : null;
+      if (!touch || touch < recentFrom) return;
+    }
+    if (off.includes(status.toLowerCase())) return;
     // an open deal is counted in its own stage instead (no double counting)
     if (g.rid && openByRid.has(g.rid)) return;
     const past = g.visits.filter(v => v.stage !== "Canceled" && v.departure && v.departure < today).sort((a, b) => b.departure - a.departure)[0];
@@ -2284,7 +2296,9 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
     const src = c.src || (g && g.src) || hs.find(n => n.source)?.source || (p ? pdStr(p.src) : "");
     const leadStatus = c.leadStatus || hs.find(n => n.leadStatus)?.leadStatus || (p ? pdStr(p.status) : ""); // hs is newest first
     const nextTask = c.rid ? [...(tasksByRid.get(c.rid) || [])].sort((a, b) => a.date - b.date)[0] || null : null;
-    return { ...c, src, leadStatus, visited, nextTask, lastActivity, fromNotes: !!lastTouch, hubspotNotes: hs, lastNote: hs[0] || null, days, light: wbLight(days) };
+    const baseLight = wbLight(days);
+    const light = nextTask && (baseLight === "red" || baseLight === "none") ? "orange" : baseLight;
+    return { ...c, src, leadStatus, visited, nextTask, light, lastActivity, fromNotes: !!lastTouch, hubspotNotes: hs, lastNote: hs[0] || null, days };
   });
 }
 
@@ -2315,7 +2329,7 @@ function parseContactNotes(rows) {
   })).filter(n => n.rid && n.text && !/^email$/i.test(n.type));
 }
 
-const WB_ORDER = { red: 0, yellow: 1, none: 2, green: 3 };
+const WB_ORDER = { red: 0, orange: 1, yellow: 2, none: 3, green: 4 };
 const visitWhen = v => v ? (calSameDay(v.arrival, v.departure || v.arrival) ? twDayFmt(v.arrival) : pdShortRange(v.arrival, v.departure)) : "";
 const nextVisitLabel = (v, today) => v ? `${v.arrival <= today ? "On property" : "Next visit"} ${visitWhen(v)}` : "";
 
@@ -2485,7 +2499,7 @@ const Whiteboard = ({ cards, talks = false }) => {
         @media (max-width:900px){.wb-board{grid-template-columns:1fr}}
       `}</style>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 10, fontSize: 12, color: "rgba(54,67,74,0.75)", fontFamily: FONT_BODY }}>
-        {["green", "yellow", "red"].map(k => (
+        {["green", "yellow", "orange", "red"].map(k => (
           <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
             <span style={{ width: 10, height: 10, borderRadius: "50%", background: WB_LIGHT[k].color }} />
             {WB_LIGHT[k].hint}
@@ -2509,7 +2523,7 @@ const Whiteboard = ({ cards, talks = false }) => {
         })}
       </div>
       <PdNote>
-        {talks ? <>People who have not come yet but are in talks: a note, call or meeting an advisor logged in HubSpot in the last {WB_YELLOW} days (emails don't count), or a name the advisor added. They move up to the whiteboard once they arrive. Unresponsive, Gone Dark and No Contact leads are left out.</> : <>Only people who have already come. Qualified Opportunities (toured in the last 60 days, Lead Status = Active, a note, call or meeting this month or last month) appear by themselves, plus each Active Negotiation and the names advisors add who have visited.</>} A card leaves the list when a deal moves past Active Negotiation, or when the Lead Status is set to {WHITEBOARD_OFF_STATUSES.join(", ")}.
+        {talks ? <>Not visited yet; a note, call or meeting in the last {WB_YELLOW} days. Moves up to the whiteboard after the visit.</> : <><strong>Qualified Opportunity:</strong> active prospect that visited in the last 60 days. <strong>Active Negotiation:</strong> advisor working toward an OTP · estimated amount.</>}
       </PdNote>
       {open && <WhiteboardDetail c={open} onClose={() => setOpen(null)} />}
     </div>

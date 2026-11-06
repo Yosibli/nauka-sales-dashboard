@@ -1,8 +1,56 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from "react";
 
-const SHEET_ID = "1hFqEicg5meAdf_VJoDQ3XCNCD6HOa_sSCeKSDRkLrYc";
-const API_KEY  = "AIzaSyAcRftC0ZLiwFiBKFnBxnXV5CD1eob6BMU";
-const BASE     = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values`;
+// ── ACCESS (Nov 6, 2026) ─────────────────────────────────────────────
+// The sheet is private. The app reads it through the Google Apps Script
+// attached to the sheet (Nauka_Dashboard_Access.gs), which checks the shared
+// password in the Access tab and writes every login to Login_Log.
+// Paste the Web app URL from Apps Script → Deploy here:
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwLz3miSBTM5HUtoj9Wh9dzCMMR5Olfx7PJADj76c4wRb7vu1djpGdK0rQcE-WG1MDr/exec";
+const AUTH_KEY   = "nauka_auth_v1";
+
+const authRead = () => {
+  try { const a = JSON.parse(localStorage.getItem(AUTH_KEY) || "null"); return a && a.exp > Date.now() ? a : null; }
+  catch { return null; }
+};
+const authWrite = a => {
+  try { if (a) localStorage.setItem(AUTH_KEY, JSON.stringify(a)); else localStorage.removeItem(AUTH_KEY); } catch {}
+};
+let AUTH = authRead();
+const authLost = new Set(); // called when the script says the session ended (password changed or expired)
+
+async function scriptCall(body) {
+  // text/plain keeps this a simple request (no CORS preflight) for Apps Script.
+  const res = await fetch(SCRIPT_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body) });
+  return res.json();
+}
+
+// Every fetchSheet / fetchRawSheet call made in the same tick goes out as one
+// request, so a full refresh is a single call to the script.
+let pendingTabs = null;
+function fetchValues(tab) {
+  if (!pendingTabs) { pendingTabs = new Map(); setTimeout(flushTabs, 0); }
+  if (!pendingTabs.has(tab)) { let resolve; const p = new Promise(r => { resolve = r; }); pendingTabs.set(tab, { p, resolve }); }
+  return pendingTabs.get(tab).p;
+}
+async function flushTabs() {
+  const batch = pendingTabs; pendingTabs = null;
+  let data = {};
+  try {
+    const out = await scriptCall({ action: "data", token: AUTH && AUTH.token, tabs: [...batch.keys()].join("|") });
+    if (out && out.ok) data = out.data || {};
+    else if (out && out.error === "auth") { AUTH = null; authWrite(null); authLost.forEach(f => f()); }
+  } catch (err) {
+    console.error("[data] error", err);
+  }
+  batch.forEach((v, tab) => v.resolve(data[tab] || []));
+}
+
+const deviceLabel = () => {
+  const u = navigator.userAgent || "";
+  const dev = /iPhone/.test(u) ? "iPhone" : /iPad/.test(u) ? "iPad" : /Android/.test(u) ? "Android" : /Mac/.test(u) ? "Mac" : /Windows/.test(u) ? "Windows" : "Other";
+  const br = /Edg\//.test(u) ? "Edge" : /CriOS|Chrome\//.test(u) ? "Chrome" : /FxiOS|Firefox\//.test(u) ? "Firefox" : /Safari\//.test(u) ? "Safari" : "Browser";
+  return `${dev} · ${br}`;
+};
 
 const C = {
   teal:  "#88D1D1",
@@ -40,12 +88,10 @@ const SALES_TEAM_GOAL_EXCLUSIONS = [
 const SALES_TEAM_GOAL_AMOUNT = 270000000; // $270M full-year 2026 target
 
 async function fetchSheet(tab) {
-  const url = `${BASE}/${encodeURIComponent(tab)}?key=${API_KEY}`;
   try {
-    const res = await fetch(url);
-    const json = await res.json();
-    if (!json.values || json.values.length < 2) return [];
-    const [, headers, ...rows] = json.values;
+    const values = await fetchValues(tab);
+    if (!values || values.length < 2) return [];
+    const [, headers, ...rows] = values;
     return rows
       .filter(row => row.some(v => String(v ?? "").trim() !== ""))
       .map(row =>
@@ -63,11 +109,8 @@ async function fetchSheet(tab) {
 // than one clean header + rows block, so fetchSheet's header-zip approach
 // doesn't apply.
 async function fetchRawSheet(tab) {
-  const url = `${BASE}/${encodeURIComponent(tab)}?key=${API_KEY}`;
   try {
-    const res = await fetch(url);
-    const json = await res.json();
-    return json.values || [];
+    return (await fetchValues(tab)) || [];
   } catch (err) {
     console.error(`[fetchRawSheet: ${tab}] error`, err);
     return [];
@@ -3809,7 +3852,8 @@ const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo,
 };
 
 // ── Main ──────────────────────────────────────────────────────────────
-export default function NaukaDashboard() {
+function NaukaDashboard({ auth, onSignOut }) {
+  const [showLogins, setShowLogins] = useState(false);
   const [view, setView]               = useState("home");
   const [kpis, setKpis]           = useState([]);
   const [pipeline, setPipeline]   = useState([]);
@@ -4035,8 +4079,16 @@ export default function NaukaDashboard() {
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", fontFamily: FONT_BODY }}>Updated {lastUpdated}</div>
+          {auth && (
+            <div className="nk-user" style={{ fontSize: 11, color: "rgba(255,255,255,0.75)", fontFamily: FONT_BODY, marginTop: 6 }}>
+              {auth.name}
+              {auth.admin && <> · <button onClick={() => setShowLogins(true)} style={LINK_BTN}>Logins</button></>}
+              {" · "}<button onClick={onSignOut} style={LINK_BTN}>Sign out</button>
+            </div>
+          )}
         </div>
       </div>
+      {showLogins && <LoginsModal onClose={() => setShowLogins(false)} />}
 
       {/* Main menu — top bar on desktop, bottom bar on phones */}
       <MainNav view={view} onGo={go} todayCount={todayCount} />
@@ -4170,4 +4222,102 @@ export default function NaukaDashboard() {
       </div>
     </div>
   );
+}
+
+
+// ══════════════════════════════════════════════════════════════════════
+// ── LOGIN (Nov 6, 2026) ─────────────────────────────────────────────
+// One shared password (Access tab, cell B2) plus the person's name. Every
+// attempt is written to Login_Log. Changing B2 signs everyone out. The admin
+// password (Access B3) also opens the list of logins in the app.
+const LINK_BTN = { background: "none", border: "none", padding: 0, color: "inherit", textDecoration: "underline", cursor: "pointer", font: "inherit" };
+
+function LoginScreen({ onIn }) {
+  const [name, setName] = useState(() => { try { return localStorage.getItem("nauka_name") || ""; } catch { return ""; } });
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const submit = async e => {
+    e.preventDefault();
+    if (!name.trim()) { setMsg("Please type your name."); return; }
+    if (!password) { setMsg("Please type the password."); return; }
+    setBusy(true); setMsg("");
+    try {
+      const out = await scriptCall({ action: "login", name: name.trim(), password, device: deviceLabel() });
+      if (out && out.ok) {
+        try { localStorage.setItem("nauka_name", name.trim()); } catch {}
+        onIn({ token: out.token, name: out.name, admin: !!out.admin, exp: Date.now() + (out.hours || 6) * 3600 * 1000 });
+      } else setMsg(out && out.error === "password" ? "Wrong password." : "Could not sign in. Try again.");
+    } catch (err) {
+      setMsg("Could not reach the dashboard. Check your connection and try again.");
+    }
+    setBusy(false);
+  };
+  const field = { width: "100%", boxSizing: "border-box", padding: "12px 14px", fontSize: 16, border: "1px solid rgba(54,67,74,0.25)", borderRadius: 8, fontFamily: FONT_BODY, color: C.gray, background: C.white, marginTop: 6 };
+  const label = { fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(54,67,74,0.7)", fontFamily: FONT_BODY, display: "block", marginTop: 16 };
+  return (
+    <div style={{ minHeight: "100vh", background: C.beige, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, boxSizing: "border-box", fontFamily: FONT_BODY }}>
+      <form onSubmit={submit} style={{ width: "100%", maxWidth: 380, background: C.white, borderRadius: 12, overflow: "hidden", boxShadow: "0 6px 24px rgba(54,67,74,0.12)" }}>
+        <div style={{ background: C.gray, padding: "22px 24px" }}>
+          <img src="/Nauka_Horizontal_Logo.png" alt="Nauka" style={{ height: 44, width: "auto", display: "block" }} />
+          <div style={{ fontSize: 11, color: C.teal, letterSpacing: "0.1em", textTransform: "uppercase", marginTop: 10 }}>Sales Snapshot</div>
+        </div>
+        <div style={{ padding: "8px 24px 24px" }}>
+          <label style={label}>Your name
+            <input style={field} value={name} onChange={e => setName(e.target.value)} autoComplete="name" placeholder="First and last name" />
+          </label>
+          <label style={label}>Password
+            <input style={field} type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
+          </label>
+          {msg && <div style={{ color: C.red, fontSize: 13, marginTop: 12 }}>{msg}</div>}
+          <button type="submit" disabled={busy} style={{ marginTop: 20, width: "100%", padding: "13px", fontSize: 15, fontWeight: "bold", border: "none", borderRadius: 8, background: C.teal, color: C.gray, cursor: busy ? "default" : "pointer", fontFamily: FONT_BODY, opacity: busy ? 0.6 : 1 }}>
+            {busy ? "Signing in…" : "Sign in"}
+          </button>
+          <div style={{ fontSize: 11, color: "rgba(54,67,74,0.55)", marginTop: 14, lineHeight: 1.4 }}>Internal use only. Each sign-in is recorded with your name.</div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function LoginsModal({ onClose }) {
+  const [rows, setRows] = useState(null);
+  useEffect(() => {
+    scriptCall({ action: "logins", token: AUTH && AUTH.token })
+      .then(out => setRows(out && out.ok ? out.rows : []))
+      .catch(() => setRows([]));
+  }, []);
+  const cell = { padding: "8px 10px", borderBottom: "1px solid rgba(54,67,74,0.1)", fontSize: 13, textAlign: "left", verticalAlign: "top" };
+  return (
+    <Modal title="Logins" subtitle="Newest first · from the Login_Log tab" onClose={onClose}>
+      {rows === null ? <div style={{ fontSize: 13, opacity: 0.6 }}>Loading…</div>
+        : rows.length === 0 ? <div style={{ fontSize: 13, opacity: 0.6 }}>No logins yet.</div>
+        : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT_BODY, color: C.gray }}>
+              <thead><tr>{["Date & time", "Name", "Device", "Result"].map(h => <th key={h} style={{ ...cell, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", opacity: 0.7 }}>{h}</th>)}</tr></thead>
+              <tbody>{rows.map((r, i) => (
+                <tr key={i}>
+                  <td style={{ ...cell, whiteSpace: "nowrap" }}>{r[0]}</td>
+                  <td style={cell}>{r[1]}{r[2] === "Admin" ? " (admin)" : ""}</td>
+                  <td style={cell}>{r[3]}</td>
+                  <td style={{ ...cell, color: r[4] === "Signed in" ? C.gray : C.red }}>{r[4]}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+    </Modal>
+  );
+}
+
+export default function NaukaApp() {
+  const [auth, setAuth] = useState(AUTH);
+  useEffect(() => {
+    const f = () => setAuth(null);
+    authLost.add(f);
+    return () => { authLost.delete(f); };
+  }, []);
+  if (!auth) return <LoginScreen onIn={a => { AUTH = a; authWrite(a); setAuth(a); }} />;
+  return <NaukaDashboard auth={auth} onSignOut={() => { AUTH = null; authWrite(null); setAuth(null); }} />;
 }

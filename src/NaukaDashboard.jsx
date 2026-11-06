@@ -2259,6 +2259,8 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
         cards.set(g.key, {
           key: g.key, rid: g.rid, name: g.name, advisor: g.advisor || "Unassigned", kind: "gone",
           reason: off.includes(status.toLowerCase()) ? status : "Not This Time",
+          // Last stage before leaving: after the visit ends the prospect is a Qualified Opportunity.
+          fromStage: past && (past.departure || past.arrival) < today ? "Qualified Opportunity" : "Prospect Visit", fromPipe: "Experiences",
           leadStatus: status, src: g.src, lastActivity: g.lastActivity, lastVisit: past || null, nextVisit: null,
           notes: [...g.notes], interest: "", nextStep: "", amount: 0, property: "",
         });
@@ -2302,12 +2304,14 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
     if (rid && openByRid.has(rid)) return;
     const key = rid || `lost:${pdStr(r["Deal Name"])}`;
     const reason = `Lost deal${pdStr(r["Loss Reason"]) ? ` · ${pdStr(r["Loss Reason"])}` : ""}`;
+    // Last deal stage before Lost: signed OTP, else inventory on hold (Pending OTP), else Active Negotiation.
+    const fromStage = twParseDate(r["OTP Signed Date"]) ? "Signed OTP" : property ? "Pending OTP" : "Active Negotiation";
     const prev = cards.get(key);
-    if (prev && prev.kind === "gone") { prev.reason = reason; prev.property = property || prev.property; return; }
+    if (prev && prev.kind === "gone") { prev.reason = reason; prev.property = property || prev.property; prev.fromStage = fromStage; prev.fromPipe = "Deal pipeline"; return; }
     if (prev) return; // still in play on the board (e.g. visited again and Active)
     const g = rid ? [...persons.values()].find(p => p.rid === rid) : null;
     cards.set(key, {
-      key, rid, name: buyer || pdStr(r["Deal Name"]), advisor: pdStr(r["Advisor"]) || (g && g.advisor) || "Unassigned", kind: "gone", reason,
+      key, rid, name: buyer || pdStr(r["Deal Name"]), advisor: pdStr(r["Advisor"]) || (g && g.advisor) || "Unassigned", kind: "gone", reason, fromStage, fromPipe: "Deal pipeline",
       leadStatus: g ? g.leadStatus : "", src: g ? g.src : pdStr(r["Source"]), ref: pdStr(r["Referral Source"]), lastActivity: null,
       lastVisit: g ? g.visits.filter(v => v.stage !== "Canceled" && v.arrival && v.arrival <= today).slice(-1)[0] || null : null, nextVisit: null,
       notes: g ? [...g.notes] : [], interest: "", nextStep: "", amount: twAmount(r["Amount ($)"]), property: property || "", lostDate: lost,
@@ -2479,6 +2483,11 @@ const WhiteboardCard = ({ c, onOpen }) => {
           <span className="wb-d">{c.reason}{c.property ? ` · ${c.property}` : ""}</span><span className="wb-m">{c.reason.replace(/^Lost deal.*/, "Lost deal")}</span>
         </div>
       )}
+      {c.kind === "gone" && c.fromStage && (
+        <div className="wb-from" style={{ fontSize: 12, color: C.gray, fontFamily: FONT_BODY, marginTop: 3 }}>
+          From <strong>{c.fromStage}</strong><span className="wb-d"> · {c.fromPipe}</span>
+        </div>
+      )}
       {c.kind !== "neg" && c.kind !== "gone" && (
         <div className="wb-kind" style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "#4E8F8F", fontFamily: FONT_BODY, marginTop: 3 }}>
           <span className="wb-d">{WB_KIND_LABEL(c)}{c.interest ? ` · ${c.interest}` : ""}</span><span className="wb-m">{c.kind === "qo" ? "Qualified Opp." : WB_KIND_LABEL(c)}</span>
@@ -2527,6 +2536,7 @@ const WhiteboardDetail = ({ c, onClose }) => {
           {c.days != null ? `${c.days} day${c.days === 1 ? "" : "s"} since the last note, call or meeting` : "No note, call or meeting yet"}
         </span>
         {c.kind === "gone" && <span className="wb-chip" style={{ color: C.red, fontWeight: "bold" }}>Not moving forward · {c.reason}{c.property ? ` · ${c.property}` : ""}</span>}
+        {c.kind === "gone" && c.fromStage && <span className="wb-chip">From {c.fromStage} · {c.fromPipe}</span>}
         {c.kind === "neg" && <span className="wb-chip wb-chip-on">Active Negotiation{c.amount ? ` · ${money(c.amount)}` : ""}{c.property ? ` · ${c.property}` : ""}</span>}
         {c.lastVisit && <span className="wb-chip">Visited {visitWhen(c.lastVisit)}</span>}
         {c.nextVisit && <span className="wb-chip wb-chip-on">{nextVisitLabel(c.nextVisit, pdDay(new Date()))}</span>}
@@ -2643,6 +2653,7 @@ const Whiteboard = ({ cards, talks = false, gone = false }) => {
           .wb-light{font-size:10.5px !important;gap:4px !important}
           .wb-dot{width:7px !important;height:7px !important}
           .wb-chips{display:none !important}
+          .wb-from{font-size:10.5px !important;line-height:1.3}
           .wb-next{font-size:10px;padding:3px 5px;margin-top:5px}
           .wb-due{display:block;font-size:10.5px !important;margin-top:2px}
           .wb-task{font-size:10.5px !important;line-height:1.35 !important}
@@ -2676,7 +2687,7 @@ const Whiteboard = ({ cards, talks = false, gone = false }) => {
         })}
       </div>
       <PdNote>
-        {gone ? <><strong>Not moving forward:</strong> visited in the last 60 days, then Lead Status Timing, Not Interested, Unqualified or Unsubscribed, visit marked Not This Time, or deal Lost.</> : talks ? <>Not visited yet; a note, call or meeting in the last {WB_YELLOW} days. Moves up to the whiteboard after the visit.</> : <><strong>Qualified Opportunity:</strong> active prospect that visited in the last 60 days. <strong>Active Negotiation:</strong> advisor working toward an OTP · estimated amount.</>}
+        {gone ? <><strong>Not moving forward:</strong> "From" is the last stage before leaving (Experiences or Deal pipeline). Visited in the last 60 days, then Lead Status Timing, Not Interested, Unqualified or Unsubscribed, visit marked Not This Time, or deal Lost.</> : talks ? <>Not visited yet; a note, call or meeting in the last {WB_YELLOW} days. Moves up to the whiteboard after the visit.</> : <><strong>Qualified Opportunity:</strong> active prospect that visited in the last 60 days. <strong>Active Negotiation:</strong> advisor working toward an OTP · estimated amount.</>}
       </PdNote>
       {open && <WhiteboardDetail c={open} onClose={() => setOpen(null)} />}
     </div>

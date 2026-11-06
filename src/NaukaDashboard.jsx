@@ -2196,7 +2196,7 @@ const wbLight = days => days == null ? "none" : days <= WB_GREEN ? "green" : day
 // just the HubSpot title of the meeting or call ("Meeting logged", "Call with …").
 const NOTE_PLACEHOLDER = /^(meeting logged|call logged|note logged|\(note with no text\)|call with .+|meeting with .+|property tour|on-site meeting|virtual call|meeting|call|note)$/i;
 const noteHasText = n => { const t = pdStr(n && n.text); return !!t && !NOTE_PLACEHOLDER.test(t); };
-function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNotes, today, winStart }) {
+function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNotes, masterDeals, today, winStart }) {
   const off = WHITEBOARD_OFF_STATUSES.map(s => s.toLowerCase());
   const skipTypes = NOT_A_PROSPECT_TYPES.map(s => s.toLowerCase());
   const openByRid = new Map();
@@ -2239,8 +2239,32 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
   const qoFrom = new Date(today.getTime() - 60 * 864e5);
   const recentFrom = new Date(today.getFullYear(), today.getMonth() - 1, 1);
   const cards = new Map();
+  // The newest Lead Status logged in HubSpot (Contact_Notes) wins when it takes the person off the board (e.g. Timing).
+  const hsStatus = rid => {
+    const n = [...(notesByRid.get(rid) || [])].filter(x => x.leadStatus).sort((a, b) => (b.date || 0) - (a.date || 0))[0];
+    return n ? n.leadStatus : "";
+  };
   persons.forEach(g => {
-    const status = g.leadStatus || (g.rid && people.get(g.rid) ? pdStr(people.get(g.rid).status) : "");
+    const hsSt = g.rid ? hsStatus(g.rid) : "";
+    const status = (off.includes(hsSt.toLowerCase()) ? hsSt : "") || g.leadStatus || (g.rid && people.get(g.rid) ? pdStr(people.get(g.rid).status) : "") || hsSt;
+    // Not moving forward (Nov 5): visited in the last 60 days, then the Lead Status
+    // went to Timing / Not Interested / Unqualified / Unsubscribed or the visit to Not This Time.
+    {
+      const psx = v => pdStr(v.pipelineStage).toLowerCase();
+      const st = [...g.visits].filter(v => psx(v)).sort((a, b) => (b.arrival || 0) - (a.arrival || 0))[0];
+      const ntt = st && psx(st) === "not this time";
+      const came = g.visits.some(v => v.stage !== "Canceled" && v.arrival && v.arrival <= today && v.arrival >= qoFrom);
+      if (came && (ntt || off.includes(status.toLowerCase())) && !(g.rid && openByRid.has(g.rid))) {
+        const past = g.visits.filter(v => v.stage !== "Canceled" && v.arrival && v.arrival <= today).sort((a, b) => b.arrival - a.arrival)[0];
+        cards.set(g.key, {
+          key: g.key, rid: g.rid, name: g.name, advisor: g.advisor || "Unassigned", kind: "gone",
+          reason: off.includes(status.toLowerCase()) ? status : "Not This Time",
+          leadStatus: status, src: g.src, lastActivity: g.lastActivity, lastVisit: past || null, nextVisit: null,
+          notes: [...g.notes], interest: "", nextStep: "", amount: 0, property: "",
+        });
+        return;
+      }
+    }
     // Once on the list they stay (Pipeline Stage = Qualified Opportunity on the visit),
     // whatever the time, until an action removes them: a deal, Not This Time /
     // Canceled on the visit, or a Lead Status change (WHITEBOARD_OFF_STATUSES).
@@ -2265,6 +2289,28 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
       key: g.key, rid: g.rid, name: g.name, advisor: g.advisor || "Unassigned", kind: "qo",
       leadStatus: status, src: g.src, lastActivity: g.lastActivity, lastVisit: past || null, nextVisit: next || null,
       notes: [...g.notes], interest: "", nextStep: "", amount: 0, property: "",
+    });
+  });
+
+  // Deals Lost in the last 60 days also go to Not moving forward.
+  (masterDeals || []).forEach(r => {
+    if (!/^lost$/i.test(pdStr(r["Stage"]))) return;
+    const lost = twParseDate(r["Lost Date"]);
+    if (!lost || lost < qoFrom || lost > today) return;
+    const { property, buyer } = splitDealName(pdStr(r["Deal Name"]));
+    const rid = pdId(r["Buyer HubSpot Record ID"]);
+    if (rid && openByRid.has(rid)) return;
+    const key = rid || `lost:${pdStr(r["Deal Name"])}`;
+    const reason = `Lost deal${pdStr(r["Loss Reason"]) ? ` · ${pdStr(r["Loss Reason"])}` : ""}`;
+    const prev = cards.get(key);
+    if (prev && prev.kind === "gone") { prev.reason = reason; prev.property = property || prev.property; return; }
+    if (prev) return; // still in play on the board (e.g. visited again and Active)
+    const g = rid ? [...persons.values()].find(p => p.rid === rid) : null;
+    cards.set(key, {
+      key, rid, name: buyer || pdStr(r["Deal Name"]), advisor: pdStr(r["Advisor"]) || (g && g.advisor) || "Unassigned", kind: "gone", reason,
+      leadStatus: g ? g.leadStatus : "", src: g ? g.src : pdStr(r["Source"]), ref: pdStr(r["Referral Source"]), lastActivity: null,
+      lastVisit: g ? g.visits.filter(v => v.stage !== "Canceled" && v.arrival && v.arrival <= today).slice(-1)[0] || null : null, nextVisit: null,
+      notes: g ? [...g.notes] : [], interest: "", nextStep: "", amount: twAmount(r["Amount ($)"]), property: property || "", lostDate: lost,
     });
   });
 
@@ -2415,7 +2461,7 @@ const nextVisitLabel = (v, today) => v ? `${v.arrival <= today ? "On property" :
 const WB_KIND_LABEL = c => c.kind === "qo" ? "Qualified Opportunity" : !c.visited ? "In talks to visit" : "Added by advisor";
 
 const WhiteboardCard = ({ c, onOpen }) => {
-  const L = WB_LIGHT[c.light];
+  const L = c.kind === "gone" ? WB_LIGHT.none : WB_LIGHT[c.light];
   return (
     <div role="button" tabIndex={0} onClick={onOpen} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}
       className="wb-card" style={{ borderLeft: `5px solid ${L.color}` }}>
@@ -2428,7 +2474,12 @@ const WhiteboardCard = ({ c, onOpen }) => {
           <span className="wb-d">Active Negotiation{c.property ? ` · ${c.property}` : ""}</span><span className="wb-m">Active Negotiation</span>
         </div>
       )}
-      {c.kind !== "neg" && (
+      {c.kind === "gone" && (
+        <div className="wb-kind" style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: C.red, fontFamily: FONT_BODY, marginTop: 3 }}>
+          <span className="wb-d">{c.reason}{c.property ? ` · ${c.property}` : ""}</span><span className="wb-m">{c.reason.replace(/^Lost deal.*/, "Lost deal")}</span>
+        </div>
+      )}
+      {c.kind !== "neg" && c.kind !== "gone" && (
         <div className="wb-kind" style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: "#4E8F8F", fontFamily: FONT_BODY, marginTop: 3 }}>
           <span className="wb-d">{WB_KIND_LABEL(c)}{c.interest ? ` · ${c.interest}` : ""}</span><span className="wb-m">{c.kind === "qo" ? "Qualified Opp." : WB_KIND_LABEL(c)}</span>
         </div>
@@ -2457,7 +2508,7 @@ const WhiteboardCard = ({ c, onOpen }) => {
 };
 
 const WhiteboardDetail = ({ c, onClose }) => {
-  const L = WB_LIGHT[c.light];
+  const L = c.kind === "gone" ? WB_LIGHT.none : WB_LIGHT[c.light];
   const meta = [c.advisor, c.leadStatus && `Lead Status: ${c.leadStatus}`, c.src, c.ref && `Referral Source: ${c.ref}`].filter(Boolean).join(" · ");
   const noteRow = (n, i) => (
     <div key={i} style={{ ...ROW_STYLE, fontFamily: FONT_BODY }}>
@@ -2475,6 +2526,7 @@ const WhiteboardDetail = ({ c, onClose }) => {
         <span className="wb-chip" style={{ background: L.color, color: c.light === "none" ? C.gray : C.white, fontWeight: "bold" }}>
           {c.days != null ? `${c.days} day${c.days === 1 ? "" : "s"} since the last note, call or meeting` : "No note, call or meeting yet"}
         </span>
+        {c.kind === "gone" && <span className="wb-chip" style={{ color: C.red, fontWeight: "bold" }}>Not moving forward · {c.reason}{c.property ? ` · ${c.property}` : ""}</span>}
         {c.kind === "neg" && <span className="wb-chip wb-chip-on">Active Negotiation{c.amount ? ` · ${money(c.amount)}` : ""}{c.property ? ` · ${c.property}` : ""}</span>}
         {c.lastVisit && <span className="wb-chip">Visited {visitWhen(c.lastVisit)}</span>}
         {c.nextVisit && <span className="wb-chip wb-chip-on">{nextVisitLabel(c.nextVisit, pdDay(new Date()))}</span>}
@@ -2560,10 +2612,10 @@ const TaskLeads = ({ leads, today }) => {
   );
 };
 
-const Whiteboard = ({ cards, talks = false }) => {
+const Whiteboard = ({ cards, talks = false, gone = false }) => {
   const [open, setOpen] = useState(null);
   const advisors = [...AL_ADVISORS, ...[...new Set(cards.map(c => c.advisor))].filter(a => !AL_ADVISORS.includes(a)).sort()];
-  const sortCards = list => [...list].sort((a, b) => (a.kind === "neg" ? -1 : 0) - (b.kind === "neg" ? -1 : 0) || WB_ORDER[a.light] - WB_ORDER[b.light] || (b.days ?? -1) - (a.days ?? -1));
+  const sortCards = list => gone ? [...list].sort((a, b) => (a.days ?? 9999) - (b.days ?? 9999)) : [...list].sort((a, b) => (a.kind === "neg" ? -1 : 0) - (b.kind === "neg" ? -1 : 0) || WB_ORDER[a.light] - WB_ORDER[b.light] || (b.days ?? -1) - (a.days ?? -1));
   return (
     <div>
       <style>{`
@@ -2599,14 +2651,14 @@ const Whiteboard = ({ cards, talks = false }) => {
           div.wb-m{display:block}
         }
       `}</style>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 10, fontSize: 12, color: "rgba(54,67,74,0.75)", fontFamily: FONT_BODY }}>
+      {!gone && <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 10, fontSize: 12, color: "rgba(54,67,74,0.75)", fontFamily: FONT_BODY }}>
         {["green", "yellow", "red"].map(k => (
           <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
             <span style={{ width: 10, height: 10, borderRadius: "50%", background: WB_LIGHT[k].color }} />
             {WB_LIGHT[k].hint}
           </span>
         ))}
-      </div>
+      </div>}
       <div className="wb-board">
         {advisors.map(a => {
           const mine = sortCards(cards.filter(c => c.advisor === a));
@@ -2617,14 +2669,14 @@ const Whiteboard = ({ cards, talks = false }) => {
                 <span style={{ fontSize: 14, fontWeight: "bold", color: C.gray }}>{a}</span>
                 <span style={{ fontFamily: FONT_DISPLAY, fontSize: 20, color: C.gray }}>{mine.length}</span>
               </div>
-              {mine.length === 0 && <div style={{ fontSize: 12.5, color: PD_MUTED, fontFamily: FONT_BODY, padding: "10px 2px 2px" }}>{talks ? "No one in talks right now." : "No one on the list yet."}</div>}
+              {mine.length === 0 && <div style={{ fontSize: 12.5, color: PD_MUTED, fontFamily: FONT_BODY, padding: "10px 2px 2px" }}>{gone ? "No one in the last 60 days." : talks ? "No one in talks right now." : "No one on the list yet."}</div>}
               {mine.map(c => <WhiteboardCard key={c.key} c={c} onOpen={() => setOpen(c)} />)}
             </div>
           );
         })}
       </div>
       <PdNote>
-        {talks ? <>Not visited yet; a note, call or meeting in the last {WB_YELLOW} days. Moves up to the whiteboard after the visit.</> : <><strong>Qualified Opportunity:</strong> active prospect that visited in the last 60 days. <strong>Active Negotiation:</strong> advisor working toward an OTP · estimated amount.</>}
+        {gone ? <><strong>Not moving forward:</strong> visited in the last 60 days, then Lead Status Timing, Not Interested, Unqualified or Unsubscribed, visit marked Not This Time, or deal Lost.</> : talks ? <>Not visited yet; a note, call or meeting in the last {WB_YELLOW} days. Moves up to the whiteboard after the visit.</> : <><strong>Qualified Opportunity:</strong> active prospect that visited in the last 60 days. <strong>Active Negotiation:</strong> advisor working toward an OTP · estimated amount.</>}
       </PdNote>
       {open && <WhiteboardDetail c={open} onClose={() => setOpen(null)} />}
     </div>
@@ -3949,11 +4001,12 @@ export default function NaukaDashboard() {
   const model = buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis, kpiArchive, settings, now });
   const todayCount = model.entries.filter(e => calSameDay(e.date, model.today)).length;
   const openDeals = openDealsByStage(masterDeals);
-  const whiteboard = buildWhiteboard({ calRecords, people: model.people, openDeals, activeLeads, contactNotes, today: model.today, winStart: model.win.start });
+  const whiteboard = buildWhiteboard({ calRecords, people: model.people, openDeals, activeLeads, contactNotes, masterDeals, today: model.today, winStart: model.win.start });
   // Qualified Opportunities = people after a prospect visit (names added by hand who have not visited are on the board, not in the count).
   const qoCount = whiteboard.filter(c => c.kind === "qo").length;
-  const boardCards = whiteboard.filter(c => c.visited);
-  const talkCards = whiteboard.filter(c => !c.visited);
+  const goneCards = whiteboard.filter(c => c.kind === "gone");
+  const boardCards = whiteboard.filter(c => c.visited && c.kind !== "gone");
+  const talkCards = whiteboard.filter(c => !c.visited && c.kind !== "gone");
   const taskLeads = buildTaskLeads({ contactNotes, cards: whiteboard, people: model.people, today: model.today });
   const go = key => {
     setView(key);
@@ -4036,6 +4089,8 @@ export default function NaukaDashboard() {
             <SalesPipelineTable qoCount={qoCount} openDeals={openDeals} onOpenStage={k => setOpenModal({ type: "pipeStage", key: k })} />
             <PdSectionHead big text="Qualified Opportunities & Active Negotiations · by advisor" right="Tap a name for the notes" />
             <Whiteboard cards={boardCards} />
+            <PdSectionHead text={`Not moving forward · ${goneCards.length}`} right="Last 60 days" />
+            <Whiteboard cards={goneCards} gone />
             <PdSectionHead text={`Leads with upcoming tasks · ${taskLeads.length}`} right={`Next ${TASKS_AHEAD_DAYS} days`} />
             <TaskLeads leads={taskLeads} today={model.today} />
             <PdSectionHead text={`In talks to visit · ${talkCards.length}`} right="Not on property yet" />

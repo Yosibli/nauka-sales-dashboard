@@ -494,7 +494,7 @@ function splitDealName(name) {
 }
 
 // ── Deal Card ─────────────────────────────────────────────────────────
-const DealCard = ({ deal }) => {
+const DealCard = ({ deal, hsNote = null }) => {
   const days = num(deal["Days on Hold"]);
   const accent = days > 90 ? C.amber : C.teal;
   const { property, buyer } = splitDealName(deal["Property / Buyer"] || deal["Deal Name"]);
@@ -510,7 +510,15 @@ const DealCard = ({ deal }) => {
       <RowMeta>
         {[deal["Advisor"], deal["Source"], days ? `${days} days` : null, deal["DD Expiry"] ? `DD: ${deal["DD Expiry"]}` : null].filter(Boolean).join(" · ")}
       </RowMeta>
-      {deal["Notes"] && <RowNotes>{deal["Notes"]}</RowNotes>}
+      {hsNote ? (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 10, fontWeight: "bold", color: "rgba(54,67,74,0.55)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4, fontFamily: FONT_BODY }}>Last note</div>
+          <div style={{ fontSize: 13, color: C.gray, lineHeight: 1.5, fontFamily: FONT_BODY, whiteSpace: "pre-line" }}>
+            <span style={{ fontWeight: "bold", color: "rgba(54,67,74,0.55)" }}>{[twDayFmt(hsNote.date), (k => k.charAt(0).toUpperCase() + k.slice(1))(activityLabel(hsNote)), hsNote.author && hsNote.author.split(" ")[0]].filter(Boolean).join(" · ")}: </span>
+            {hsNote.text}
+          </div>
+        </div>
+      ) : deal["Notes"] && <RowNotes>{deal["Notes"]}</RowNotes>}
     </div>
   );
 };
@@ -664,21 +672,30 @@ function parseCalendarSheet(rows) {
     .map(r => (r.departure ? r : { ...r, departure: r.arrival })); // a day visit may leave Departure empty
 }
 
-// Visits show only the latest note, call or meeting logged in HubSpot for that
-// contact (Contact_Notes tab, tasks excluded). The calendar's own Notes cell is
-// used only when HubSpot has nothing for the contact (Nov 3).
+// Visits show the last two notes, calls, meetings or emails logged in HubSpot for
+// that contact (Contact_Notes tab, tasks excluded), oldest first in the array
+// (the last item is the newest). The calendar's own Notes cell is used only when
+// HubSpot has nothing for the contact (Nov 3; two notes since Nov 9).
+const CAL_NOTES_SHOWN = 2;
 function withLatestNote(records, contactNotes) {
-  const latest = new Map();
+  const byRid = new Map();
+  const seen = new Set();
   (contactNotes || []).forEach(n => {
     if (!n.rid || /^task$/i.test(n.type) || !n.date || !noteHasText(n)) return;
-    const cur = latest.get(n.rid);
-    if (!cur || n.date > cur.date) latest.set(n.rid, n);
+    const key = `${n.rid}|${n.aid || `${+n.date}|${n.text.slice(0, 40)}`}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    if (!byRid.has(n.rid)) byRid.set(n.rid, []);
+    byRid.get(n.rid).push(n);
   });
   return records.map(r => {
-    const n = latest.get(pdId(r.recordId));
-    if (!n) return r.notes && r.notes.length ? { ...r, notes: [r.notes[r.notes.length - 1]] } : r;
-    const kind = activityLabel(n);
-    return { ...r, notes: [{ date: [twDayFmt(n.date), kind.charAt(0).toUpperCase() + kind.slice(1), n.author && n.author.split(" ")[0]].filter(Boolean).join(" · "), text: n.text }] };
+    const list = byRid.get(pdId(r.recordId));
+    if (!list) return r.notes && r.notes.length ? { ...r, notes: r.notes.slice(-CAL_NOTES_SHOWN) } : r;
+    const last = [...list].sort((a, b) => b.date - a.date).slice(0, CAL_NOTES_SHOWN).reverse();
+    return { ...r, notes: last.map(n => {
+      const kind = activityLabel(n);
+      return { date: [twDayFmt(n.date), kind.charAt(0).toUpperCase() + kind.slice(1), n.author && n.author.split(" ")[0]].filter(Boolean).join(" · "), text: n.text };
+    }) };
   });
 }
 
@@ -961,10 +978,10 @@ const CalendarRecordCard = ({ r, showIssues, advisorColors = CAL_ADVISOR_COLORS 
       {r.notes && r.notes.length > 0 && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: "0.5px solid rgba(54,67,74,0.12)" }}>
           <div style={{ fontSize: 10, fontWeight: "bold", color: "rgba(54,67,74,0.55)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, fontFamily: FONT_BODY }}>
-            Last note
+            {r.notes.length > 1 ? "Last two notes" : "Last note"}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {r.notes.map((n, i) => (
+            {[...r.notes].reverse().map((n, i) => (
               <div key={i} style={{ fontSize: 13, color: C.gray, lineHeight: 1.5, fontFamily: FONT_BODY, whiteSpace: "pre-line" }}>
                 {n.date && <span style={{ fontWeight: "bold", color: "rgba(54,67,74,0.55)" }}>{n.date}: </span>}
                 {n.text}
@@ -1844,10 +1861,10 @@ const TWEntryRow = ({ e, showDate }) => {
       {e.notes && e.notes.length > 0 && (
         <div style={{ marginTop: 10 }}>
           <div style={{ fontSize: 10, fontWeight: "bold", color: PD_MUTED, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, fontFamily: FONT_BODY }}>
-            Last note
+            {e.notes.length > 1 ? "Last two notes" : "Last note"}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {e.notes.map((n, i) => (
+            {[...e.notes].reverse().map((n, i) => (
               <div key={i} style={{ fontSize: 12.5, color: "rgba(54,67,74,0.85)", lineHeight: 1.55, fontFamily: FONT_BODY, whiteSpace: "pre-line" }}>
                 {n.date && <span style={{ fontWeight: "bold", color: PD_MUTED }}>{n.date}: </span>}
                 {n.text}
@@ -2225,15 +2242,15 @@ function openDealsByStage(masterDeals) {
 // Traffic light from days since the last activity (decided Nov 3, 2026).
 const WB_GREEN = 14, WB_YELLOW = 30;
 const WB_LIGHT = {
-  green:  { color: C.green, label: "Active",       hint: `note, call or meeting in the last ${WB_GREEN} days` },
-  yellow: { color: "#E0B23C", label: "Slowing down", hint: `${WB_GREEN + 1}–${WB_YELLOW} days since the last note, call or meeting, or a follow-up task scheduled` },
-  red:    { color: C.red,   label: "Stalled",      hint: `more than ${WB_YELLOW} days since the last note, call or meeting, no follow-up task` },
-  none:   { color: "#C9CED1", label: "No activity date", hint: "no note, call or meeting in HubSpot" },
+  green:  { color: C.green, label: "Active",       hint: `note, call, meeting or email in the last ${WB_GREEN} days` },
+  yellow: { color: "#E0B23C", label: "Slowing down", hint: `${WB_GREEN + 1}–${WB_YELLOW} days since the last note, call, meeting or email, or a follow-up task scheduled` },
+  red:    { color: C.red,   label: "Stalled",      hint: `more than ${WB_YELLOW} days since the last note, call, meeting or email, no follow-up task` },
+  none:   { color: "#C9CED1", label: "No activity date", hint: "no note, call, meeting or email in HubSpot" },
 };
 const wbLight = days => days == null ? "none" : days <= WB_GREEN ? "green" : days <= WB_YELLOW ? "yellow" : "red";
 
 // Qualified Opportunities: one card per person who toured Nauka in the last 60
-// days, has Lead Status = Active and a note, call or meeting this month or last
+// days, has Lead Status = Active and a note, call, meeting or email this month or last
 // month. An open deal shows as its own stage instead.
 // A note worth showing has real text: not empty, not an image-only note, and not
 // just the HubSpot title of the meeting or call ("Meeting logged", "Call with …").
@@ -2278,7 +2295,7 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
   });
 
   // Qualified Opportunity (Nov 3): toured in the last 60 days, Lead Status = Active,
-  // and a note, call or meeting this month or last month.
+  // and a note, call, meeting or email this month or last month.
   const qoFrom = new Date(today.getTime() - 60 * 864e5);
   const recentFrom = new Date(today.getFullYear(), today.getMonth() - 1, 1);
   const cards = new Map();
@@ -2319,7 +2336,7 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
     const sticky = staged && ps(staged) === "qualified opportunity";
     if (!sticky) {
       // Entry: 1 · visited in the last 60 days (on property counts) · 2 · Lead Status Active
-      // · 3 · a note, call or meeting this month or last month
+      // · 3 · a note, call, meeting or email this month or last month
       if (!g.visits.some(v => v.stage !== "Canceled" && v.arrival && v.arrival <= today && v.arrival >= qoFrom)) return;
       if (status.toLowerCase() !== "active") return;
       const touch = g.rid ? (notesByRid.get(g.rid) || []).reduce((m, n) => (n.date && (!m || n.date > m) ? n.date : m), null) : null;
@@ -2402,7 +2419,7 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
   });
 
   // Live activity (Nov 3): anyone with a note or meeting an advisor logged by hand
-  // in HubSpot in the last 30 days (Contact_Notes tab; emails do not count).
+  // in HubSpot in the last 30 days (Contact_Notes tab; emails count since Nov 9).
   // Already came → whiteboard. Not yet → "In talks to visit" (Unresponsive /
   // No Contact are left out there: background research is not talks).
   // A spouse or broker on the same notes/meetings is folded into one card.
@@ -2456,7 +2473,7 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
     const dealNotes = myDeals.map(d => ({ rid: c.rid, date: d.created, type: "Note", activityType: "Deal note", author: d.advisor, text: d.notes }));
     const hs = c.rid ? [...(notesByRid.get(c.rid) || []), ...dealNotes].sort((a, b) => (b.date || 0) - (a.date || 0)) : [];
     const lastTouch = hs.find(n => n.date)?.date || null;
-    const lastActivity = lastTouch; // notes and meetings only; emails never count
+    const lastActivity = lastTouch; // notes, calls, meetings and emails (Nov 9)
     const days = lastActivity ? Math.max(pdDiff(lastActivity, today), 0) : null;
     const g = c.rid ? [...persons.values()].find(p => p.rid === c.rid) : persons.get(`name:${pdStr(c.name).toLowerCase()}`);
     // On the whiteboard: people who have already come (or are on property now) and every Active Negotiation.
@@ -2497,7 +2514,7 @@ function parseContactNotes(rows) {
     source: pdStr(r["Lead Source"]),
     activityType: pdStr(r["Activity Type"]),
     text: pdStr(r["Note"]),
-  })).filter(n => n.rid && n.text && !/^email$/i.test(n.type));
+  })).filter(n => n.rid && n.text); // emails count as activity (Nov 9)
 }
 
 const WB_ORDER = { red: 0, yellow: 1, none: 2, green: 3 };
@@ -2540,7 +2557,7 @@ const WhiteboardCard = ({ c, onOpen }) => {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7, alignItems: "center" }}>
         <span className="wb-light" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontFamily: FONT_BODY, color: C.gray }}>
           <span className="wb-dot" style={{ width: 9, height: 9, borderRadius: "50%", background: L.color, flex: "none" }} />
-          <span className="wb-d">{c.days == null ? "No note, call or meeting yet" : `Last ${activityLabel(c.lastNote)} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}</span>
+          <span className="wb-d">{c.days == null ? "No note, call, meeting or email yet" : `Last ${activityLabel(c.lastNote)} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}</span>
           <span className="wb-m">{c.days == null ? "No activity" : `${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days}d`}`}</span>
         </span>
       </div>
@@ -2576,7 +2593,7 @@ const WhiteboardDetail = ({ c, onClose }) => {
     <Modal title={c.name} subtitle={meta} onClose={onClose}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
         <span className="wb-chip" style={{ background: L.color, color: c.light === "none" ? C.gray : C.white, fontWeight: "bold" }}>
-          {c.days != null ? `${c.days} day${c.days === 1 ? "" : "s"} since the last note, call or meeting` : "No note, call or meeting yet"}
+          {c.days != null ? `${c.days} day${c.days === 1 ? "" : "s"} since the last note, call, meeting or email` : "No note, call, meeting or email yet"}
         </span>
         {c.kind === "gone" && <span className="wb-chip" style={{ color: C.red, fontWeight: "bold" }}>Not moving forward · {c.reason}{c.property ? ` · ${c.property}` : ""}</span>}
         {c.kind === "gone" && c.fromStage && <span className="wb-chip">From {c.fromStage} · {c.fromPipe}</span>}
@@ -2588,7 +2605,7 @@ const WhiteboardDetail = ({ c, onClose }) => {
       {c.interest && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Interest:</strong> {c.interest}</div>}
       {c.dealNotes && !(c.shownNote && c.shownNote.text === c.dealNotes) && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Deal notes:</strong> {c.dealNotes}</div>}
       {c.nextTask && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 10 }}><strong>Next step · {twDayFmt(c.nextTask.date)}:</strong> {c.nextTask.text}{c.nextTask.author ? ` (${c.nextTask.author})` : ""}</div>}
-      {c.shownNote && <PdSectionHead text="Most recent note, call or meeting · HubSpot" first />}
+      {c.shownNote && <PdSectionHead text="Most recent note, call, meeting or email · HubSpot" first />}
       {c.shownNote && noteRow(c.shownNote, "last")}
       {!c.shownNote && c.notes.length > 0 && <PdSectionHead text="Most recent note" first />}
       {!c.shownNote && c.notes.length > 0 && noteRow(c.notes[c.notes.length - 1], "n")}
@@ -2600,7 +2617,7 @@ const WhiteboardDetail = ({ c, onClose }) => {
 };
 
 // Upcoming tasks (Nov 3): open HubSpot tasks due in the next 30 days for leads
-// who are not already on the whiteboard or in "In talks to visit", by advisor.
+// who are not already on the whiteboard, by advisor ("In talks to visit" removed Nov 10).
 const TASKS_AHEAD_DAYS = 30;
 function buildTaskLeads({ contactNotes, cards, people, today }) {
   const until = new Date(today.getTime() + TASKS_AHEAD_DAYS * 864e5);
@@ -2660,7 +2677,7 @@ const TaskLeads = ({ leads, today }) => {
           );
         })}
       </div>
-      <PdNote>Open HubSpot tasks due in the next {TASKS_AHEAD_DAYS} days, for leads who are not on the whiteboard or in talks to visit. Earliest task first.</PdNote>
+      <PdNote>Open HubSpot tasks due in the next {TASKS_AHEAD_DAYS} days, for leads who are not on the whiteboard. Earliest task first.</PdNote>
     </div>
   );
 };
@@ -2730,7 +2747,7 @@ const Whiteboard = ({ cards, talks = false, gone = false }) => {
         })}
       </div>
       <PdNote>
-        {gone ? <><strong>Not moving forward:</strong> "From" is the last stage before leaving (Experiences or Deal pipeline). Visited in the last 60 days, then Lead Status Timing, Not Interested, Unqualified or Unsubscribed, visit marked Not This Time, or deal Lost.</> : talks ? <>Not visited yet; a note, call or meeting in the last {WB_YELLOW} days. Moves up to the whiteboard after the visit.</> : <><strong>Qualified Opportunity:</strong> active prospect that visited in the last 60 days. <strong>Active Negotiation:</strong> advisor working toward an OTP · estimated amount.</>}
+        {gone ? <><strong>Not moving forward:</strong> "From" is the last stage before leaving (Experiences or Deal pipeline). Visited in the last 60 days, then Lead Status Timing, Not Interested, Unqualified or Unsubscribed, visit marked Not This Time, or deal Lost.</> : talks ? <>Not visited yet; a note, call, meeting or email in the last {WB_YELLOW} days. Moves up to the whiteboard after the visit.</> : <><strong>Qualified Opportunity:</strong> active prospect that visited in the last 60 days. <strong>Active Negotiation:</strong> advisor working toward an OTP · estimated amount.</>}
       </PdNote>
       {open && <WhiteboardDetail c={open} onClose={() => setOpen(null)} />}
     </div>
@@ -2787,7 +2804,7 @@ const QualifiedOppList = ({ cards, onClose }) => {
             <RowMeta>{[c.advisor, c.src, c.ref && `via ${c.ref}`, c.leadStatus && `Lead Status: ${c.leadStatus}`].filter(Boolean).join(" · ")}</RowMeta>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontSize: 12.5, color: C.gray, fontFamily: FONT_BODY }}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: L.color }} />
-              {c.days == null ? "No note, call or meeting yet" : `Last ${activityLabel(c.lastNote)} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}
+              {c.days == null ? "No note, call, meeting or email yet" : `Last ${activityLabel(c.lastNote)} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}
             </div>
             {c.nextTask && <div className="wb-next" style={{ marginTop: 6 }}><strong>Next · {twDayFmt(c.nextTask.date)}</strong> {c.nextTask.text}</div>}
           </div>
@@ -3937,6 +3954,15 @@ function NaukaDashboard({ auth, onSignOut }) {
   }, [load]);
 
   const pipe = stage => pipeline.find(r => r["Stage"] === stage) ?? {};
+  // Latest HubSpot note, call, meeting or email for a deal's buyer (Master_Deals
+  // Buyer HubSpot Record ID → Contact_Notes). Used on Expired Due Diligence (Nov 10).
+  const dealLastNote = d => {
+    const name = pdStr(d["Deal Name"] || d["Property / Buyer"]).toLowerCase();
+    const md = (masterDeals || []).find(r => pdStr(r["Deal Name"]).toLowerCase() === name);
+    const rid = md ? pdId(md["Buyer HubSpot Record ID"]) : "";
+    if (!rid) return null;
+    return (contactNotes || []).filter(n => n.rid === rid && !/^task$/i.test(n.type) && n.date && noteHasText(n)).sort((a, b) => b.date - a.date)[0] || null;
+  };
 
   const today = new Date();
   const expiredDeals = deals.filter(d => {
@@ -4044,7 +4070,7 @@ function NaukaDashboard({ auth, onSignOut }) {
           </div>
           {records.length === 0
             ? <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>No deals to show.</div>
-            : records.map((d, i) => stage === "YTD Signed PSAs" ? <PSACard key={i} deal={d} /> : <DealCard key={i} deal={d} />)
+            : records.map((d, i) => stage === "YTD Signed PSAs" ? <PSACard key={i} deal={d} /> : <DealCard key={i} deal={d} hsNote={stage === "Expired DD" ? dealLastNote(d) : null} />)
           }
           {subtitle && <div style={{ textAlign: "center", padding: "0.75rem", background: C.teal, borderRadius: 8, fontSize: 12, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, marginTop: 8 }}>{subtitle}</div>}
         </Modal>
@@ -4061,8 +4087,7 @@ function NaukaDashboard({ auth, onSignOut }) {
   const qoCount = whiteboard.filter(c => c.kind === "qo").length;
   const goneCards = whiteboard.filter(c => c.kind === "gone");
   const boardCards = whiteboard.filter(c => c.visited && c.kind !== "gone");
-  const talkCards = whiteboard.filter(c => !c.visited && c.kind !== "gone");
-  const taskLeads = buildTaskLeads({ contactNotes, cards: whiteboard, people: model.people, today: model.today });
+  const taskLeads = buildTaskLeads({ contactNotes, cards: whiteboard.filter(c => c.visited || c.kind === "gone"), people: model.people, today: model.today }); // "In talks to visit" removed Nov 10
   const go = key => {
     setView(key);
     try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch { /* old browsers */ }
@@ -4156,8 +4181,6 @@ function NaukaDashboard({ auth, onSignOut }) {
             <Whiteboard cards={goneCards} gone />
             <PdSectionHead text={`Leads with upcoming tasks · ${taskLeads.length}`} right={`Next ${TASKS_AHEAD_DAYS} days`} />
             <TaskLeads leads={taskLeads} today={model.today} />
-            <PdSectionHead text={`In talks to visit · ${talkCards.length}`} right="Not on property yet" />
-            <Whiteboard cards={talkCards} talks />
             <div style={{ height: 18 }} />
             <ProspectStages model={model} />
             {sectionHead("Due diligence", true)}

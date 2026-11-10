@@ -2603,10 +2603,18 @@ const WhiteboardDetail = ({ c, onClose }) => {
         {c.nextStep && <span className="wb-chip wb-chip-on">{c.nextStep}</span>}
       </div>
       {c.interest && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Interest:</strong> {c.interest}</div>}
-      {c.dealNotes && !(c.shownNote && c.shownNote.text === c.dealNotes) && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Deal notes:</strong> {c.dealNotes}</div>}
+      {c.dealNotes && !(c.kind === "neg" && c.shownNote) && !(c.shownNote && c.shownNote.text === c.dealNotes) && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Deal notes:</strong> {c.dealNotes}</div>}
       {c.nextTask && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 10 }}><strong>Next step · {twDayFmt(c.nextTask.date)}:</strong> {c.nextTask.text}{c.nextTask.author ? ` (${c.nextTask.author})` : ""}</div>}
-      {c.shownNote && <PdSectionHead text="Most recent note, call, meeting or email · HubSpot" first />}
-      {c.shownNote && noteRow(c.shownNote, "last")}
+      {/* Active Negotiations show the deal's last two HubSpot notes (Nov 10); other cards the most recent one. */}
+      {c.shownNote && c.kind === "neg" && (() => {
+        const two = (c.hubspotNotes || []).filter(n => noteHasText(n) && n.activityType !== "Deal note").slice(0, 2); // HubSpot only, not the sheet's deal note
+        return <>
+          <PdSectionHead text={`${two.length > 1 ? "Last two notes" : "Last note"} · HubSpot`} first />
+          {two.map((n, i) => noteRow(n, `neg${i}`))}
+        </>;
+      })()}
+      {c.shownNote && c.kind !== "neg" && <PdSectionHead text="Most recent note, call, meeting or email · HubSpot" first />}
+      {c.shownNote && c.kind !== "neg" && noteRow(c.shownNote, "last")}
       {!c.shownNote && c.notes.length > 0 && <PdSectionHead text="Most recent note" first />}
       {!c.shownNote && c.notes.length > 0 && noteRow(c.notes[c.notes.length - 1], "n")}
       {!c.shownNote && c.notes.length === 0 && (
@@ -2814,7 +2822,26 @@ const QualifiedOppList = ({ cards, onClose }) => {
   );
 };
 
-const PipelineDealList = ({ stageKey, openDeals, onClose }) => {
+// Last HubSpot notes, calls, meetings or reply emails for a deal's buyer
+// (Contact_Notes by Buyer HubSpot Record ID; includes activity logged on the
+// deal itself), newest first (Nov 10).
+const dealRecentNotes = (rid, contactNotes, n = 2) => !rid ? [] :
+  (contactNotes || []).filter(x => x.rid === rid && !/^task$/i.test(x.type) && x.date && noteHasText(x))
+    .sort((a, b) => b.date - a.date).slice(0, n);
+const DealNotesBlock = ({ notes }) => (
+  <div style={{ marginTop: 8 }}>
+    <div style={{ fontSize: 10, fontWeight: "bold", color: "rgba(54,67,74,0.55)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4, fontFamily: FONT_BODY }}>{notes.length > 1 ? "Last two notes" : "Last note"}</div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {notes.map((n, i) => (
+        <div key={i} style={{ fontSize: 13, color: C.gray, lineHeight: 1.5, fontFamily: FONT_BODY, whiteSpace: "pre-line" }}>
+          <span style={{ fontWeight: "bold", color: "rgba(54,67,74,0.55)" }}>{[twDayFmt(n.date), (k => k.charAt(0).toUpperCase() + k.slice(1))(activityLabel(n)), n.author && n.author.split(" ")[0]].filter(Boolean).join(" · ")}: </span>
+          {n.text}
+        </div>
+      ))}
+    </div>
+  </div>
+);
+const PipelineDealList = ({ stageKey, openDeals, contactNotes = [], onClose }) => {
   const st = PIPE_STAGES.find(s => s.key === stageKey);
   const items = openDeals[stageKey];
   const total = items.reduce((t, d) => t + d.amount, 0);
@@ -2832,7 +2859,13 @@ const PipelineDealList = ({ stageKey, openDeals, onClose }) => {
               </div>
               <div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, color: C.gray, whiteSpace: "nowrap" }}>{money(d.amount)}</div>
             </div>
-            <RowMeta>{[d.advisor, d.src && `${d.src}${d.ref ? ` · via ${d.ref}` : ""}`, d.created && `Created ${twDayFmt(d.created)}`, d.dd && `DD ${twDayFmt(d.dd)}`, d.notes].filter(Boolean).join(" · ")}</RowMeta>
+            {(() => {
+              const hs = dealRecentNotes(d.rid, contactNotes);
+              return <>
+                <RowMeta>{[d.advisor, d.src && `${d.src}${d.ref ? ` · via ${d.ref}` : ""}`, d.created && `Created ${twDayFmt(d.created)}`, d.dd && `DD ${twDayFmt(d.dd)}`, !hs.length && d.notes].filter(Boolean).join(" · ")}</RowMeta>
+                {hs.length > 0 && <DealNotesBlock notes={hs} />}
+              </>;
+            })()}
           </div>
         );
       })}
@@ -4044,7 +4077,7 @@ function NaukaDashboard({ auth, onSignOut }) {
   const renderModal = () => {
     if (!openModal) return null;
     if (openModal.type === "pipeStage" && openModal.key === "qo") return <QualifiedOppList cards={whiteboard.filter(c => c.kind === "qo")} onClose={() => setOpenModal(null)} />;
-    if (openModal.type === "pipeStage") return <PipelineDealList stageKey={openModal.key} openDeals={openDealsByStage(masterDeals)} onClose={() => setOpenModal(null)} />;
+    if (openModal.type === "pipeStage") return <PipelineDealList stageKey={openModal.key} openDeals={openDealsByStage(masterDeals)} contactNotes={contactNotes} onClose={() => setOpenModal(null)} />;
     if (openModal.type === "active") {
       const stage = openModal.key;
       const info = pipe(stage);

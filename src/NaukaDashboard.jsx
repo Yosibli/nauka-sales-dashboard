@@ -3659,6 +3659,7 @@ const HOME_CSS = `
 .hm-cell:first-child{padding-left:2px}
 .hm-cell + .hm-cell{border-left:1px solid rgba(54,67,74,0.16)}
 .hm-big{font-family:${FONT_DISPLAY};font-size:34px;line-height:1.1;color:${C.gray}}
+.hm-cmp{font-family:${FONT_DISPLAY};font-size:22px;line-height:1.1;color:${C.gray}}
 .hm-small{font-family:${FONT_BODY};font-size:12.5px;color:rgba(54,67,74,0.7);line-height:1.45}
 .hm-click{cursor:pointer;border-radius:6px;transition:background .15s}
 .hm-click:hover,.hm-click:focus-visible{background:rgba(136,209,209,0.22);outline:none}
@@ -3766,15 +3767,15 @@ const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo,
       {/* 2 · Versus last year and the $270M milestone */}
       <div className="hm-strip">
         <div className="hm-cell">
-          <div className="hm-big" style={{ color: vsFull != null && vsFull < 0 ? C.red : C.gray }}>{signedPct(vsFull)}</div>
+          <div className="hm-cmp" style={{ color: vsFull != null && vsFull < 0 ? C.red : C.gray }}>{signedPct(vsFull)}</div>
           <div className="hm-small">Cash transactions vs. full-year {HOME_YEAR - 1} ({homeM(HOME_FULL_YEAR_PREV)})</div>
         </div>
         <div className="hm-cell">
-          <div className="hm-big" style={{ color: vsSame != null && vsSame < 0 ? C.red : C.gray }}>{signedPct(vsSame)}</div>
+          <div className="hm-cmp" style={{ color: vsSame != null && vsSame < 0 ? C.red : C.gray }}>{signedPct(vsSame)}</div>
           <div className="hm-small">{periodLabel ? `${periodLabel} ${HOME_YEAR} vs. ${periodLabel} ${HOME_YEAR - 1} (${homeM(samePrev)})` : "First quarter not closed yet"}</div>
         </div>
         <div className="hm-cell">
-          <div className="hm-big">{Math.round(milestonePct)}%</div>
+          <div className="hm-cmp">{Math.round(milestonePct)}%</div>
           <div className="hm-small">of the {homeM(SALES_TEAM_GOAL_AMOUNT, 0)} milestone ({homeM(total)} total property transactions)</div>
         </div>
       </div>

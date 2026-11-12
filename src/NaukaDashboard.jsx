@@ -1725,9 +1725,10 @@ function pdShortRange(start, end) {
 }
 
 const PD_MUTED = "rgba(54,67,74,0.55)";
+// Section titles in every tab use the same bold, dark style as the Home page.
 const PdSectionHead = ({ text, right, first, big }) => (
   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, padding: first ? "0 0 10px" : big ? "34px 0 10px" : "26px 0 10px", borderBottom: `1.5px solid ${C.gray}` }}>
-    <span style={big ? { fontSize: 15, letterSpacing: "0.05em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.3 } : { fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: "bold", color: PD_MUTED, fontFamily: FONT_BODY }}>{text}</span>
+    <span style={{ fontSize: 15, letterSpacing: "0.05em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.3 }}>{text}</span>
     {right && <span style={{ fontSize: 11, color: PD_MUTED, fontFamily: FONT_BODY, textAlign: "right" }}>{right}</span>}
   </div>
 );
@@ -2063,7 +2064,7 @@ const SixtyDayView = ({ model, onGo, activeLeads = [], calRecords = [] }) => {
 
   return (
     <div>
-      <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: "bold", color: PD_MUTED, fontFamily: FONT_BODY }}>
+      <div style={{ fontSize: 15, letterSpacing: "0.05em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.3 }}>
         Last 60 days · {twRangeLabel(win.start, win.end)}
       </div>
       <div style={{ fontSize: 13, color: "rgba(54,67,74,0.72)", fontFamily: FONT_BODY, margin: "4px 0 14px" }}>
@@ -3220,7 +3221,7 @@ const ThisMonthView = ({ model }) => {
   return (
     <div>
       {/* Header: month so far + how far into it we are */}
-      <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: "bold", color: PD_MUTED, fontFamily: FONT_BODY }}>
+      <div style={{ fontSize: 15, letterSpacing: "0.05em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, lineHeight: 1.3 }}>
         This month · {twRangeLabel(month.start, today)}
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
@@ -3496,7 +3497,7 @@ const LEAD_STATUS_COLOR = {
 };
 
 const SectionLabel = ({ children, style }) => (
-  <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: "bold", opacity: 0.5, margin: "24px 0 10px", fontFamily: FONT_BODY, ...style }}>{children}</div>
+  <div style={{ fontSize: 15, color: C.gray, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: "bold", lineHeight: 1.3, margin: "24px 0 10px", fontFamily: FONT_BODY, ...style }}>{children}</div>
 );
 
 // ── Cohort conversion (Paul's guideline: Visit → OTP and OTP → PSA with
@@ -3666,6 +3667,7 @@ const HOME_CSS = `
 .hm-link{display:inline-block;margin-top:6px;font-family:${FONT_BODY};font-size:12.5px;font-weight:bold;color:${C.gray};text-decoration:underline;text-decoration-color:${C.teal};text-decoration-thickness:2px;text-underline-offset:3px}
 .hm-quarters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 34px;margin-top:14px}
 @media (max-width:700px){
+  .hm-eyebrow{font-size:min(15px,3.05vw);letter-spacing:0;white-space:nowrap}
   .hm-total{font-size:52px}
   .hm-strip{grid-template-columns:1fr}
   .hm-cell{padding:12px 2px}
@@ -4126,7 +4128,7 @@ function NaukaDashboard({ auth, onSignOut }) {
           Diligence turns red when anything has expired. */}
       {view === "active" && (() => {
         const sectionHead = (text, first) => (
-          <div style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: "bold", color: "rgba(54,67,74,0.55)", padding: first ? "0 0 10px" : "26px 0 10px", borderBottom: `1.5px solid ${C.gray}`, fontFamily: FONT_BODY }}>{text}</div>
+          <div style={{ fontSize: 15, letterSpacing: "0.05em", textTransform: "uppercase", fontWeight: "bold", color: C.gray, lineHeight: 1.3, padding: first ? "0 0 10px" : "26px 0 10px", borderBottom: `1.5px solid ${C.gray}`, fontFamily: FONT_BODY }}>{text}</div>
         );
         const row = (chip, first) => {
           const info  = pipe(chip.key);

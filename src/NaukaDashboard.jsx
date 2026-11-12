@@ -3650,7 +3650,7 @@ const homeQuarterOf = r => {
 };
 
 const HOME_CSS = `
-.hm-eyebrow{font-family:${FONT_BODY};font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:bold;color:${PD_MUTED}}
+.hm-eyebrow{font-family:${FONT_BODY};font-size:15px;letter-spacing:.05em;text-transform:uppercase;font-weight:bold;color:${C.gray};line-height:1.3}
 .hm-hero{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-top:6px}
 .hm-total{font-family:${FONT_DISPLAY};font-size:64px;line-height:1;color:${C.gray}}
 .hm-split{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
@@ -3781,7 +3781,7 @@ const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo,
       </div>
 
       {/* 3 · Year-end target */}
-      <PdSectionHead text="Year-end target" right={`${homeM(HOME_TOTAL_TARGET, 0)} total property transactions`} />
+      <PdSectionHead big text="Year-end target" right={`${homeM(HOME_TOTAL_TARGET, 0)} total property transactions`} />
       <div style={{ position: "relative", marginTop: 34, marginBottom: 34 }}>
         <div style={{ position: "absolute", right: 0, top: -22, fontSize: 11.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{homeM(HOME_TOTAL_TARGET, 0)} new milestone</div>
         <div style={{ display: "flex", height: 22, borderRadius: 6, overflow: "hidden", background: "rgba(54,67,74,0.08)" }}>
@@ -3813,7 +3813,7 @@ const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo,
       </div>
 
       {/* 4 · Cash transactions by quarter */}
-      <PdSectionHead text="Cash transactions by quarter" right="2024 · 2025 · 2026" />
+      <PdSectionHead big text="Cash transactions by quarter" right="2024 · 2025 · 2026" />
       <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginTop: 12, fontSize: 11.5, color: "rgba(54,67,74,0.7)", fontFamily: FONT_BODY }}>
         {[2024, 2025, 2026].map(y => (
           <span key={y}><span style={{ display: "inline-block", width: 12, height: 9, borderRadius: 3, background: HOME_YEAR_COLOR[y], marginRight: 6 }} />{y}</span>
@@ -3840,7 +3840,7 @@ const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo,
       </div>
 
       {/* 5 · January–September signed sales by year */}
-      <PdSectionHead text="January–September signed sales" right="2022 – 2026" />
+      <PdSectionHead big text="January–September signed sales" right="2022 – 2026" />
       <div style={{ marginTop: 12 }}>
         {janSep.map(r => (
           <HomeBar key={r.year} label={r.year} value={r.amount} max={janSepMax} bold={r.year === HOME_YEAR}

@@ -494,7 +494,7 @@ function splitDealName(name) {
 }
 
 // ── Deal Card ─────────────────────────────────────────────────────────
-const DealCard = ({ deal, hsNote = null }) => {
+const DealCard = ({ deal }) => {
   const days = num(deal["Days on Hold"]);
   const accent = days > 90 ? C.amber : C.teal;
   const { property, buyer } = splitDealName(deal["Property / Buyer"] || deal["Deal Name"]);
@@ -510,21 +510,13 @@ const DealCard = ({ deal, hsNote = null }) => {
       <RowMeta>
         {[deal["Advisor"], deal["Source"], days ? `${days} days` : null, deal["DD Expiry"] ? `DD: ${deal["DD Expiry"]}` : null].filter(Boolean).join(" · ")}
       </RowMeta>
-      {hsNote ? (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 10, fontWeight: "bold", color: "rgba(54,67,74,0.55)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4, fontFamily: FONT_BODY }}>Last note</div>
-          <div style={{ fontSize: 13, color: C.gray, lineHeight: 1.5, fontFamily: FONT_BODY, whiteSpace: "pre-line" }}>
-            <span style={{ fontWeight: "bold", color: "rgba(54,67,74,0.55)" }}>{[twDayFmt(hsNote.date), (k => k.charAt(0).toUpperCase() + k.slice(1))(activityLabel(hsNote)), hsNote.author && hsNote.author.split(" ")[0]].filter(Boolean).join(" · ")}: </span>
-            {hsNote.text}
-          </div>
-        </div>
-      ) : deal["Notes"] && <RowNotes>{deal["Notes"]}</RowNotes>}
+      {deal["Notes"] && <RowNotes>{deal["Notes"]}</RowNotes>}
     </div>
   );
 };
 
 // ── PSA Card ──────────────────────────────────────────────────────────
-const PSACard = ({ deal }) => {
+const PSACard = ({ deal, note }) => {
   const days = deal["Total Days on Hold"] || deal["Days on Hold"];
   const psaDate = deal["PSA Date Signed"];
   const { property, buyer } = splitDealName(deal["Deal Name"]);
@@ -540,6 +532,7 @@ const PSACard = ({ deal }) => {
       <RowMeta>
         {[deal["Advisor"], deal["Source"], deal["Referral Source"] ? `via ${deal["Referral Source"]}` : null, psaDate ? `PSA: ${psaDate}` : null, days ? `${days} days on hold` : null].filter(Boolean).join(" · ")}
       </RowMeta>
+      {note && <RowNotes>{note}</RowNotes>}
     </div>
   );
 };
@@ -672,30 +665,21 @@ function parseCalendarSheet(rows) {
     .map(r => (r.departure ? r : { ...r, departure: r.arrival })); // a day visit may leave Departure empty
 }
 
-// Visits show the last two notes, calls, meetings or emails logged in HubSpot for
-// that contact (Contact_Notes tab, tasks excluded), oldest first in the array
-// (the last item is the newest). The calendar's own Notes cell is used only when
-// HubSpot has nothing for the contact (Nov 3; two notes since Nov 9).
-const CAL_NOTES_SHOWN = 2;
+// Visits show only the latest note, call or meeting logged in HubSpot for that
+// contact (Contact_Notes tab, tasks excluded). The calendar's own Notes cell is
+// used only when HubSpot has nothing for the contact (Nov 3).
 function withLatestNote(records, contactNotes) {
-  const byRid = new Map();
-  const seen = new Set();
+  const latest = new Map();
   (contactNotes || []).forEach(n => {
     if (!n.rid || /^task$/i.test(n.type) || !n.date || !noteHasText(n)) return;
-    const key = `${n.rid}|${n.aid || `${+n.date}|${n.text.slice(0, 40)}`}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    if (!byRid.has(n.rid)) byRid.set(n.rid, []);
-    byRid.get(n.rid).push(n);
+    const cur = latest.get(n.rid);
+    if (!cur || n.date > cur.date) latest.set(n.rid, n);
   });
   return records.map(r => {
-    const list = byRid.get(pdId(r.recordId));
-    if (!list) return r.notes && r.notes.length ? { ...r, notes: r.notes.slice(-CAL_NOTES_SHOWN) } : r;
-    const last = [...list].sort((a, b) => b.date - a.date).slice(0, CAL_NOTES_SHOWN).reverse();
-    return { ...r, notes: last.map(n => {
-      const kind = activityLabel(n);
-      return { date: [twDayFmt(n.date), kind.charAt(0).toUpperCase() + kind.slice(1), n.author && n.author.split(" ")[0]].filter(Boolean).join(" · "), text: n.text };
-    }) };
+    const n = latest.get(pdId(r.recordId));
+    if (!n) return r.notes && r.notes.length ? { ...r, notes: [r.notes[r.notes.length - 1]] } : r;
+    const kind = activityLabel(n);
+    return { ...r, notes: [{ date: [twDayFmt(n.date), kind.charAt(0).toUpperCase() + kind.slice(1), n.author && n.author.split(" ")[0]].filter(Boolean).join(" · "), text: n.text }] };
   });
 }
 
@@ -978,10 +962,10 @@ const CalendarRecordCard = ({ r, showIssues, advisorColors = CAL_ADVISOR_COLORS 
       {r.notes && r.notes.length > 0 && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: "0.5px solid rgba(54,67,74,0.12)" }}>
           <div style={{ fontSize: 10, fontWeight: "bold", color: "rgba(54,67,74,0.55)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, fontFamily: FONT_BODY }}>
-            {r.notes.length > 1 ? "Last two notes" : "Last note"}
+            Last note
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {[...r.notes].reverse().map((n, i) => (
+            {r.notes.map((n, i) => (
               <div key={i} style={{ fontSize: 13, color: C.gray, lineHeight: 1.5, fontFamily: FONT_BODY, whiteSpace: "pre-line" }}>
                 {n.date && <span style={{ fontWeight: "bold", color: "rgba(54,67,74,0.55)" }}>{n.date}: </span>}
                 {n.text}
@@ -1370,6 +1354,12 @@ const pdDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const pdAdd = (d, n) => { const x = pdDay(d); x.setDate(x.getDate() + n); return x; };
 const pdDiff = (a, b) => Math.round((pdDay(b) - pdDay(a)) / DAY_MS);
 const pdStr = v => String(v ?? "").trim();
+// Upgrade (Master_Deals Inventory = "Upgrade"): the buyer moves up from a unit
+// already sold to them. The extra money counts in sales volume, but it is not a
+// new sale: it never adds to a count of sales (Eli's rule; Zweig CE 39 → BR 301).
+const isUpgradeDeal = r => pdStr(r && r["Inventory"]).toLowerCase() === "upgrade";
+const upgradeNameSet = masterDeals => new Set((masterDeals || []).filter(isUpgradeDeal).map(r => pdStr(r["Deal Name"])));
+const countSales = (rows, upgrades) => (rows || []).filter(d => !(upgrades && upgrades.has(pdStr(d["Deal Name"])))).length;
 const pdId = v => pdStr(v).replace(/[,\s]/g, "").replace(/\.0+$/, "");
 
 // Turns the sheet tabs into dated entries (one per lead, tour and deal
@@ -1531,6 +1521,7 @@ function buildEntries(masterLeads, masterDeals, calendarRecords, funnelContacts,
         advisor: pdStr(r["Advisor"]),
         source: [pdStr(r["Source"]), pdStr(r["Referral Source"]) ? `via ${pdStr(r["Referral Source"])}` : ""].filter(Boolean).join(" · "),
         src: pdStr(r["Source"]), rid, reason: pdStr(r["Loss Reason"]),
+        upgrade: type === "psa" && isUpgradeDeal(r), // money counts, the sale does not
         stage: pdStr(r["Stage"]) === "Decision" ? "Pending OTP" : pdStr(r["Stage"]), // where the deal is today
         daysOnHold: parseInt(pdStr(r["Days on Hold"]), 10), // from the sheet: hold date to PSA / lost date, or to today if still open
       });
@@ -1610,7 +1601,7 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
     // Dated rows that fall in no reported week still count on their own day.
     return n + early.filter(e => !used.has(e.i) && e.date >= a && e.date <= b).length;
   };
-  const count = (type, a, b) => !ARCHIVED.includes(type) ? list(type, a, b).length
+  const count = (type, a, b) => !ARCHIVED.includes(type) ? list(type, a, b).filter(e => !e.upgrade).length
     : countArchived(type, a, b);
   const amount = (type, a, b) => list(type, a, b).reduce((s, e) => s + e.amount, 0);
   // Day-level counts exist for [a, b] only if it starts on/after mastersFrom (or the type is always dated).
@@ -1861,10 +1852,10 @@ const TWEntryRow = ({ e, showDate }) => {
       {e.notes && e.notes.length > 0 && (
         <div style={{ marginTop: 10 }}>
           <div style={{ fontSize: 10, fontWeight: "bold", color: PD_MUTED, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, fontFamily: FONT_BODY }}>
-            {e.notes.length > 1 ? "Last two notes" : "Last note"}
+            Last note
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {[...e.notes].reverse().map((n, i) => (
+            {e.notes.map((n, i) => (
               <div key={i} style={{ fontSize: 12.5, color: "rgba(54,67,74,0.85)", lineHeight: 1.55, fontFamily: FONT_BODY, whiteSpace: "pre-line" }}>
                 {n.date && <span style={{ fontWeight: "bold", color: PD_MUTED }}>{n.date}: </span>}
                 {n.text}
@@ -2022,7 +2013,7 @@ const SixtyDayView = ({ model, onGo, activeLeads = [], calRecords = [] }) => {
     const n = cur(s.key), p = old(s.key);
     // Show a $ total only when every counted item has a detail row with an amount
     // (the weekly counts from before the masters carry no amounts).
-    const detailed = list(s.key, win.start, win.end).length === n;
+    const detailed = list(s.key, win.start, win.end).filter(e => !e.upgrade).length === n;
     return (
       <PdRow key={s.key} stat={s} n={n} total={detailed ? amount(s.key, win.start, win.end) : 0} first={i === 0} onOpen={() => setOpenKey(s.key)}>
         <div style={{ marginTop: 5 }}>
@@ -2046,7 +2037,7 @@ const SixtyDayView = ({ model, onGo, activeLeads = [], calRecords = [] }) => {
   // Leads by group, for the window and the 60 days before it.
   const groupOf = (type, a, b) => {
     const acc = { relationship: 0, marketing: 0, hotel: 0, none: 0 };
-    list(type, a, b).forEach(e => { acc[leadGroupKey(e.src)] += 1; });
+    list(type, a, b).forEach(e => { if (!e.upgrade) acc[leadGroupKey(e.src)] += 1; });
     return acc;
   };
   const gLeads = groupOf("lead", win.start, win.end), gLeadsOld = groupOf("lead", prev.start, prev.end);
@@ -2057,9 +2048,10 @@ const SixtyDayView = ({ model, onGo, activeLeads = [], calRecords = [] }) => {
     const items = list(open.key, win.start, win.end).sort((a, b) => b.date - a.date);
     const total = items.reduce((s, e) => s + e.amount, 0);
     const n = cur(open.key);
+    const nListed = items.filter(e => !e.upgrade).length;
     return (
       <Modal title={`${open.label}${open.sub ? ` (${open.sub})` : ""} · Last 60 Days`}
-        subtitle={`${twRangeLabel(win.start, win.end)} · ${n}${total > 0 && n === items.length ? ` · ${money(total)}` : ""}`}
+        subtitle={`${twRangeLabel(win.start, win.end)} · ${n}${total > 0 && n === nListed ? ` · ${money(total)}` : ""}`}
         onClose={() => setOpenKey(null)}>
         <PdShowMore items={items} empty="None in the last 60 days." render={e => <TWEntryRow key={e.i} e={e} showDate />} />
         {n > items.length && (
@@ -2191,9 +2183,9 @@ const SixtyDayView = ({ model, onGo, activeLeads = [], calRecords = [] }) => {
                 </div>
                 {items.map(e => <TWEntryRow key={e.i} e={e} showDate />)}
                 {n === 0 && <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "10px 0", fontFamily: FONT_BODY }}>None in the last 60 days.</div>}
-                {n > items.length && (
+                {n > items.filter(e => !e.upgrade).length && (
                   <div style={{ fontSize: 12, color: PD_MUTED, fontFamily: FONT_BODY, padding: "10px 0", lineHeight: 1.5 }}>
-                    {n - items.length} more from the weekly counts before {twDayFmt(model.mastersFrom)}. No deal detail is recorded for those.
+                    {n - items.filter(e => !e.upgrade).length} more from the weekly counts before {twDayFmt(model.mastersFrom)}. No deal detail is recorded for those.
                   </div>
                 )}
               </div>
@@ -2242,15 +2234,15 @@ function openDealsByStage(masterDeals) {
 // Traffic light from days since the last activity (decided Nov 3, 2026).
 const WB_GREEN = 14, WB_YELLOW = 30;
 const WB_LIGHT = {
-  green:  { color: C.green, label: "Active",       hint: `note, call, meeting or email in the last ${WB_GREEN} days` },
-  yellow: { color: "#E0B23C", label: "Slowing down", hint: `${WB_GREEN + 1}–${WB_YELLOW} days since the last note, call, meeting or email, or a follow-up task scheduled` },
-  red:    { color: C.red,   label: "Stalled",      hint: `more than ${WB_YELLOW} days since the last note, call, meeting or email, no follow-up task` },
-  none:   { color: "#C9CED1", label: "No activity date", hint: "no note, call, meeting or email in HubSpot" },
+  green:  { color: C.green, label: "Active",       hint: `note, call or meeting in the last ${WB_GREEN} days` },
+  yellow: { color: "#E0B23C", label: "Slowing down", hint: `${WB_GREEN + 1}–${WB_YELLOW} days since the last note, call or meeting, or a follow-up task scheduled` },
+  red:    { color: C.red,   label: "Stalled",      hint: `more than ${WB_YELLOW} days since the last note, call or meeting, no follow-up task` },
+  none:   { color: "#C9CED1", label: "No activity date", hint: "no note, call or meeting in HubSpot" },
 };
 const wbLight = days => days == null ? "none" : days <= WB_GREEN ? "green" : days <= WB_YELLOW ? "yellow" : "red";
 
 // Qualified Opportunities: one card per person who toured Nauka in the last 60
-// days, has Lead Status = Active and a note, call, meeting or email this month or last
+// days, has Lead Status = Active and a note, call or meeting this month or last
 // month. An open deal shows as its own stage instead.
 // A note worth showing has real text: not empty, not an image-only note, and not
 // just the HubSpot title of the meeting or call ("Meeting logged", "Call with …").
@@ -2295,7 +2287,7 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
   });
 
   // Qualified Opportunity (Nov 3): toured in the last 60 days, Lead Status = Active,
-  // and a note, call, meeting or email this month or last month.
+  // and a note, call or meeting this month or last month.
   const qoFrom = new Date(today.getTime() - 60 * 864e5);
   const recentFrom = new Date(today.getFullYear(), today.getMonth() - 1, 1);
   const cards = new Map();
@@ -2336,7 +2328,7 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
     const sticky = staged && ps(staged) === "qualified opportunity";
     if (!sticky) {
       // Entry: 1 · visited in the last 60 days (on property counts) · 2 · Lead Status Active
-      // · 3 · a note, call, meeting or email this month or last month
+      // · 3 · a note, call or meeting this month or last month
       if (!g.visits.some(v => v.stage !== "Canceled" && v.arrival && v.arrival <= today && v.arrival >= qoFrom)) return;
       if (status.toLowerCase() !== "active") return;
       const touch = g.rid ? (notesByRid.get(g.rid) || []).reduce((m, n) => (n.date && (!m || n.date > m) ? n.date : m), null) : null;
@@ -2419,7 +2411,7 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
   });
 
   // Live activity (Nov 3): anyone with a note or meeting an advisor logged by hand
-  // in HubSpot in the last 30 days (Contact_Notes tab; emails count since Nov 9).
+  // in HubSpot in the last 30 days (Contact_Notes tab; emails do not count).
   // Already came → whiteboard. Not yet → "In talks to visit" (Unresponsive /
   // No Contact are left out there: background research is not talks).
   // A spouse or broker on the same notes/meetings is folded into one card.
@@ -2473,7 +2465,7 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
     const dealNotes = myDeals.map(d => ({ rid: c.rid, date: d.created, type: "Note", activityType: "Deal note", author: d.advisor, text: d.notes }));
     const hs = c.rid ? [...(notesByRid.get(c.rid) || []), ...dealNotes].sort((a, b) => (b.date || 0) - (a.date || 0)) : [];
     const lastTouch = hs.find(n => n.date)?.date || null;
-    const lastActivity = lastTouch; // notes, calls, meetings and emails (Nov 9)
+    const lastActivity = lastTouch; // notes and meetings only; emails never count
     const days = lastActivity ? Math.max(pdDiff(lastActivity, today), 0) : null;
     const g = c.rid ? [...persons.values()].find(p => p.rid === c.rid) : persons.get(`name:${pdStr(c.name).toLowerCase()}`);
     // On the whiteboard: people who have already come (or are on property now) and every Active Negotiation.
@@ -2514,7 +2506,7 @@ function parseContactNotes(rows) {
     source: pdStr(r["Lead Source"]),
     activityType: pdStr(r["Activity Type"]),
     text: pdStr(r["Note"]),
-  })).filter(n => n.rid && n.text); // emails count as activity (Nov 9)
+  })).filter(n => n.rid && n.text && !/^email$/i.test(n.type));
 }
 
 const WB_ORDER = { red: 0, yellow: 1, none: 2, green: 3 };
@@ -2557,7 +2549,7 @@ const WhiteboardCard = ({ c, onOpen }) => {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7, alignItems: "center" }}>
         <span className="wb-light" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontFamily: FONT_BODY, color: C.gray }}>
           <span className="wb-dot" style={{ width: 9, height: 9, borderRadius: "50%", background: L.color, flex: "none" }} />
-          <span className="wb-d">{c.days == null ? "No note, call, meeting or email yet" : `Last ${activityLabel(c.lastNote)} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}</span>
+          <span className="wb-d">{c.days == null ? "No note, call or meeting yet" : `Last ${activityLabel(c.lastNote)} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}</span>
           <span className="wb-m">{c.days == null ? "No activity" : `${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days}d`}`}</span>
         </span>
       </div>
@@ -2593,7 +2585,7 @@ const WhiteboardDetail = ({ c, onClose }) => {
     <Modal title={c.name} subtitle={meta} onClose={onClose}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
         <span className="wb-chip" style={{ background: L.color, color: c.light === "none" ? C.gray : C.white, fontWeight: "bold" }}>
-          {c.days != null ? `${c.days} day${c.days === 1 ? "" : "s"} since the last note, call, meeting or email` : "No note, call, meeting or email yet"}
+          {c.days != null ? `${c.days} day${c.days === 1 ? "" : "s"} since the last note, call or meeting` : "No note, call or meeting yet"}
         </span>
         {c.kind === "gone" && <span className="wb-chip" style={{ color: C.red, fontWeight: "bold" }}>Not moving forward · {c.reason}{c.property ? ` · ${c.property}` : ""}</span>}
         {c.kind === "gone" && c.fromStage && <span className="wb-chip">From {c.fromStage} · {c.fromPipe}</span>}
@@ -2603,18 +2595,10 @@ const WhiteboardDetail = ({ c, onClose }) => {
         {c.nextStep && <span className="wb-chip wb-chip-on">{c.nextStep}</span>}
       </div>
       {c.interest && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Interest:</strong> {c.interest}</div>}
-      {c.dealNotes && !(c.kind === "neg" && c.shownNote) && !(c.shownNote && c.shownNote.text === c.dealNotes) && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Deal notes:</strong> {c.dealNotes}</div>}
+      {c.dealNotes && !(c.shownNote && c.shownNote.text === c.dealNotes) && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Deal notes:</strong> {c.dealNotes}</div>}
       {c.nextTask && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 10 }}><strong>Next step · {twDayFmt(c.nextTask.date)}:</strong> {c.nextTask.text}{c.nextTask.author ? ` (${c.nextTask.author})` : ""}</div>}
-      {/* Active Negotiations show the deal's last two HubSpot notes (Nov 10); other cards the most recent one. */}
-      {c.shownNote && c.kind === "neg" && (() => {
-        const two = (c.hubspotNotes || []).filter(n => noteHasText(n) && n.activityType !== "Deal note").slice(0, 2); // HubSpot only, not the sheet's deal note
-        return <>
-          <PdSectionHead text={`${two.length > 1 ? "Last two notes" : "Last note"} · HubSpot`} first />
-          {two.map((n, i) => noteRow(n, `neg${i}`))}
-        </>;
-      })()}
-      {c.shownNote && c.kind !== "neg" && <PdSectionHead text="Most recent note, call, meeting or email · HubSpot" first />}
-      {c.shownNote && c.kind !== "neg" && noteRow(c.shownNote, "last")}
+      {c.shownNote && <PdSectionHead text="Most recent note, call or meeting · HubSpot" first />}
+      {c.shownNote && noteRow(c.shownNote, "last")}
       {!c.shownNote && c.notes.length > 0 && <PdSectionHead text="Most recent note" first />}
       {!c.shownNote && c.notes.length > 0 && noteRow(c.notes[c.notes.length - 1], "n")}
       {!c.shownNote && c.notes.length === 0 && (
@@ -2625,7 +2609,7 @@ const WhiteboardDetail = ({ c, onClose }) => {
 };
 
 // Upcoming tasks (Nov 3): open HubSpot tasks due in the next 30 days for leads
-// who are not already on the whiteboard, by advisor ("In talks to visit" removed Nov 10).
+// who are not already on the whiteboard or in "In talks to visit", by advisor.
 const TASKS_AHEAD_DAYS = 30;
 function buildTaskLeads({ contactNotes, cards, people, today }) {
   const until = new Date(today.getTime() + TASKS_AHEAD_DAYS * 864e5);
@@ -2685,7 +2669,7 @@ const TaskLeads = ({ leads, today }) => {
           );
         })}
       </div>
-      <PdNote>Open HubSpot tasks due in the next {TASKS_AHEAD_DAYS} days, for leads who are not on the whiteboard. Earliest task first.</PdNote>
+      <PdNote>Open HubSpot tasks due in the next {TASKS_AHEAD_DAYS} days, for leads who are not on the whiteboard or in talks to visit. Earliest task first.</PdNote>
     </div>
   );
 };
@@ -2755,7 +2739,7 @@ const Whiteboard = ({ cards, talks = false, gone = false }) => {
         })}
       </div>
       <PdNote>
-        {gone ? <><strong>Not moving forward:</strong> "From" is the last stage before leaving (Experiences or Deal pipeline). Visited in the last 60 days, then Lead Status Timing, Not Interested, Unqualified or Unsubscribed, visit marked Not This Time, or deal Lost.</> : talks ? <>Not visited yet; a note, call, meeting or email in the last {WB_YELLOW} days. Moves up to the whiteboard after the visit.</> : <><strong>Qualified Opportunity:</strong> active prospect that visited in the last 60 days. <strong>Active Negotiation:</strong> advisor working toward an OTP · estimated amount.</>}
+        {gone ? <><strong>Not moving forward:</strong> "From" is the last stage before leaving (Experiences or Deal pipeline). Visited in the last 60 days, then Lead Status Timing, Not Interested, Unqualified or Unsubscribed, visit marked Not This Time, or deal Lost.</> : talks ? <>Not visited yet; a note, call or meeting in the last {WB_YELLOW} days. Moves up to the whiteboard after the visit.</> : <><strong>Qualified Opportunity:</strong> active prospect that visited in the last 60 days. <strong>Active Negotiation:</strong> advisor working toward an OTP · estimated amount.</>}
       </PdNote>
       {open && <WhiteboardDetail c={open} onClose={() => setOpen(null)} />}
     </div>
@@ -2812,7 +2796,7 @@ const QualifiedOppList = ({ cards, onClose }) => {
             <RowMeta>{[c.advisor, c.src, c.ref && `via ${c.ref}`, c.leadStatus && `Lead Status: ${c.leadStatus}`].filter(Boolean).join(" · ")}</RowMeta>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontSize: 12.5, color: C.gray, fontFamily: FONT_BODY }}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: L.color }} />
-              {c.days == null ? "No note, call, meeting or email yet" : `Last ${activityLabel(c.lastNote)} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}
+              {c.days == null ? "No note, call or meeting yet" : `Last ${activityLabel(c.lastNote)} ${twDayFmt(c.lastActivity)} · ${c.days === 0 ? "today" : `${c.days} day${c.days === 1 ? "" : "s"}`}`}
             </div>
             {c.nextTask && <div className="wb-next" style={{ marginTop: 6 }}><strong>Next · {twDayFmt(c.nextTask.date)}</strong> {c.nextTask.text}</div>}
           </div>
@@ -2822,26 +2806,7 @@ const QualifiedOppList = ({ cards, onClose }) => {
   );
 };
 
-// Last HubSpot notes, calls, meetings or reply emails for a deal's buyer
-// (Contact_Notes by Buyer HubSpot Record ID; includes activity logged on the
-// deal itself), newest first (Nov 10).
-const dealRecentNotes = (rid, contactNotes, n = 2) => !rid ? [] :
-  (contactNotes || []).filter(x => x.rid === rid && !/^task$/i.test(x.type) && x.date && noteHasText(x))
-    .sort((a, b) => b.date - a.date).slice(0, n);
-const DealNotesBlock = ({ notes }) => (
-  <div style={{ marginTop: 8 }}>
-    <div style={{ fontSize: 10, fontWeight: "bold", color: "rgba(54,67,74,0.55)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4, fontFamily: FONT_BODY }}>{notes.length > 1 ? "Last two notes" : "Last note"}</div>
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      {notes.map((n, i) => (
-        <div key={i} style={{ fontSize: 13, color: C.gray, lineHeight: 1.5, fontFamily: FONT_BODY, whiteSpace: "pre-line" }}>
-          <span style={{ fontWeight: "bold", color: "rgba(54,67,74,0.55)" }}>{[twDayFmt(n.date), (k => k.charAt(0).toUpperCase() + k.slice(1))(activityLabel(n)), n.author && n.author.split(" ")[0]].filter(Boolean).join(" · ")}: </span>
-          {n.text}
-        </div>
-      ))}
-    </div>
-  </div>
-);
-const PipelineDealList = ({ stageKey, openDeals, contactNotes = [], onClose }) => {
+const PipelineDealList = ({ stageKey, openDeals, onClose }) => {
   const st = PIPE_STAGES.find(s => s.key === stageKey);
   const items = openDeals[stageKey];
   const total = items.reduce((t, d) => t + d.amount, 0);
@@ -2859,13 +2824,7 @@ const PipelineDealList = ({ stageKey, openDeals, contactNotes = [], onClose }) =
               </div>
               <div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, color: C.gray, whiteSpace: "nowrap" }}>{money(d.amount)}</div>
             </div>
-            {(() => {
-              const hs = dealRecentNotes(d.rid, contactNotes);
-              return <>
-                <RowMeta>{[d.advisor, d.src && `${d.src}${d.ref ? ` · via ${d.ref}` : ""}`, d.created && `Created ${twDayFmt(d.created)}`, d.dd && `DD ${twDayFmt(d.dd)}`, !hs.length && d.notes].filter(Boolean).join(" · ")}</RowMeta>
-                {hs.length > 0 && <DealNotesBlock notes={hs} />}
-              </>;
-            })()}
+            <RowMeta>{[d.advisor, d.src && `${d.src}${d.ref ? ` · via ${d.ref}` : ""}`, d.created && `Created ${twDayFmt(d.created)}`, d.dd && `DD ${twDayFmt(d.dd)}`, d.notes].filter(Boolean).join(" · ")}</RowMeta>
           </div>
         );
       })}
@@ -3729,10 +3688,11 @@ const HomeBar = ({ label, value, max, color, text, note, bold }) => (
   </div>
 );
 
-const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo, onInventory }) => {
+const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo, onInventory, upgrades, upgradeNotes }) => {
   const [open, setOpen] = useState(null);
   const cash = sumAmount(cashDeals), partner = sumAmount(partnerDeals), total = cash + partner;
-  const count = cashDeals.length + partnerDeals.length;
+  const cashN = countSales(cashDeals, upgrades), partnerN = countSales(partnerDeals, upgrades);
+  const count = cashN + partnerN;
   const closing = sumAmount(setToClose);
   const milestonePct = (total / SALES_TEAM_GOAL_AMOUNT) * 100;
   const toTarget = Math.max(HOME_TOTAL_TARGET - total, 0);
@@ -3740,7 +3700,7 @@ const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo,
 
   // 2026 cash transactions by quarter (PSA Date Signed)
   const q = [0, 0, 0, 0], qn = [0, 0, 0, 0];
-  cashDeals.forEach(r => { const i = homeQuarterOf(r); if (i >= 0) { q[i] += twAmount(r["Amount ($)"]); qn[i] += 1; } });
+  cashDeals.forEach(r => { const i = homeQuarterOf(r); if (i >= 0) { q[i] += twAmount(r["Amount ($)"]); if (!(upgrades && upgrades.has(pdStr(r["Deal Name"])))) qn[i] += 1; } });
   const curQ = today.getFullYear() > HOME_YEAR ? 4 : Math.floor(today.getMonth() / 3); // completed quarters
   const prevYear = HOME_HIST_QUARTERS[HOME_YEAR - 1];
   const samePrev = prevYear.slice(0, curQ).reduce((s, v) => s + (v || 0), 0);
@@ -3762,8 +3722,8 @@ const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo,
   const byPsaDesc = (a, b) => (twParseDate(b["PSA Date Signed"]) || 0) - (twParseDate(a["PSA Date Signed"]) || 0);
 
   const lists = {
-    cash: { title: "Cash Transactions", sub: `${HOME_YEAR} year to date · ${cashDeals.length} · ${homeM(cash)} · re-sales included`, items: [...cashDeals].sort(byPsaDesc), psa: true },
-    partner: { title: "Partner Deals", sub: `${HOME_YEAR} year to date · ${partnerDeals.length} · ${homeM(partner)} · related-party sales`, items: [...partnerDeals].sort(byPsaDesc), psa: true },
+    cash: { title: "Cash Transactions", sub: `${HOME_YEAR} year to date · ${cashN} · ${homeM(cash)} · re-sales included`, items: [...cashDeals].sort(byPsaDesc), psa: true },
+    partner: { title: "Partner Deals", sub: `${HOME_YEAR} year to date · ${partnerN} · ${homeM(partner)} · related-party sales`, items: [...partnerDeals].sort(byPsaDesc), psa: true },
     closing: { title: "Set to Close", sub: `${setToClose.length} deal${setToClose.length === 1 ? "" : "s"} · ${homeM(closing, 2)} · Pending OTP and Signed OTP`, items: setToClose, psa: false },
   };
   const list = open && lists[open];
@@ -3790,7 +3750,7 @@ const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo,
         <div style={{ width: `${total ? (partner / total) * 100 : 0}%`, background: C.gray }} />
       </div>
       <div className="hm-split">
-        {[["cash", "Cash transactions", cash, cashDeals.length, C.teal], ["partner", "Partner deals", partner, partnerDeals.length, C.gray]].map(([key, label, amt, n, color]) => (
+        {[["cash", "Cash transactions", cash, cashN, C.teal], ["partner", "Partner deals", partner, partnerN, C.gray]].map(([key, label, amt, n, color]) => (
           <div key={key} className="hm-click" {...click(() => setOpen(key))} style={{ padding: "4px 6px 6px", marginLeft: -6, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "rgba(54,67,74,0.75)", fontFamily: FONT_BODY }}>
               <span style={{ width: 10, height: 10, borderRadius: 3, background: color, flex: "none" }} />{label}
@@ -3894,7 +3854,7 @@ const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo,
       {list && (
         <Modal title={list.title} subtitle={list.sub} onClose={() => setOpen(null)}>
           <PdShowMore items={list.items} empty="None yet."
-            render={(d, i) => list.psa ? <PSACard key={i} deal={d} /> : <DealCard key={i} deal={d} />} />
+            render={(d, i) => list.psa ? <PSACard key={i} deal={d} note={upgradeNotes ? upgradeNotes.get(pdStr(d["Deal Name"])) : null} /> : <DealCard key={i} deal={d} />} />
         </Modal>
       )}
     </div>
@@ -3987,15 +3947,6 @@ function NaukaDashboard({ auth, onSignOut }) {
   }, [load]);
 
   const pipe = stage => pipeline.find(r => r["Stage"] === stage) ?? {};
-  // Latest HubSpot note, call, meeting or email for a deal's buyer (Master_Deals
-  // Buyer HubSpot Record ID → Contact_Notes). Used on Expired Due Diligence (Nov 10).
-  const dealLastNote = d => {
-    const name = pdStr(d["Deal Name"] || d["Property / Buyer"]).toLowerCase();
-    const md = (masterDeals || []).find(r => pdStr(r["Deal Name"]).toLowerCase() === name);
-    const rid = md ? pdId(md["Buyer HubSpot Record ID"]) : "";
-    if (!rid) return null;
-    return (contactNotes || []).filter(n => n.rid === rid && !/^task$/i.test(n.type) && n.date && noteHasText(n)).sort((a, b) => b.date - a.date)[0] || null;
-  };
 
   const today = new Date();
   const expiredDeals = deals.filter(d => {
@@ -4026,6 +3977,10 @@ function NaukaDashboard({ auth, onSignOut }) {
   const salesTeamResaleDeals = resalePSAs.filter(d => !isSummaryRow(d));
   const salesTeamDeals = [...salesTeamPrimaryDeals, ...salesTeamResaleDeals];
   const salesTeamTotal = sumAmount(salesTeamDeals);
+  const upgradeNames = upgradeNameSet(masterDeals);
+  // Upgrade deals show their Master_Deals note in the Home sales lists (e.g. which unit was released).
+  const upgradeNotes = new Map((masterDeals || []).filter(isUpgradeDeal).map(r => [pdStr(r["Deal Name"]), pdStr(r["Notes"])]));
+  const salesTeamCount = countSales(salesTeamDeals, upgradeNames); // an upgrade adds money, not a sale
   const salesTeamPct = SALES_TEAM_GOAL_AMOUNT > 0 ? (salesTeamTotal / SALES_TEAM_GOAL_AMOUNT) * 100 : 0;
   // Home: partner deals = the related-party YTD PSAs left out of the cash figure.
   const partnerDeals = ytdPSAs.filter(d => !isSummaryRow(d) && !salesTeamPrimaryDeals.includes(d));
@@ -4077,7 +4032,7 @@ function NaukaDashboard({ auth, onSignOut }) {
   const renderModal = () => {
     if (!openModal) return null;
     if (openModal.type === "pipeStage" && openModal.key === "qo") return <QualifiedOppList cards={whiteboard.filter(c => c.kind === "qo")} onClose={() => setOpenModal(null)} />;
-    if (openModal.type === "pipeStage") return <PipelineDealList stageKey={openModal.key} openDeals={openDealsByStage(masterDeals)} contactNotes={contactNotes} onClose={() => setOpenModal(null)} />;
+    if (openModal.type === "pipeStage") return <PipelineDealList stageKey={openModal.key} openDeals={openDealsByStage(masterDeals)} onClose={() => setOpenModal(null)} />;
     if (openModal.type === "active") {
       const stage = openModal.key;
       const info = pipe(stage);
@@ -4095,7 +4050,7 @@ function NaukaDashboard({ auth, onSignOut }) {
         <Modal title={stage === "YTD Signed PSAs" ? "Sales Team YTD" : stage} subtitle={subtitle} onClose={() => setOpenModal(null)}>
           <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
             <div style={{ background: C.gray, borderRadius: 8, padding: "0.5rem 1rem", fontFamily: FONT_DISPLAY, fontSize: 20, color: C.teal }}>
-              {stage === "YTD Signed PSAs" ? salesTeamDeals.length : (info["Count"] || records.length)}
+              {stage === "YTD Signed PSAs" ? salesTeamCount : (info["Count"] || records.length)}
             </div>
             <div style={{ background: C.gray, borderRadius: 8, padding: "0.5rem 1rem", fontFamily: FONT_DISPLAY, fontSize: 20, color: C.white }}>
               {stage === "YTD Signed PSAs" ? money(salesTeamTotal) : money(info["Value ($)"])}
@@ -4103,7 +4058,7 @@ function NaukaDashboard({ auth, onSignOut }) {
           </div>
           {records.length === 0
             ? <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>No deals to show.</div>
-            : records.map((d, i) => stage === "YTD Signed PSAs" ? <PSACard key={i} deal={d} /> : <DealCard key={i} deal={d} hsNote={stage === "Expired DD" ? dealLastNote(d) : null} />)
+            : records.map((d, i) => stage === "YTD Signed PSAs" ? <PSACard key={i} deal={d} /> : <DealCard key={i} deal={d} />)
           }
           {subtitle && <div style={{ textAlign: "center", padding: "0.75rem", background: C.teal, borderRadius: 8, fontSize: 12, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, marginTop: 8 }}>{subtitle}</div>}
         </Modal>
@@ -4120,7 +4075,8 @@ function NaukaDashboard({ auth, onSignOut }) {
   const qoCount = whiteboard.filter(c => c.kind === "qo").length;
   const goneCards = whiteboard.filter(c => c.kind === "gone");
   const boardCards = whiteboard.filter(c => c.visited && c.kind !== "gone");
-  const taskLeads = buildTaskLeads({ contactNotes, cards: whiteboard.filter(c => c.visited || c.kind === "gone"), people: model.people, today: model.today }); // "In talks to visit" removed Nov 10
+  const talkCards = whiteboard.filter(c => !c.visited && c.kind !== "gone");
+  const taskLeads = buildTaskLeads({ contactNotes, cards: whiteboard, people: model.people, today: model.today });
   const go = key => {
     setView(key);
     try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch { /* old browsers */ }
@@ -4153,7 +4109,7 @@ function NaukaDashboard({ auth, onSignOut }) {
 
       {/* ── HOME · 2026 sales and breakdowns ──────────────────────── */}
       {view === "home" && (
-        <HomeView cashDeals={salesTeamDeals} partnerDeals={partnerDeals} setToClose={setToClose}
+        <HomeView cashDeals={salesTeamDeals} partnerDeals={partnerDeals} setToClose={setToClose} upgrades={upgradeNames} upgradeNotes={upgradeNotes}
           inventory={inventorySummary} today={model.today} onGo={go}
           onInventory={() => { setOnlyAvailable(true); go("inventories"); }} />
       )}
@@ -4173,7 +4129,7 @@ function NaukaDashboard({ auth, onSignOut }) {
         );
         const row = (chip, first) => {
           const info  = pipe(chip.key);
-          const count = chip.isGoal ? salesTeamDeals.length : num(info["Count"]);
+          const count = chip.isGoal ? salesTeamCount : num(info["Count"]);
           const value = chip.isGoal ? salesTeamTotal : parseFloat(String(info["Value ($)"] ?? "").replace(/[$,]/g, "")) || 0;
           const zero  = count === 0;
           const alert = chip.key === "Expired DD" && !zero;
@@ -4214,6 +4170,8 @@ function NaukaDashboard({ auth, onSignOut }) {
             <Whiteboard cards={goneCards} gone />
             <PdSectionHead text={`Leads with upcoming tasks · ${taskLeads.length}`} right={`Next ${TASKS_AHEAD_DAYS} days`} />
             <TaskLeads leads={taskLeads} today={model.today} />
+            <PdSectionHead text={`In talks to visit · ${talkCards.length}`} right="Not on property yet" />
+            <Whiteboard cards={talkCards} talks />
             <div style={{ height: 18 }} />
             <ProspectStages model={model} />
             {sectionHead("Due diligence", true)}

@@ -3691,11 +3691,16 @@ const HomeBar = ({ label, value, max, color, text, note, bold }) => (
   </div>
 );
 
-const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo, onInventory, upgrades, upgradeNotes }) => {
+const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo, onInventory, upgrades, upgradeNotes, upgradeProps }) => {
   const [open, setOpen] = useState(null);
   const cash = sumAmount(cashDeals), partner = sumAmount(partnerDeals), total = cash + partner;
   const cashN = countSales(cashDeals, upgrades), partnerN = countSales(partnerDeals, upgrades);
   const count = cashN + partnerN;
+  // Properties: one per PSA, plus what an upgrade adds (a PSA count and a property count can differ).
+  const propCount = count + [...(cashDeals || []), ...(partnerDeals || [])].reduce((t, d) => {
+    const k = pdStr(d["Deal Name"]);
+    return t + (upgrades && upgrades.has(k) && upgradeProps ? (upgradeProps.get(k) || 0) : 0);
+  }, 0);
   const closing = sumAmount(setToClose);
   const milestonePct = (total / SALES_TEAM_GOAL_AMOUNT) * 100;
   const toTarget = Math.max(HOME_TOTAL_TARGET - total, 0);
@@ -3741,7 +3746,7 @@ const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo,
         <div>
           <div className="hm-total">{homeM(total)}</div>
           <div style={{ fontSize: 14, color: C.gray, fontFamily: FONT_BODY, marginTop: 6 }}>
-            <strong>{count} properties</strong> · total property transactions
+            <strong>{count} PSAs · {propCount} properties</strong> · total property transactions
           </div>
         </div>
       </div>
@@ -3799,7 +3804,7 @@ const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo,
         <div className="hm-cell">
           <div style={{ display: "flex", alignItems: "center", gap: 7 }} className="hm-small"><span style={{ width: 10, height: 10, borderRadius: 3, background: C.teal }} />Signed</div>
           <div className="hm-big">{homeM(total)}</div>
-          <div className="hm-small">{count} properties</div>
+          <div className="hm-small">{count} PSAs · {propCount} properties</div>
         </div>
         <div className="hm-cell hm-click" {...click(() => setOpen("closing"))}>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }} className="hm-small"><span style={{ width: 10, height: 10, borderRadius: 3, background: "repeating-linear-gradient(135deg, rgba(136,209,209,0.9) 0 3px, rgba(136,209,209,0.35) 3px 6px)" }} />Set to close</div>
@@ -3983,6 +3988,8 @@ function NaukaDashboard({ auth, onSignOut }) {
   const upgradeNames = upgradeNameSet(masterDeals);
   // Upgrade deals show their Master_Deals note in the Home sales lists (e.g. which unit was released).
   const upgradeNotes = new Map((masterDeals || []).filter(isUpgradeDeal).map(r => [pdStr(r["Deal Name"]), pdStr(r["Notes"])]));
+  // Properties an upgrade adds (Master_Deals "Properties"; blank = 0). E.g. Vizcaino: 2 Bluffs in, Cliff 38 back = +1.
+  const upgradeProps = new Map((masterDeals || []).filter(isUpgradeDeal).map(r => [pdStr(r["Deal Name"]), parseInt(pdStr(r["Properties"]), 10) || 0]));
   const salesTeamCount = countSales(salesTeamDeals, upgradeNames); // an upgrade adds money, not a sale
   const salesTeamPct = SALES_TEAM_GOAL_AMOUNT > 0 ? (salesTeamTotal / SALES_TEAM_GOAL_AMOUNT) * 100 : 0;
   // Home: partner deals = the related-party YTD PSAs left out of the cash figure.
@@ -4112,7 +4119,7 @@ function NaukaDashboard({ auth, onSignOut }) {
 
       {/* ── HOME · 2026 sales and breakdowns ──────────────────────── */}
       {view === "home" && (
-        <HomeView cashDeals={salesTeamDeals} partnerDeals={partnerDeals} setToClose={setToClose} upgrades={upgradeNames} upgradeNotes={upgradeNotes}
+        <HomeView cashDeals={salesTeamDeals} partnerDeals={partnerDeals} setToClose={setToClose} upgrades={upgradeNames} upgradeNotes={upgradeNotes} upgradeProps={upgradeProps}
           inventory={inventorySummary} today={model.today} onGo={go}
           onInventory={() => { setOnlyAvailable(true); go("inventories"); }} />
       )}

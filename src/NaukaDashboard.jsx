@@ -2209,8 +2209,8 @@ const SixtyDayView = ({ model, onGo, activeLeads = [], calRecords = [] }) => {
 // ══════════════════════════════════════════════════════════════════════
 const PIPE_STAGES = [
   { key: "neg",  label: "Active Negotiations", house: "Advisor working toward an OTP · estimated amount", match: st => isNegotiationStage(st) },
-  { key: "potp", label: "OTPs Submitted / Pending Acceptance", house: "Pending OTP · inventory on hold", match: st => /^(decision|pending otp)$/i.test(st) },
-  { key: "sotp", label: "Accepted OTPs / Pending PSA", house: "Signed OTP", match: st => /^signed otp$/i.test(st) },
+  { key: "potp", label: "Pending OTPs", house: "Inventory on hold", match: st => /^(decision|pending otp)$/i.test(st) },
+  { key: "sotp", label: "Signed OTPs", house: "Pending PSA", match: st => /^signed otp$/i.test(st) },
 ];
 // Open deals by stage, from Master_Deals.
 function openDealsByStage(masterDeals) {

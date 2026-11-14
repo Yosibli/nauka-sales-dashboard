@@ -2775,6 +2775,47 @@ const SalesPipelineTable = ({ qoCount, openDeals, onOpenStage }) => {
   );
 };
 
+
+// Year-end target with each pipeline stage stacked on top of signed sales (Pipeline tab).
+const PIPE_TARGET_SEGS = [
+  { key: "signed", label: "Signed PSAs", bg: C.teal, sw: C.teal },
+  { key: "sotp", label: "Signed OTPs", bg: "repeating-linear-gradient(135deg, rgba(136,209,209,0.95) 0 6px, rgba(136,209,209,0.5) 6px 12px)", sw: "repeating-linear-gradient(135deg, rgba(136,209,209,0.95) 0 3px, rgba(136,209,209,0.5) 3px 6px)" },
+  { key: "potp", label: "Pending OTPs", bg: "rgba(136,209,209,0.38)", sw: "rgba(136,209,209,0.38)" },
+  { key: "neg", label: "Active Negotiations", bg: "repeating-linear-gradient(135deg, rgba(54,67,74,0.32) 0 6px, rgba(54,67,74,0.14) 6px 12px)", sw: "repeating-linear-gradient(135deg, rgba(54,67,74,0.32) 0 3px, rgba(54,67,74,0.14) 3px 6px)" },
+];
+const PipelineTargetBar = ({ signed, openDeals }) => {
+  const target = HOME_TOTAL_TARGET, milestone = SALES_TEAM_GOAL_AMOUNT;
+  const val = k => k === "signed" ? signed : (openDeals[k] || []).reduce((t, d) => t + d.amount, 0);
+  const max = Math.max(target, signed + ["sotp", "potp", "neg"].reduce((t, k) => t + val(k), 0));
+  const w = v => `${Math.max(0, (v / max) * 100)}%`;
+  let run = 0;
+  const segs = PIPE_TARGET_SEGS.map(sg => { const v = val(sg.key); run += v; return { ...sg, v, cum: run }; });
+  const pct = v => `${Math.round((v / target) * 100)}%`;
+  return (
+    <div>
+      <PdSectionHead text="Year-end target" right={`${homeM(target, 0)} total property transactions`} />
+      <div style={{ position: "relative", marginTop: 34, marginBottom: 34 }}>
+        <div style={{ position: "absolute", left: w(target), top: -22, transform: "translateX(-100%)", fontSize: 11.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{homeM(target, 0)} new milestone</div>
+        <div style={{ display: "flex", height: 22, borderRadius: 6, overflow: "hidden", background: "rgba(54,67,74,0.08)" }}>
+          {segs.map(sg => <div key={sg.key} style={{ width: w(sg.v), background: sg.bg }} title={`${sg.label} ${homeM(sg.v, 2)}`} />)}
+        </div>
+        <div style={{ position: "absolute", left: w(milestone), top: -4, bottom: -4, width: 2, background: C.gray }} />
+        <div style={{ position: "absolute", left: w(milestone), top: 28, transform: "translateX(-50%)", fontSize: 11.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, whiteSpace: "nowrap" }}>{homeM(milestone, 0)} milestone</div>
+      </div>
+      <div>
+        {segs.map(sg => (
+          <div key={sg.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid rgba(54,67,74,0.1)", fontFamily: FONT_BODY, color: C.gray }}>
+            <span style={{ width: 12, height: 12, borderRadius: 3, background: sg.sw, flexShrink: 0 }} />
+            <span style={{ flex: 1, fontSize: 13.5 }}>{sg.key === "signed" ? sg.label : `+ ${sg.label}`}</span>
+            <span style={{ fontSize: 13.5, fontWeight: "bold", minWidth: 64, textAlign: "right" }}>{homeM(sg.v, 2)}</span>
+            <span style={{ fontSize: 12.5, color: PD_MUTED, minWidth: 98, textAlign: "right" }}>{homeM(sg.cum)} · {pct(sg.cum)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 // Qualified Opportunities list (Sales pipeline row), same people the count uses.
 const QualifiedOppList = ({ cards, onClose }) => {
   const list = [...cards].sort((a, b) => (a.advisor || "").localeCompare(b.advisor || "") || (b.lastVisit?.departure || 0) - (a.lastVisit?.departure || 0));
@@ -3697,9 +3738,10 @@ const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo,
   const cashN = countSales(cashDeals, upgrades), partnerN = countSales(partnerDeals, upgrades);
   const count = cashN + partnerN;
   // Properties: one per PSA, plus what an upgrade adds (a PSA count and a property count can differ).
-  const propCount = count + [...(cashDeals || []), ...(partnerDeals || [])].reduce((t, d) => {
+  const propCount = [...(cashDeals || []), ...(partnerDeals || [])].reduce((t, d) => {
     const k = pdStr(d["Deal Name"]);
-    return t + (upgrades && upgrades.has(k) && upgradeProps ? (upgradeProps.get(k) || 0) : 0);
+    if (upgradeProps && upgradeProps.has(k)) return t + upgradeProps.get(k);
+    return t + (upgrades && upgrades.has(k) ? 0 : 1);
   }, 0);
   const closing = sumAmount(setToClose);
   const milestonePct = (total / SALES_TEAM_GOAL_AMOUNT) * 100;
@@ -3746,7 +3788,7 @@ const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo,
         <div>
           <div className="hm-total">{homeM(total)}</div>
           <div style={{ fontSize: 14, color: C.gray, fontFamily: FONT_BODY, marginTop: 6 }}>
-            <strong>{count} PSAs · {propCount} properties</strong> · total property transactions
+            <strong>{count} PSAs · {propCount} inventories</strong> · total property transactions
           </div>
         </div>
       </div>
@@ -3804,7 +3846,7 @@ const HomeView = ({ cashDeals, partnerDeals, setToClose, inventory, today, onGo,
         <div className="hm-cell">
           <div style={{ display: "flex", alignItems: "center", gap: 7 }} className="hm-small"><span style={{ width: 10, height: 10, borderRadius: 3, background: C.teal }} />Signed</div>
           <div className="hm-big">{homeM(total)}</div>
-          <div className="hm-small">{count} PSAs · {propCount} properties</div>
+          <div className="hm-small">{count} PSAs · {propCount} inventories</div>
         </div>
         <div className="hm-cell hm-click" {...click(() => setOpen("closing"))}>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }} className="hm-small"><span style={{ width: 10, height: 10, borderRadius: 3, background: "repeating-linear-gradient(135deg, rgba(136,209,209,0.9) 0 3px, rgba(136,209,209,0.35) 3px 6px)" }} />Set to close</div>
@@ -3987,9 +4029,12 @@ function NaukaDashboard({ auth, onSignOut }) {
   const salesTeamTotal = sumAmount(salesTeamDeals);
   const upgradeNames = upgradeNameSet(masterDeals);
   // Upgrade deals show their Master_Deals note in the Home sales lists (e.g. which unit was released).
-  const upgradeNotes = new Map((masterDeals || []).filter(isUpgradeDeal).map(r => [pdStr(r["Deal Name"]), pdStr(r["Notes"])]));
-  // Properties an upgrade adds (Master_Deals "Properties"; blank = 0). E.g. Vizcaino: 2 Bluffs in, Cliff 38 back = +1.
-  const upgradeProps = new Map((masterDeals || []).filter(isUpgradeDeal).map(r => [pdStr(r["Deal Name"]), parseInt(pdStr(r["Properties"]), 10) || 0]));
+  // Upgrade deals ("Upgrade" = adds money only; "Upgrade PSA" = the original deal went Lost and this PSA
+  // carries the full price) show their Master_Deals note in the Home sales lists.
+  const upgradeNotes = new Map((masterDeals || []).filter(r => /^upgrade/i.test(pdStr(r["Inventory"]))).map(r => [pdStr(r["Deal Name"]), pdStr(r["Notes"])]));
+  // Properties per deal (Master_Deals "Properties"; blank = 1 for a sale, 0 for an "Upgrade").
+  // E.g. Vizcaino's Bluff 207 & 208 = 2 properties in one PSA.
+  const upgradeProps = new Map((masterDeals || []).filter(r => pdStr(r["Properties"]) !== "").map(r => [pdStr(r["Deal Name"]), parseInt(pdStr(r["Properties"]), 10) || 0]));
   const salesTeamCount = countSales(salesTeamDeals, upgradeNames); // an upgrade adds money, not a sale
   const salesTeamPct = SALES_TEAM_GOAL_AMOUNT > 0 ? (salesTeamTotal / SALES_TEAM_GOAL_AMOUNT) * 100 : 0;
   // Home: partner deals = the related-party YTD PSAs left out of the cash figure.
@@ -4174,6 +4219,7 @@ function NaukaDashboard({ auth, onSignOut }) {
           <div>
             <PdSectionHead text="Sales pipeline" right={`Today · ${twDayFmt(model.today)}`} first />
             <SalesPipelineTable qoCount={qoCount} openDeals={openDeals} onOpenStage={k => setOpenModal({ type: "pipeStage", key: k })} />
+            <PipelineTargetBar signed={sumAmount(salesTeamDeals) + sumAmount(partnerDeals)} openDeals={openDeals} />
             <PdSectionHead big text="Qualified Opportunities & Active Negotiations · by advisor" right="Tap a name for the notes" />
             <Whiteboard cards={boardCards} />
             <PdSectionHead text={`Not moving forward · ${goneCards.length}`} right="Last 60 days" />

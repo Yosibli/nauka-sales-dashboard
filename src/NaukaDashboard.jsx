@@ -590,7 +590,6 @@ const RESALES_FALLBACK = [
   { product: "Cliff Estates", lot: "6",  price: 18000000 },
   { product: "Cliff Estates", lot: "7",  price: 24000000 },
   { product: "Cliff Estates", lot: "11", price: 24000000 },
-  { product: "Cliff Estates", lot: "44", price: 25000000 },
   { product: "Cliff Estates", lot: "14", price: null }, // price pending (Eli)
   { product: "Cliff Estates", lot: "19", price: 9500000 }, // Brees re-sale, already in Homesites
 ];
@@ -2398,14 +2397,10 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
     const staged = [...g.visits].filter(v => ps(v)).sort((a, b) => (b.arrival || 0) - (a.arrival || 0))[0];
     if (staged && QO_CLOSED_STAGES.includes(ps(staged))) return;
     const sticky = staged && ps(staged) === "qualified opportunity";
-    if (!sticky) {
-      // Entry: 1 · visited in the last 60 days (on property counts) · 2 · Lead Status Active
-      // · 3 · a note, call or meeting this month or last month
-      if (!g.visits.some(v => v.stage !== "Canceled" && v.arrival && v.arrival <= today && v.arrival >= qoFrom)) return;
-      if (status.toLowerCase() !== "active") return;
-      const touch = g.rid ? (notesByRid.get(g.rid) || []).reduce((m, n) => (n.date && (!m || n.date > m) ? n.date : m), null) : null;
-      if (!touch || touch < recentFrom) return;
-    }
+    // Nov 18: a person is a Qualified Opportunity only once the team moves the visit
+    // to that stage after the visit (Pipeline Stage = Qualified Opportunity). A recent
+    // visit alone no longer puts anyone on the list.
+    if (!sticky) return;
     if (off.includes(status.toLowerCase())) return;
     // an open deal is counted in its own stage instead (no double counting)
     if (g.rid && openByRid.has(g.rid)) return;
@@ -2811,7 +2806,7 @@ const Whiteboard = ({ cards, talks = false, gone = false }) => {
         })}
       </div>
       <PdNote>
-        {gone ? <><strong>Not moving forward:</strong> "From" is the last stage before leaving (Experiences or Deal pipeline). Visited in the last 60 days, then Lead Status Timing, Not Interested, Unqualified or Unsubscribed, visit marked Not This Time, or deal Lost.</> : talks ? <>Not visited yet; a note, call or meeting in the last {WB_YELLOW} days. Moves up to the whiteboard after the visit.</> : <><strong>Qualified Opportunity:</strong> active prospect that visited in the last 60 days. <strong>Active Negotiation:</strong> advisor working toward an OTP · estimated amount.</>}
+        {gone ? <><strong>Not moving forward:</strong> "From" is the last stage before leaving (Experiences or Deal pipeline). Visited in the last 60 days, then Lead Status Timing, Not Interested, Unqualified or Unsubscribed, visit marked Not This Time, or deal Lost.</> : talks ? <>Not visited yet; a note, call or meeting in the last {WB_YELLOW} days. Moves up to the whiteboard after the visit.</> : <><strong>Qualified Opportunity:</strong> active prospect that visited. <strong>Active Negotiation:</strong> advisor working toward an OTP · estimated amount.</>}
       </PdNote>
       {open && <WhiteboardDetail c={open} onClose={() => setOpen(null)} />}
     </div>
@@ -2821,7 +2816,7 @@ const Whiteboard = ({ cards, talks = false, gone = false }) => {
 // The CEO report's pipeline table, live.
 const SalesPipelineTable = ({ qoCount, openDeals, onOpenStage }) => {
   const rows = [
-    { key: "qo", label: "Qualified Opportunities", house: "Active prospect that visited in the last 60 days", n: qoCount, value: null },
+    { key: "qo", label: "Qualified Opportunities", house: "Active prospect that visited", n: qoCount, value: null },
     ...PIPE_STAGES.map(s => ({ key: s.key, label: s.label, house: s.house, n: openDeals[s.key].length, value: openDeals[s.key].reduce((t, d) => t + d.amount, 0) })),
   ];
   const totalN = rows.reduce((t, r) => t + r.n, 0);
@@ -2891,7 +2886,7 @@ const PipelineTargetBar = ({ signed, openDeals }) => {
 const QualifiedOppList = ({ cards, onClose }) => {
   const list = [...cards].sort((a, b) => (a.advisor || "").localeCompare(b.advisor || "") || (b.lastVisit?.departure || 0) - (a.lastVisit?.departure || 0));
   return (
-    <Modal title="Qualified Opportunities" subtitle={`${list.length} · Active prospect that visited in the last 60 days`} onClose={onClose}>
+    <Modal title="Qualified Opportunities" subtitle={`${list.length} · Active prospect that visited`} onClose={onClose}>
       {list.length === 0 && <div style={{ fontSize: 13, color: PD_MUTED, fontFamily: FONT_BODY }}>None right now.</div>}
       {list.map(c => {
         const L = WB_LIGHT[c.light];
@@ -4113,6 +4108,17 @@ function NaukaDashboard({ auth, onSignOut }) {
   const salesTeamPct = SALES_TEAM_GOAL_AMOUNT > 0 ? (salesTeamTotal / SALES_TEAM_GOAL_AMOUNT) * 100 : 0;
   // Home: partner deals = the related-party YTD PSAs left out of the cash figure.
   const partnerDeals = ytdPSAs.filter(d => !isSummaryRow(d) && !salesTeamPrimaryDeals.includes(d));
+  // Sales Team YTD (Pipeline tab, bottom): every 2026 PSA, like Home: sales team deals,
+  // re-sales and partner (related-party) deals. PSAs, inventories and $ (Nov 18).
+  const ytdAllDeals = [...salesTeamDeals, ...partnerDeals];
+  const ytdAllTotal = sumAmount(ytdAllDeals);
+  const ytdAllCount = countSales(ytdAllDeals, upgradeNames);
+  const ytdAllProps = ytdAllDeals.reduce((t, d) => {
+    const k = pdStr(d["Deal Name"]);
+    if (upgradeProps.has(k)) return t + upgradeProps.get(k);
+    return t + (upgradeNames.has(k) ? 0 : 1);
+  }, 0);
+  const ytdAllPct = SALES_TEAM_GOAL_AMOUNT > 0 ? (ytdAllTotal / SALES_TEAM_GOAL_AMOUNT) * 100 : 0;
   const setToClose = deals.filter(d => HOME_SET_TO_CLOSE_STAGES.includes(String(d["Stage"] ?? "").trim()) && !isSummaryRow(d));
   const availableUnits = [...builtProduct, ...homesites].flatMap(g => g.units).filter(u => u.status === "available");
   const availablePrices = availableUnits.map(u => u.price).filter(p => p != null);
@@ -4123,7 +4129,7 @@ function NaukaDashboard({ auth, onSignOut }) {
   };
 
   const salesTeamAvgDays = (() => {
-    const days = salesTeamDeals.map(r => parseInt(r["Days on Hold"])).filter(d => !isNaN(d));
+    const days = ytdAllDeals.map(r => parseInt(r["Days on Hold"])).filter(d => !isNaN(d));
     return days.length ? Math.round(days.reduce((a, b) => a + b, 0) / days.length) : null;
   })();
 
@@ -4170,19 +4176,19 @@ function NaukaDashboard({ auth, onSignOut }) {
       else if (stage === "Signed OTP") records = deals.filter(d => d["Stage"] === "Signed OTP");
       else if (stage === "Expired DD") records = expiredDeals;
       else if (stage === "YTD Signed PSAs") {
-        // Sales-team goal view: excludes related-party PSAs, includes qualifying re-sales.
-        records = salesTeamDeals;
+        // Every 2026 PSA (sales team, re-sales and partner deals), newest first.
+        records = [...ytdAllDeals].sort((a, b) => (twParseDate(b["PSA Date Signed"]) || 0) - (twParseDate(a["PSA Date Signed"]) || 0));
         const avgLine = salesTeamAvgDays ? ` · Avg. ${salesTeamAvgDays} days on hold` : "";
-        subtitle = `${money(salesTeamTotal)} of $270M goal (${salesTeamPct.toFixed(1)}%)${avgLine}`;
+        subtitle = `${ytdAllCount} PSAs · ${ytdAllProps} inventories · ${money(ytdAllTotal)} of $270M goal (${ytdAllPct.toFixed(1)}%)${avgLine}`;
       }
       return (
         <Modal title={stage === "YTD Signed PSAs" ? "Sales Team YTD" : stage} subtitle={subtitle} onClose={() => setOpenModal(null)}>
           <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
             <div style={{ background: C.gray, borderRadius: 8, padding: "0.5rem 1rem", fontFamily: FONT_DISPLAY, fontSize: 20, color: C.teal }}>
-              {stage === "YTD Signed PSAs" ? salesTeamCount : (info["Count"] || records.length)}
+              {stage === "YTD Signed PSAs" ? ytdAllCount : (info["Count"] || records.length)}
             </div>
             <div style={{ background: C.gray, borderRadius: 8, padding: "0.5rem 1rem", fontFamily: FONT_DISPLAY, fontSize: 20, color: C.white }}>
-              {stage === "YTD Signed PSAs" ? money(salesTeamTotal) : money(info["Value ($)"])}
+              {stage === "YTD Signed PSAs" ? money(ytdAllTotal) : money(info["Value ($)"])}
             </div>
           </div>
           {records.length === 0
@@ -4205,7 +4211,7 @@ function NaukaDashboard({ auth, onSignOut }) {
   const goneCards = whiteboard.filter(c => c.kind === "gone");
   const boardCards = whiteboard.filter(c => c.visited && c.kind !== "gone");
   const talkCards = whiteboard.filter(c => !c.visited && c.kind !== "gone");
-  const taskLeads = buildTaskLeads({ contactNotes, cards: whiteboard, people: model.people, today: model.today });
+  const taskLeads = buildTaskLeads({ contactNotes, cards: whiteboard.filter(c => c.visited || c.kind === "gone"), people: model.people, today: model.today });
   const go = key => {
     setView(key);
     try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch { /* old browsers */ }
@@ -4258,8 +4264,8 @@ function NaukaDashboard({ auth, onSignOut }) {
         );
         const row = (chip, first) => {
           const info  = pipe(chip.key);
-          const count = chip.isGoal ? salesTeamCount : num(info["Count"]);
-          const value = chip.isGoal ? salesTeamTotal : parseFloat(String(info["Value ($)"] ?? "").replace(/[$,]/g, "")) || 0;
+          const count = chip.isGoal ? ytdAllCount : num(info["Count"]);
+          const value = chip.isGoal ? ytdAllTotal : parseFloat(String(info["Value ($)"] ?? "").replace(/[$,]/g, "")) || 0;
           const zero  = count === 0;
           const alert = chip.key === "Expired DD" && !zero;
           const open  = chip.clickable ? () => setOpenModal({ type: "active", key: chip.key }) : undefined;
@@ -4271,10 +4277,10 @@ function NaukaDashboard({ auth, onSignOut }) {
                 {chip.isGoal && (
                   <div style={{ marginTop: 8, maxWidth: 260 }}>
                     <div style={{ height: 4, background: "rgba(54,67,74,0.1)", borderRadius: 2, overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${Math.min(salesTeamPct, 100)}%`, background: C.teal, borderRadius: 2 }} />
+                      <div style={{ height: "100%", width: `${Math.min(ytdAllPct, 100)}%`, background: C.teal, borderRadius: 2 }} />
                     </div>
                     <div style={{ fontSize: 11, fontWeight: "bold", color: C.teal, marginTop: 5, fontFamily: FONT_BODY }}>
-                      {salesTeamPct.toFixed(1)}% of $270M goal
+                      {ytdAllCount} PSAs · {ytdAllProps} inventories · {ytdAllPct.toFixed(1)}% of $270M goal
                     </div>
                   </div>
                 )}
@@ -4300,14 +4306,10 @@ function NaukaDashboard({ auth, onSignOut }) {
             <Whiteboard cards={goneCards} gone />
             <PdSectionHead text={`Leads with upcoming tasks · ${taskLeads.length}`} right={`Next ${TASKS_AHEAD_DAYS} days`} />
             <TaskLeads leads={taskLeads} today={model.today} />
-            <PdSectionHead text={`In talks to visit · ${talkCards.length}`} right="Not on property yet" />
-            <Whiteboard cards={talkCards} talks />
             <div style={{ height: 18 }} />
             <ProspectStages model={model} />
             {sectionHead("Due diligence", true)}
             {row(expired, true)}
-            {sectionHead("Sales", false)}
-            {sales.map((c, i) => row(c, i === 0))}
           </div>
         );
       })()}

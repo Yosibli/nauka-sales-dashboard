@@ -649,6 +649,112 @@ const ResalesView = ({ items, homesites }) => {
   );
 };
 
+// ── LATEST EVENT (Pipeline tab, top · Nov 18, 2026) ─────────────────
+// A short summary of the latest event (Nauka Cup 2026): how many guests who
+// are not members came, and which of them became prospects, with the stage of
+// their visit. Read from the "Latest_Event" sheet tab (Event | Start Date |
+// End Date | HubSpot Record ID | Name | Status | Prospect Record ID). Empty tab
+// = no section, so clearing the tab removes it.
+function parseLatestEvent(rows) {
+  const list = (rows || []).filter(r => pdStr(r["HubSpot Record ID"]) || pdStr(r["Name"]));
+  if (!list.length) return null;
+  const head = list.find(r => pdStr(r["Event"]) && twParseDate(r["Start Date"])) || list[0];
+  return {
+    name: pdStr(head["Event"]),
+    start: twParseDate(head["Start Date"]),
+    end: twParseDate(head["End Date"]) || twParseDate(head["Start Date"]),
+    guests: list.map(r => ({
+      rid: pdId(r["HubSpot Record ID"]), name: pdStr(r["Name"]),
+      link: pdId(r["Prospect Record ID"]) || null,
+      cancelled: /cancel/i.test(pdStr(r["Status"])),
+    })),
+  };
+}
+const EVENT_STAGE_LABEL = v => {
+  const ps = pdStr(v.pipelineStage);
+  if (ps) return ps;
+  const st = pdStr(v.stage);
+  return /^scheduled$/i.test(st) ? "Visit Confirmed" : st || "Visit Confirmed";
+};
+// Eli's list (Latest_Event_Pipeline tab: Group | Name | HubSpot Record ID |
+// Team | Interest | Est. Amount), shown in his order and grouping.
+function parseEventPipeline(rows) {
+  return (rows || []).filter(r => pdStr(r["Name"])).map(r => {
+    const n = parseFloat(pdStr(r["Est. Amount"]).replace(/[$,\s]/g, ""));
+    return { group: pdStr(r["Group"]), name: pdStr(r["Name"]), rid: pdId(r["HubSpot Record ID"]) || null,
+      team: pdStr(r["Team"]), interest: pdStr(r["Interest"]), amount: isNaN(n) ? null : (n < 1000 ? n * 1e6 : n) };
+  });
+}
+const LatestEventSection = ({ event, pipeline, calRecords, today }) => {
+  if (!event || !event.start) return null;
+  const came = event.guests.filter(g => !g.cancelled);
+  const cancelled = event.guests.length - came.length;
+  const from = new Date(event.start.getFullYear(), event.start.getMonth(), event.start.getDate() - 1);
+  // Visit shown next to a name: the latest Prospect Visit from the day before the event on.
+  const visitOf = rid => {
+    if (!rid) return null;
+    const vs = (calRecords || []).filter(v => pdId(v.recordId) === rid && !calIsEvent(v)
+      && !/cancel/i.test(pdStr(v.stage)) && v.arrival && v.arrival >= from).sort((a, b) => a.arrival - b.arrival);
+    return vs.length ? vs[vs.length - 1] : null;
+  };
+  const items = (pipeline || []).map(p => ({ ...p, v: visitOf(p.rid) }));
+  const groups = [];
+  items.forEach(p => { let g = groups.find(x => x.name === p.group); if (!g) groups.push(g = { name: p.group, items: [] }); g.items.push(p); });
+  const first = groups[0];
+  const priced = items.filter(p => p.amount != null);
+  const total = priced.reduce((t, p) => t + p.amount, 0);
+  const kpi = (n, label, sub) => (
+    <div style={{ flex: "1 1 0", minWidth: 0 }}>
+      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, lineHeight: 1, color: C.gray }}>{n}</div>
+      <div style={{ fontSize: 11.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, marginTop: 3 }}>{label}</div>
+      {sub && <div style={{ fontSize: 10.5, color: PD_MUTED, fontFamily: FONT_BODY, marginTop: 1 }}>{sub}</div>}
+    </div>
+  );
+  const row = (p, i, last) => {
+    const label = p.v ? EVENT_STAGE_LABEL(p.v) : null;
+    const isQo = label && /qualified opportunity/i.test(label);
+    const when = p.v && p.v.arrival > today ? ` · ${pdShortRange(p.v.arrival, p.v.departure)}` : "";
+    const note = p.v && p.v.notes && p.v.notes.length ? p.v.notes[p.v.notes.length - 1] : null;
+    return (
+      <div key={i} style={{ padding: "8px 0", borderBottom: last ? "none" : "1px solid rgba(54,67,74,0.08)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 13.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{p.name}
+            {p.team && <span style={{ fontWeight: "normal", color: PD_MUTED, fontSize: 11.5 }}> · {p.team}</span>}</span>
+          <span style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+            {p.amount != null && <span style={{ fontFamily: FONT_DISPLAY, fontSize: 14, color: C.gray }}>{money(p.amount)}</span>}
+            {label && <span style={{ fontSize: 9.5, fontWeight: "bold", color: isQo ? C.gray : "#fff", background: isQo ? C.teal : C.slate, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap", fontFamily: FONT_BODY }}>{label}{when}</span>}
+          </span>
+        </div>
+        {p.interest && <div style={{ fontSize: 12, color: C.gray, fontFamily: FONT_BODY, marginTop: 3, lineHeight: 1.35 }}>{p.interest}</div>}
+        {note && note.text && <div style={{ fontSize: 11, color: PD_MUTED, fontFamily: FONT_BODY, marginTop: 2, lineHeight: 1.35, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{note.date ? `${note.date}: ` : ""}{note.text}</div>}
+      </div>
+    );
+  };
+  // Each group is its own section, same title style; the event numbers sit in the first one.
+  const card = (children, top) => (
+    <div style={{ background: C.white, border: "1px solid rgba(54,67,74,0.12)", borderTop: `3px solid ${C.teal}`, borderRadius: 10, padding: "11px 14px", marginTop: 10 }}>{children}</div>
+  );
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <PdSectionHead text={first ? first.name : event.name} right={pdShortRange(event.start, event.end)} first />
+      {card(<>
+        <div style={{ display: "flex", gap: 14, maxWidth: 520 }}>
+          {kpi(came.length, "Guests", `Not members${cancelled ? ` · ${cancelled} cancelled` : ""}`)}
+          {first && kpi(first.items.length, "Active pipeline", event.name)}
+          {priced.length > 0 && kpi(money(total), "Estimated total", priced.length < items.length ? `${priced.length} of ${items.length} with amount` : null)}
+        </div>
+        {first && <div style={{ marginTop: 12, borderTop: "1px solid rgba(54,67,74,0.12)" }}>{first.items.map((p, i) => row(p, i, i === first.items.length - 1))}</div>}
+      </>)}
+      {groups.slice(1).map((g, gi) => (
+        <div key={gi}>
+          <PdSectionHead text={g.name} right={`${g.items.length}`} />
+          {card(g.items.map((p, i) => row(p, i, i === g.items.length - 1)))}
+        </div>
+      ))}
+    </div>
+  );
+};
+
 // ── Modal ─────────────────────────────────────────────────────────────
 const Modal = ({ title, subtitle, onClose, children }) => (
   <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(54,67,74,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}>
@@ -3994,6 +4100,8 @@ function NaukaDashboard({ auth, onSignOut }) {
   const [homesites, setHomesites]         = useState([]);
   const [inventoryTab, setInventoryTab]   = useState("built"); // "built" | "homesites" | "resales"
   const [resales, setResales]             = useState([]);
+  const [latestEvent, setLatestEvent]     = useState(null);
+  const [eventPipeline, setEventPipeline] = useState([]);
   const [onlyAvailable, setOnlyAvailable] = useState(false);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
@@ -4014,7 +4122,7 @@ function NaukaDashboard({ auth, onSignOut }) {
   const load = useCallback(async (silent = false) => {
       lastLoadRef.current = Date.now();
       try {
-        const [k, p, d, ka, fc, st, ytd, resale, cal, bp, hs, mLeads, mDeals, al, cn, ceo, rs] = await Promise.all([
+        const [k, p, d, ka, fc, st, ytd, resale, cal, bp, hs, mLeads, mDeals, al, cn, ceo, rs, ev, evp] = await Promise.all([
           fetchSheet("Weekly_KPIs"),
           fetchSheet("Pipeline"),
           fetchSheet("Pending Transactions"),
@@ -4032,6 +4140,8 @@ function NaukaDashboard({ auth, onSignOut }) {
           fetchSheet("Contact_Notes"),
           fetchSheet("CEO_Report"),
           fetchSheet("Resales"),
+          fetchSheet("Latest_Event"),
+          fetchSheet("Latest_Event_Pipeline"),
         ]);
         // fetchSheet returns [] on a network error, so a background refresh
         // that came back with nothing in the core tabs is treated as a failed
@@ -4049,6 +4159,8 @@ function NaukaDashboard({ auth, onSignOut }) {
         setContactNotes(parseContactNotes(cn));
         setCeoRows(ceo);
         setResales(rs.length ? parseResales(rs) : RESALES_FALLBACK);
+        setLatestEvent(parseLatestEvent(ev));
+        setEventPipeline(parseEventPipeline(evp));
         setNow(new Date());
         setLastUpdated(new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }));
       } catch { if (!silent) setError("Could not load data."); }
@@ -4297,7 +4409,8 @@ function NaukaDashboard({ auth, onSignOut }) {
         const expired = activeChips.find(c => c.key === "Expired DD");
         return (
           <div>
-            <PdSectionHead text="Sales pipeline" right={`Today · ${twDayFmt(model.today)}`} first />
+            <LatestEventSection event={latestEvent} pipeline={eventPipeline} calRecords={calRecords} today={model.today} />
+            <PdSectionHead text="Sales pipeline" right={`Today · ${twDayFmt(model.today)}`} first={!latestEvent} big={!!latestEvent} />
             <SalesPipelineTable qoCount={qoCount} openDeals={openDeals} onOpenStage={k => setOpenModal({ type: "pipeStage", key: k })} />
             <PipelineTargetBar signed={sumAmount(salesTeamDeals) + sumAmount(partnerDeals)} openDeals={openDeals} />
             <PdSectionHead big text="Qualified Opportunities & Active Negotiations · by advisor" right="Tap a name for the notes" />

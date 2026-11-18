@@ -580,6 +580,76 @@ const InventoryGroupSection = ({ group }) => (
   </div>
 );
 
+// ── RESALES (Inventory tab, Nov 18, 2026) ───────────────────────────
+// Properties owners are reselling. Read from the "Resales" sheet tab
+// (Product | Lot | Asking Price | Owner | Status | Notes). Until that tab
+// exists, Eli's list from Nov 17 is used. The owner comes from the
+// Homesites tab when the Owner cell is empty (Cliff Estates lots).
+const RESALES_FALLBACK = [
+  { product: "Cliff Estates", lot: "5",  price: 20000000 },
+  { product: "Cliff Estates", lot: "6",  price: 18000000 },
+  { product: "Cliff Estates", lot: "7",  price: 24000000 },
+  { product: "Cliff Estates", lot: "11", price: 24000000 },
+  { product: "Cliff Estates", lot: "44", price: 25000000 },
+  { product: "Cliff Estates", lot: "14", price: null }, // price pending (Eli)
+  { product: "Cliff Estates", lot: "19", price: 9500000 }, // Brees re-sale, already in Homesites
+];
+function parseResales(rows) {
+  return (rows || []).map(r => {
+    const raw = String(r["Asking Price"] ?? "").replace(/[$,\s]/g, "");
+    const n = parseFloat(raw);
+    return {
+      product: String(r["Product"] ?? "").trim(), lot: String(r["Lot"] ?? "").trim().replace(/\.0+$/, ""),
+      price: isNaN(n) ? null : (n < 1000 ? n * 1e6 : n), // "20" or "20M" typed by hand = $20M
+      owner: String(r["Owner"] ?? "").trim() || null, status: String(r["Status"] ?? "").trim(), notes: String(r["Notes"] ?? "").trim(),
+    };
+  }).filter(r => r.lot && !/^(sold|off market|withdrawn)$/i.test(r.status));
+}
+const resaleLabel = r => /cliff/i.test(r.product) ? `Cliff Estate ${r.lot.padStart(2, "0")}` : /beach/i.test(r.product) ? `Beach Estate ${r.lot}` : /bluff/i.test(r.product) ? `Bluff Estate ${r.lot}` : `Lot ${r.lot}`;
+const ResalesView = ({ items, homesites }) => {
+  // Owner from the Homesites tab: Cliff Estates group, "Homesite 5" → buyer.
+  const ownerOf = r => {
+    if (r.owner) return r.owner;
+    const g = (homesites || []).find(x => /cliff estates/i.test(x.name) && !/phase/i.test(x.name) && /cliff/i.test(r.product));
+    const u = g && g.units.find(x => x.unit === `Homesite ${r.lot}`);
+    return u && u.buyer ? u.buyer.replace(/\s*\(re-?sale\)\s*/i, "") : null;
+  };
+  const priced = items.filter(r => r.price != null);
+  const total = priced.reduce((t, r) => t + r.price, 0);
+  return (
+    <div>
+      <div style={{ background: C.white, border: "1px solid rgba(54,67,74,0.12)", borderRadius: 10, padding: "12px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
+        <span style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: "bold", color: PD_MUTED, fontFamily: FONT_BODY }}>Re-sales</span>
+        <span style={{ fontFamily: FONT_BODY, fontSize: 12.5, color: C.gray }}>
+          <strong>{items.length} listings · {money(total)}</strong>{items.length > priced.length ? <span style={{ color: PD_MUTED }}> · {items.length - priced.length} no price</span> : null}
+        </span>
+      </div>
+      <div style={{ background: C.gray, borderRadius: 8, padding: "11px 16px", marginBottom: 2 }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontStyle: "italic", color: C.teal }}>Re-sales</div>
+      </div>
+      {items.length === 0 && <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>No re-sales listed.</div>}
+      {items.map((r, i) => {
+        const owner = ownerOf(r);
+        return (
+          <div key={i} style={ROW_STYLE}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+              <div style={{ minWidth: 0 }}>
+                <Eyebrow color={C.slate}>{resaleLabel(r)}</Eyebrow>
+                {owner && <Subhead>{/^casa\b/i.test(owner) ? owner : invFamilyName(owner)}</Subhead>}
+                {r.notes && <RowNotes>{r.notes}</RowNotes>}
+              </div>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, color: r.price != null ? C.gray : PD_MUTED, marginBottom: 4 }}>{r.price != null ? money(r.price) : "No price"}</div>
+                <span style={{ fontSize: 10, fontWeight: "bold", color: "#fff", background: C.slate, borderRadius: 999, padding: "3px 10px", whiteSpace: "nowrap", fontFamily: FONT_BODY }}>Re-sale</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 // ── Modal ─────────────────────────────────────────────────────────────
 const Modal = ({ title, subtitle, onClose, children }) => (
   <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(54,67,74,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}>
@@ -1009,6 +1079,7 @@ const CAL_MONTHS = [
   { year: 2026, month: 9, label: "October 2026" },
   { year: 2026, month: 10, label: "November 2026" },
   { year: 2026, month: 11, label: "December 2026" },
+  { year: 2027, month: 0, label: "January 2027" },
 ];
 
 const CalendarView = ({ records }) => {
@@ -1688,7 +1759,7 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
   };
 
   const visits = (calRecords || [])
-    .filter(r => r.name && r.stage === "Scheduled" && !calIsEvent(r) && r.arrival && r.arrival >= today && pdStr(r.contactType).toLowerCase() !== "connector")
+    .filter(r => r.name && /^(scheduled|visit confirmed)$/i.test(pdStr(r.stage)) && !calIsEvent(r) && r.arrival && r.arrival >= today && pdStr(r.contactType).toLowerCase() !== "connector")
     .sort((a, b) => a.arrival - b.arrival);
   const ddThisMonth = (masterDeals || [])
     .map(r => ({ name: pdStr(r["Deal Name"]), stage: pdStr(r["Stage"]), date: twParseDate(r["DD Expiry"]), amount: twAmount(r["Amount ($)"]), advisor: pdStr(r["Advisor"]) }))
@@ -3926,7 +3997,8 @@ function NaukaDashboard({ auth, onSignOut }) {
   const [calendarRows, setCalendarRows]   = useState([]);
   const [builtProduct, setBuiltProduct]   = useState([]);
   const [homesites, setHomesites]         = useState([]);
-  const [inventoryTab, setInventoryTab]   = useState("built"); // "built" | "homesites"
+  const [inventoryTab, setInventoryTab]   = useState("built"); // "built" | "homesites" | "resales"
+  const [resales, setResales]             = useState([]);
   const [onlyAvailable, setOnlyAvailable] = useState(false);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(null);
@@ -3947,7 +4019,7 @@ function NaukaDashboard({ auth, onSignOut }) {
   const load = useCallback(async (silent = false) => {
       lastLoadRef.current = Date.now();
       try {
-        const [k, p, d, ka, fc, st, ytd, resale, cal, bp, hs, mLeads, mDeals, al, cn, ceo] = await Promise.all([
+        const [k, p, d, ka, fc, st, ytd, resale, cal, bp, hs, mLeads, mDeals, al, cn, ceo, rs] = await Promise.all([
           fetchSheet("Weekly_KPIs"),
           fetchSheet("Pipeline"),
           fetchSheet("Pending Transactions"),
@@ -3964,6 +4036,7 @@ function NaukaDashboard({ auth, onSignOut }) {
           fetchSheet("Active_Leads"),
           fetchSheet("Contact_Notes"),
           fetchSheet("CEO_Report"),
+          fetchSheet("Resales"),
         ]);
         // fetchSheet returns [] on a network error, so a background refresh
         // that came back with nothing in the core tabs is treated as a failed
@@ -3980,6 +4053,7 @@ function NaukaDashboard({ auth, onSignOut }) {
         setActiveLeads(parseActiveLeads(al));
         setContactNotes(parseContactNotes(cn));
         setCeoRows(ceo);
+        setResales(rs.length ? parseResales(rs) : RESALES_FALLBACK);
         setNow(new Date());
         setLastUpdated(new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }));
       } catch { if (!silent) setError("Could not load data."); }
@@ -4251,10 +4325,14 @@ function NaukaDashboard({ auth, onSignOut }) {
             <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
               <button style={tabStyle(inventoryTab === "built")} onClick={() => setInventoryTab("built")}>Built Product</button>
               <button style={tabStyle(inventoryTab === "homesites")} onClick={() => setInventoryTab("homesites")}>Homesites</button>
-              <button style={{ ...tabStyle(onlyAvailable), marginLeft: "auto" }} onClick={() => setOnlyAvailable(v => !v)}>
-                {onlyAvailable ? "✓ Available Only" : "Show Available Only"}
-              </button>
+              <button style={tabStyle(inventoryTab === "resales")} onClick={() => setInventoryTab("resales")}>Re-sales</button>
+              {inventoryTab !== "resales" && (
+                <button style={{ ...tabStyle(onlyAvailable), marginLeft: "auto" }} onClick={() => setOnlyAvailable(v => !v)}>
+                  {onlyAvailable ? "✓ Available Only" : "Show Available Only"}
+                </button>
+              )}
             </div>
+            {inventoryTab === "resales" ? <ResalesView items={resales} homesites={homesites} /> : <>
             {onlyAvailable && groups.length > 0 && <InventoryTotals groups={groups} allAvailable={availableUnits} />}
             {groups.length === 0 ? (
               <div style={{ fontSize: 13, color: "rgba(54,67,74,0.64)", padding: "1rem 0", fontFamily: FONT_BODY }}>
@@ -4263,6 +4341,7 @@ function NaukaDashboard({ auth, onSignOut }) {
             ) : (
               groups.map((g, i) => <InventoryGroupSection key={i} group={g} />)
             )}
+            </>}
           </div>
         );
       })()}

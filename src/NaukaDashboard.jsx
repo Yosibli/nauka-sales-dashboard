@@ -718,7 +718,10 @@ const LatestEventSection = ({ event, pipeline, calRecords, today, openDeals, qoR
   const groups = [];
   items.forEach(p => { let g = groups.find(x => x.name === p.group); if (!g) groups.push(g = { name: p.group, items: [] }); g.items.push(p); });
   const row = (p, i, last) => {
-    const label = p.v ? EVENT_STAGE_LABEL(p.v) : null;
+    // The pill shows the person's pipeline stage (deal stage or Qualified Opportunity);
+    // an upcoming visit adds its dates. Nobody in a stage: the visit status, as before.
+    const STAGE_PILL = { qo: "Qualified Opportunity", neg: "Active Negotiation", potp: "Pending OTP", sotp: "Signed OTP" };
+    const label = STAGE_PILL[p.stage] || (p.v ? EVENT_STAGE_LABEL(p.v) : null);
     const isQo = label && /qualified opportunity/i.test(label);
     const when = p.v && p.v.arrival > today ? ` · ${pdShortRange(p.v.arrival, p.v.departure)}` : "";
     const note = p.v && p.v.notes && p.v.notes.length ? p.v.notes[p.v.notes.length - 1] : null;

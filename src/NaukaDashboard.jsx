@@ -696,6 +696,18 @@ const EVENT_STAGE_ROWS = [
   { key: "potp", label: "Pending OTPs", house: "Inventory on hold" },
   { key: "sotp", label: "Signed OTPs", house: "Pending PSA" },
 ];
+// How much of the open pipeline came from the latest event (line under the Sales pipeline TOTAL).
+const eventPipelineShare = (pipeline, openDeals, qoRids) => {
+  const deals = openDeals ? [...openDeals.neg, ...openDeals.potp, ...openDeals.sotp] : [];
+  const seen = new Set(); let n = 0, value = 0;
+  (pipeline || []).forEach(p => {
+    if (!p.rid || seen.has(p.rid)) return;
+    const d = deals.find(x => x.rid === p.rid);
+    if (d) { seen.add(p.rid); n++; value += d.amount || 0; }
+    else if (qoRids && qoRids.has(p.rid)) { seen.add(p.rid); n++; }
+  });
+  return { n, value };
+};
 const LatestEventSection = ({ event, pipeline, calRecords, today, openDeals, qoRids }) => {
   const [openList, setOpenList] = useState(null); // { group, key }
   if (!event || !event.start) return null;
@@ -777,7 +789,7 @@ const LatestEventSection = ({ event, pipeline, calRecords, today, openDeals, qoR
     <div style={{ marginBottom: 8 }}>
       {groups.map((g, gi) => (
         <div key={gi}>
-          <PdSectionHead text={g.name} right={gi === 0 ? pdShortRange(event.start, event.end) : null} first={gi === 0} big={gi > 0} />
+          <PdSectionHead text={g.name} right={gi === 0 ? pdShortRange(event.start, event.end) : null} big />
           {stageTable(g)}
         </div>
       ))}
@@ -2957,7 +2969,7 @@ const Whiteboard = ({ cards, talks = false, gone = false }) => {
 };
 
 // The CEO report's pipeline table, live.
-const SalesPipelineTable = ({ qoCount, openDeals, onOpenStage }) => {
+const SalesPipelineTable = ({ qoCount, openDeals, onOpenStage, eventShare }) => {
   const rows = [
     { key: "qo", label: "Qualified Opportunities", house: "Active prospect that visited", n: qoCount, value: null },
     ...PIPE_STAGES.map(s => ({ key: s.key, label: s.label, house: s.house, n: openDeals[s.key].length, value: openDeals[s.key].reduce((t, d) => t + d.amount, 0) })),
@@ -2973,6 +2985,7 @@ const SalesPipelineTable = ({ qoCount, openDeals, onOpenStage }) => {
       <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 0", borderTop: `1.5px solid ${C.gray}` }}>
         <div style={{ flex: 1, fontSize: 15, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, letterSpacing: "0.04em" }}>TOTAL OPEN PIPELINE
           <div style={{ fontSize: 11.5, fontWeight: "normal", color: PD_MUTED, marginTop: 2, letterSpacing: 0 }}>Each opportunity in one stage only · executed PSAs excluded</div>
+          {eventShare && eventShare.n > 0 && <div style={{ fontSize: 12, fontWeight: "bold", color: C.gray, marginTop: 4, letterSpacing: 0 }}>{eventShare.name}: {eventShare.n}{eventShare.value > 0 ? ` · ${money(eventShare.value)}` : ""}</div>}
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontFamily: FONT_DISPLAY, fontSize: 30, lineHeight: 1, color: C.gray }}>{totalN}</div>
@@ -4364,6 +4377,7 @@ function NaukaDashboard({ auth, onSignOut }) {
   const whiteboard = buildWhiteboard({ calRecords, people: model.people, openDeals, activeLeads, contactNotes, masterDeals, today: model.today, winStart: model.win.start });
   // Qualified Opportunities = people after a prospect visit (names added by hand who have not visited are on the board, not in the count).
   const qoCount = whiteboard.filter(c => c.kind === "qo").length;
+  const qoRidSet = new Set(whiteboard.filter(c => c.kind === "qo" && c.rid).map(c => c.rid));
   const goneCards = whiteboard.filter(c => c.kind === "gone");
   const boardCards = whiteboard.filter(c => c.visited && c.kind !== "gone");
   const talkCards = whiteboard.filter(c => !c.visited && c.kind !== "gone");
@@ -4453,9 +4467,9 @@ function NaukaDashboard({ auth, onSignOut }) {
         const expired = activeChips.find(c => c.key === "Expired DD");
         return (
           <div>
-            <LatestEventSection event={latestEvent} pipeline={eventPipeline} calRecords={calRecords} today={model.today} openDeals={openDeals} qoRids={new Set(whiteboard.filter(c => c.kind === "qo" && c.rid).map(c => c.rid))} />
-            <PdSectionHead text="Sales pipeline" right={`Today · ${twDayFmt(model.today)}`} first={!latestEvent} big={!!latestEvent} />
-            <SalesPipelineTable qoCount={qoCount} openDeals={openDeals} onOpenStage={k => setOpenModal({ type: "pipeStage", key: k })} />
+            <PdSectionHead text="Sales pipeline" right={`Today · ${twDayFmt(model.today)}`} first />
+            <SalesPipelineTable qoCount={qoCount} openDeals={openDeals} onOpenStage={k => setOpenModal({ type: "pipeStage", key: k })} eventShare={latestEvent && latestEvent.start ? { name: latestEvent.name, ...eventPipelineShare(eventPipeline, openDeals, qoRidSet) } : null} />
+            <LatestEventSection event={latestEvent} pipeline={eventPipeline} calRecords={calRecords} today={model.today} openDeals={openDeals} qoRids={qoRidSet} />
             <PipelineTargetBar signed={sumAmount(salesTeamDeals) + sumAmount(partnerDeals)} openDeals={openDeals} />
             <PdSectionHead big text="Qualified Opportunities & Active Negotiations · by advisor" right="Tap a name for the notes" />
             <Whiteboard cards={boardCards} />

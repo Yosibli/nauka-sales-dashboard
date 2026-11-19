@@ -686,10 +686,19 @@ function parseEventPipeline(rows) {
       team: pdStr(r["Team"]), interest: pdStr(r["Interest"]), amount: isNaN(n) ? null : (n < 1000 ? n * 1e6 : n) };
   });
 }
-const LatestEventSection = ({ event, pipeline, calRecords, today }) => {
+// Nov 18: each group shows the same stage table as the Sales pipeline (count per stage, $ for
+// the deal stages, TOTAL). Tap a stage for its names. A person's stage: open deal in
+// Master_Deals (by Record ID) → that deal stage and amount; else a Qualified Opportunity on the
+// Pipeline whiteboard → QO; else "Not in a stage yet".
+const EVENT_STAGE_ROWS = [
+  { key: "qo", label: "Qualified Opportunities", house: "Active prospect that visited" },
+  { key: "neg", label: "Active Negotiations", house: "Advisor working toward an OTP · estimated amount" },
+  { key: "potp", label: "Pending OTPs", house: "Inventory on hold" },
+  { key: "sotp", label: "Signed OTPs", house: "Pending PSA" },
+];
+const LatestEventSection = ({ event, pipeline, calRecords, today, openDeals, qoRids }) => {
+  const [openList, setOpenList] = useState(null); // { group, key }
   if (!event || !event.start) return null;
-  const came = event.guests.filter(g => !g.cancelled);
-  const cancelled = event.guests.length - came.length;
   const from = new Date(event.start.getFullYear(), event.start.getMonth(), event.start.getDate() - 1);
   // Visit shown next to a name: the latest Prospect Visit from the day before the event on.
   const visitOf = rid => {
@@ -698,31 +707,28 @@ const LatestEventSection = ({ event, pipeline, calRecords, today }) => {
       && !/cancel/i.test(pdStr(v.stage)) && v.arrival && v.arrival >= from).sort((a, b) => a.arrival - b.arrival);
     return vs.length ? vs[vs.length - 1] : null;
   };
-  const items = (pipeline || []).map(p => ({ ...p, v: visitOf(p.rid) }));
+  const deals = openDeals ? [...openDeals.neg, ...openDeals.potp, ...openDeals.sotp] : [];
+  const stageOf = p => {
+    const d = p.rid ? deals.find(x => x.rid === p.rid) : null;
+    if (d) return { key: d.stageKey, amount: d.amount };
+    if (p.rid && qoRids && qoRids.has(p.rid)) return { key: "qo", amount: null };
+    return { key: "none", amount: null };
+  };
+  const items = (pipeline || []).map(p => { const s = stageOf(p); return { ...p, v: visitOf(p.rid), stage: s.key, value: s.amount != null ? s.amount : (s.key === "qo" ? null : p.amount) }; });
   const groups = [];
   items.forEach(p => { let g = groups.find(x => x.name === p.group); if (!g) groups.push(g = { name: p.group, items: [] }); g.items.push(p); });
-  const first = groups[0];
-  const priced = items.filter(p => p.amount != null);
-  const total = priced.reduce((t, p) => t + p.amount, 0);
-  const kpi = (n, label, sub) => (
-    <div style={{ flex: "1 1 0", minWidth: 0, textAlign: "center" }}>
-      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, lineHeight: 1, color: C.gray }}>{n}</div>
-      <div style={{ fontSize: 11.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, marginTop: 3 }}>{label}</div>
-      {sub && <div style={{ fontSize: 10.5, color: PD_MUTED, fontFamily: FONT_BODY, marginTop: 1 }}>{sub}</div>}
-    </div>
-  );
   const row = (p, i, last) => {
     const label = p.v ? EVENT_STAGE_LABEL(p.v) : null;
     const isQo = label && /qualified opportunity/i.test(label);
     const when = p.v && p.v.arrival > today ? ` · ${pdShortRange(p.v.arrival, p.v.departure)}` : "";
     const note = p.v && p.v.notes && p.v.notes.length ? p.v.notes[p.v.notes.length - 1] : null;
     return (
-      <div key={i} style={{ padding: "8px 0", borderBottom: last ? "none" : "1px solid rgba(54,67,74,0.08)" }}>
+      <div key={i} style={{ padding: "10px 0", borderBottom: last ? "none" : "1px solid rgba(54,67,74,0.08)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
           <span style={{ fontSize: 13.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{p.name}
             {p.team && <span style={{ fontWeight: "normal", color: PD_MUTED, fontSize: 11.5 }}> · {p.team}</span>}</span>
           <span style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-            {p.amount != null && <span style={{ fontFamily: FONT_DISPLAY, fontSize: 14, color: C.gray }}>{money(p.amount)}</span>}
+            {p.value != null && <span style={{ fontFamily: FONT_DISPLAY, fontSize: 14, color: C.gray }}>{money(p.value)}</span>}
             {label && <span style={{ fontSize: 9.5, fontWeight: "bold", color: isQo ? C.gray : "#fff", background: isQo ? C.teal : C.slate, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap", fontFamily: FONT_BODY }}>{label}{when}</span>}
           </span>
         </div>
@@ -731,26 +737,52 @@ const LatestEventSection = ({ event, pipeline, calRecords, today }) => {
       </div>
     );
   };
-  // Each group is its own section, same title style; the event numbers sit in the first one.
-  const card = (children, top) => (
-    <div style={{ background: C.white, border: "1px solid rgba(54,67,74,0.12)", borderTop: `3px solid ${C.teal}`, borderRadius: 10, padding: "11px 14px", marginTop: 10 }}>{children}</div>
-  );
+  // Same rows and TOTAL line as the Sales pipeline table.
+  const stageTable = g => {
+    const sum = list => list.reduce((t, p) => t + (p.value || 0), 0);
+    const rows = [...EVENT_STAGE_ROWS, ...(g.items.some(p => p.stage === "none") ? [{ key: "none", label: "Not in a stage yet", house: "On Eli's list, not in the pipeline yet" }] : [])]
+      .map(s => { const list = g.items.filter(p => p.stage === s.key); return { ...s, list, n: list.length, value: s.key === "qo" ? 0 : sum(list) }; });
+    const inStages = g.items.filter(p => p.stage !== "none");
+    const totalV = sum(inStages.filter(p => p.stage !== "qo"));
+    return (
+      <div>
+        {rows.map((r, i) => (
+          <PdRow key={r.key} numSize={30} stat={{ label: r.label, house: r.house, money: true }} n={r.n} total={r.value} first={i === 0}
+            onOpen={r.n ? () => setOpenList({ group: g.name, key: r.key }) : undefined} />
+        ))}
+        <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 0", borderTop: `1.5px solid ${C.gray}` }}>
+          <div style={{ flex: 1, fontSize: 15, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, letterSpacing: "0.04em" }}>TOTAL
+            <div style={{ fontSize: 11.5, fontWeight: "normal", color: PD_MUTED, marginTop: 2, letterSpacing: 0 }}>Each person in one stage only</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 30, lineHeight: 1, color: C.gray }}>{inStages.length}</div>
+            {totalV > 0 && <div style={{ fontFamily: FONT_DISPLAY, fontSize: 17, fontWeight: "bold", color: C.teal, marginTop: 2 }}>{money(totalV)}</div>}
+          </div>
+          <span aria-hidden="true" style={{ fontSize: 22, color: "transparent", lineHeight: 1, marginLeft: -4 }}>›</span>
+        </div>
+      </div>
+    );
+  };
+  const open = openList && (() => {
+    const g = groups.find(x => x.name === openList.group);
+    const st = [...EVENT_STAGE_ROWS, { key: "none", label: "Not in a stage yet" }].find(s => s.key === openList.key);
+    const list = g ? g.items.filter(p => p.stage === openList.key) : [];
+    const v = list.reduce((t, p) => t + (p.value || 0), 0);
+    return { g, st, list, v };
+  })();
   return (
     <div style={{ marginBottom: 8 }}>
-      <PdSectionHead text={first ? first.name : event.name} right={pdShortRange(event.start, event.end)} first />
-      {card(<>
-        <div style={{ display: "flex", gap: 14, maxWidth: 520, margin: "0 auto" }}>
-          {first && kpi(first.items.length, "Active pipeline", event.name)}
-          {priced.length > 0 && kpi(money(total), "Estimated total", priced.length < items.length ? `${priced.length} of ${items.length} with amount` : null)}
-        </div>
-        {first && <div style={{ marginTop: 12, borderTop: "1px solid rgba(54,67,74,0.12)" }}>{first.items.map((p, i) => row(p, i, i === first.items.length - 1))}</div>}
-      </>)}
-      {groups.slice(1).map((g, gi) => (
+      {groups.map((g, gi) => (
         <div key={gi}>
-          <PdSectionHead text={g.name} right={`${g.items.length}`} />
-          {card(g.items.map((p, i) => row(p, i, i === g.items.length - 1)))}
+          <PdSectionHead text={g.name} right={gi === 0 ? pdShortRange(event.start, event.end) : null} first={gi === 0} big={gi > 0} />
+          {stageTable(g)}
         </div>
       ))}
+      {open && open.g && (
+        <Modal title={open.st.label} subtitle={`${open.g.name} · ${open.list.length}${open.v > 0 ? ` · ${money(open.v)}` : ""}`} onClose={() => setOpenList(null)}>
+          {open.list.map((p, i) => row(p, i, i === open.list.length - 1))}
+        </Modal>
+      )}
     </div>
   );
 };
@@ -831,6 +863,8 @@ function parseCalendarSheet(rows) {
       // Negotiation, Not This Time, Legacy… Never shown on screen as-is.
       pipelineStage: pdStr(r["Pipeline Stage"]) || null,
       lastActivity: parseDate(r["Last Activity Date"]),
+      // Day the visit was booked = create date of the HubSpot experience (Nov 18).
+      bookedDate: parseDate(r["Booked Date"]),
       leadStatus: r["Lead Status"] || null,
       guests: r["Guests"] || null,
       chargeNote: r["Charge Note"] || null,
@@ -1871,7 +1905,7 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
     .filter(d => d.name && d.date && ["Pending OTP", "Signed OTP", "Decision"].includes(d.stage) && d.date >= today && d.date <= mEnd)
     .sort((a, b) => a.date - b.date);
 
-  return { today, entries, people, list, count, amount, hasDailyData, win, prev, weeks, month, mastersFrom, leadTourRate, prospects, visits, ddThisMonth, aging, daysOpen };
+  return { today, entries, people, list, count, amount, hasDailyData, win, prev, weeks, month, mastersFrom, leadTourRate, prospects, visits, ddThisMonth, aging, daysOpen, calRecords: calRecords || [] };
 }
 
 // Labels follow Paul White's weekly CEO report; `house` is our own term, shown small underneath.
@@ -3248,7 +3282,14 @@ const ReportView = ({ model, openDeals, qoCount, ceoRows, masterDeals }) => {
   const potpN = S("Pending Acceptance", openDeals.potp.length), potpV = S("Pending Acceptance $", openDeals.potp.reduce((t, d) => t + d.amount, 0));
   const sotpN = S("Pending PSA", openDeals.sotp.length), sotpV = S("Pending PSA $", openDeals.sotp.reduce((t, d) => t + d.amount, 0));
   const openN = qo + negN + potpN + sotpN, openV = negV + potpV + sotpV;
-  const booked = ceoSaved(row, "Tours Booked New"), scheduled = S("Tours Scheduled", model.visits.length);
+  // Upcoming Site Tours Booked (Nov 18): New = Prospect Visits booked in the week (Booked Date =
+  // HubSpot experience create date) for a visit on or after that day. Scheduled = upcoming visits
+  // at the end of the week (Scheduled or Visit Confirmed today; for a past week, every visit
+  // after its Sunday that was already booked then). Events, connectors and Canceled are left out.
+  const tourRows = (model.calRecords || []).filter(r => r.name && r.arrival && !calIsEvent(r) && r.stage !== "Canceled" && pdStr(r.contactType).toLowerCase() !== "connector");
+  const bookedLive = tourRows.filter(r => r.bookedDate && r.bookedDate >= wk.start && r.bookedDate <= until && r.arrival >= r.bookedDate).length;
+  const scheduledLive = wk.live ? model.visits.length : tourRows.filter(r => r.arrival > wk.end && (!r.bookedDate || r.bookedDate <= wk.end)).length;
+  const booked = S("Tours Booked New", bookedLive), scheduled = S("Tours Scheduled", scheduledLive);
   const opps = topOppsFrom(row);
   const autoOpps = [...openDeals.neg, ...openDeals.potp, ...openDeals.sotp].sort((a, b) => b.amount - a.amount).slice(0, 3)
     .map(d => { const { property, buyer } = splitDealName(d.name); return { prospect: buyer || d.name, product: `${property} · ${money(d.amount)}`, status: PIPE_STAGES.find(s => s.key === d.stageKey).label, target: "" }; });
@@ -4409,7 +4450,7 @@ function NaukaDashboard({ auth, onSignOut }) {
         const expired = activeChips.find(c => c.key === "Expired DD");
         return (
           <div>
-            <LatestEventSection event={latestEvent} pipeline={eventPipeline} calRecords={calRecords} today={model.today} />
+            <LatestEventSection event={latestEvent} pipeline={eventPipeline} calRecords={calRecords} today={model.today} openDeals={openDeals} qoRids={new Set(whiteboard.filter(c => c.kind === "qo" && c.rid).map(c => c.rid))} />
             <PdSectionHead text="Sales pipeline" right={`Today · ${twDayFmt(model.today)}`} first={!latestEvent} big={!!latestEvent} />
             <SalesPipelineTable qoCount={qoCount} openDeals={openDeals} onOpenStage={k => setOpenModal({ type: "pipeStage", key: k })} />
             <PipelineTargetBar signed={sumAmount(salesTeamDeals) + sumAmount(partnerDeals)} openDeals={openDeals} />

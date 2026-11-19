@@ -672,6 +672,7 @@ function parseLatestEvent(rows) {
 }
 const EVENT_STAGE_LABEL = v => {
   const ps = pdStr(v.pipelineStage);
+  if (/active negotiation/i.test(ps)) return "Active Negotiation";
   if (ps) return ps;
   const st = pdStr(v.stage);
   return /^scheduled$/i.test(st) ? "Visit Confirmed" : st || "Visit Confirmed";
@@ -704,7 +705,7 @@ const LatestEventSection = ({ event, pipeline, calRecords, today }) => {
   const priced = items.filter(p => p.amount != null);
   const total = priced.reduce((t, p) => t + p.amount, 0);
   const kpi = (n, label, sub) => (
-    <div style={{ flex: "1 1 0", minWidth: 0 }}>
+    <div style={{ flex: "1 1 0", minWidth: 0, textAlign: "center" }}>
       <div style={{ fontFamily: FONT_DISPLAY, fontSize: 26, lineHeight: 1, color: C.gray }}>{n}</div>
       <div style={{ fontSize: 11.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY, marginTop: 3 }}>{label}</div>
       {sub && <div style={{ fontSize: 10.5, color: PD_MUTED, fontFamily: FONT_BODY, marginTop: 1 }}>{sub}</div>}
@@ -738,8 +739,7 @@ const LatestEventSection = ({ event, pipeline, calRecords, today }) => {
     <div style={{ marginBottom: 8 }}>
       <PdSectionHead text={first ? first.name : event.name} right={pdShortRange(event.start, event.end)} first />
       {card(<>
-        <div style={{ display: "flex", gap: 14, maxWidth: 520 }}>
-          {kpi(came.length, "Guests", `Not members${cancelled ? ` · ${cancelled} cancelled` : ""}`)}
+        <div style={{ display: "flex", gap: 14, maxWidth: 520, margin: "0 auto" }}>
           {first && kpi(first.items.length, "Active pipeline", event.name)}
           {priced.length > 0 && kpi(money(total), "Estimated total", priced.length < items.length ? `${priced.length} of ${items.length} with amount` : null)}
         </div>

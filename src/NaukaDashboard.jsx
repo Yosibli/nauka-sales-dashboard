@@ -746,7 +746,7 @@ const LatestEventSection = ({ event, pipeline, calRecords, today, openDeals, qoR
     const label = STAGE_PILL[p.stage] || (p.v ? EVENT_STAGE_LABEL(p.v) : null);
     const isQo = label && /qualified opportunity/i.test(label);
     const when = p.v && p.v.arrival > today ? ` · ${pdShortRange(p.v.arrival, p.v.departure)}` : "";
-    const note = p.v && p.v.notes && p.v.notes.length ? p.v.notes[p.v.notes.length - 1] : null;
+    const note = p.v && p.v.notes && p.v.notes.length ? p.v.notes[0] : null;
     return (
       <div key={i} role="button" tabIndex={0} onClick={() => openPerson(p)} style={{ padding: "10px 0", borderBottom: last ? "none" : "1px solid rgba(54,67,74,0.08)", cursor: "pointer" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
@@ -903,18 +903,26 @@ function parseCalendarSheet(rows) {
 // Visits show only the latest note, call or meeting logged in HubSpot for that
 // contact (Contact_Notes tab, tasks excluded). The calendar's own Notes cell is
 // used only when HubSpot has nothing for the contact (Nov 3).
+// Oldest → newest. Two activities on the same day: the later one in HubSpot (higher Activity ID)
+// is the newer one (Nov 19: Strang's meeting and note were both Nov 19).
+function noteOrder(a, b) { return ((a.date || 0) - (b.date || 0)) || ((Number(a.aid) || 0) - (Number(b.aid) || 0)); }
+// Nov 19: the last TWO HubSpot notes, calls or meetings, newest first (everywhere notes show).
+const NOTES_SHOWN = 2;
 function withLatestNote(records, contactNotes) {
-  const latest = new Map();
+  const byRid = new Map();
   (contactNotes || []).forEach(n => {
     if (!n.rid || /^task$/i.test(n.type) || !n.date || !noteHasText(n)) return;
-    const cur = latest.get(n.rid);
-    if (!cur || n.date > cur.date) latest.set(n.rid, n);
+    if (!byRid.has(n.rid)) byRid.set(n.rid, []);
+    byRid.get(n.rid).push(n);
   });
+  byRid.forEach(list => list.sort((a, b) => noteOrder(b, a)));
   return records.map(r => {
-    const n = latest.get(pdId(r.recordId));
-    if (!n) return r.notes && r.notes.length ? { ...r, notes: [r.notes[r.notes.length - 1]] } : r;
-    const kind = activityLabel(n);
-    return { ...r, notes: [{ date: [twDayFmt(n.date), kind.charAt(0).toUpperCase() + kind.slice(1), n.author && n.author.split(" ")[0]].filter(Boolean).join(" · "), text: n.text }] };
+    const list = byRid.get(pdId(r.recordId));
+    if (!list || !list.length) return r.notes && r.notes.length ? { ...r, notes: [r.notes[r.notes.length - 1]] } : r;
+    return { ...r, notes: list.slice(0, NOTES_SHOWN).map(n => {
+      const kind = activityLabel(n);
+      return { date: [twDayFmt(n.date), kind.charAt(0).toUpperCase() + kind.slice(1), n.author && n.author.split(" ")[0]].filter(Boolean).join(" · "), text: n.text };
+    }) };
   });
 }
 
@@ -1197,7 +1205,7 @@ const CalendarRecordCard = ({ r, showIssues, advisorColors = CAL_ADVISOR_COLORS 
       {r.notes && r.notes.length > 0 && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: "0.5px solid rgba(54,67,74,0.12)" }}>
           <div style={{ fontSize: 10, fontWeight: "bold", color: "rgba(54,67,74,0.55)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, fontFamily: FONT_BODY }}>
-            Last note
+            {r.notes.length > 1 ? "Last two notes" : "Last note"}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {r.notes.map((n, i) => (
@@ -2118,7 +2126,7 @@ const TWEntryRow = ({ e, showDate }) => {
       {e.notes && e.notes.length > 0 && (
         <div style={{ marginTop: 10 }}>
           <div style={{ fontSize: 10, fontWeight: "bold", color: PD_MUTED, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, fontFamily: FONT_BODY }}>
-            Last note
+            {e.notes.length > 1 ? "Last two notes" : "Last note"}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {e.notes.map((n, i) => (
@@ -2725,7 +2733,7 @@ function buildWhiteboard({ calRecords, people, openDeals, activeLeads, contactNo
     // activity on the day the deal was created or last moved.
     const myDeals = c.rid ? [...openDeals.neg, ...openDeals.potp, ...openDeals.sotp].filter(d => d.rid === c.rid && d.notes && d.created) : [];
     const dealNotes = myDeals.map(d => ({ rid: c.rid, date: d.created, type: "Note", activityType: "Deal note", author: d.advisor, text: d.notes }));
-    const hs = c.rid ? [...(notesByRid.get(c.rid) || []), ...dealNotes].sort((a, b) => (b.date || 0) - (a.date || 0)) : [];
+    const hs = c.rid ? [...(notesByRid.get(c.rid) || []), ...dealNotes].sort((a, b) => noteOrder(b, a)) : [];
     const lastTouch = hs.find(n => n.date)?.date || null;
     const lastActivity = lastTouch; // notes and meetings only; emails never count
     const days = lastActivity ? Math.max(pdDiff(lastActivity, today), 0) : null;
@@ -2860,8 +2868,16 @@ const WhiteboardDetail = ({ c, onClose }) => {
       {c.interest && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Interest:</strong> {c.interest}</div>}
       {c.dealNotes && !(c.shownNote && c.shownNote.text === c.dealNotes) && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 8 }}><strong>Deal notes:</strong> {c.dealNotes}</div>}
       {c.nextTask && <div style={{ fontSize: 13, color: C.gray, fontFamily: FONT_BODY, marginBottom: 10 }}><strong>Next step · {twDayFmt(c.nextTask.date)}:</strong> {c.nextTask.text}{c.nextTask.author ? ` (${c.nextTask.author})` : ""}</div>}
-      {c.shownNote && <PdSectionHead text="Most recent note, call or meeting · HubSpot" first />}
-      {c.shownNote && noteRow(c.shownNote, "last")}
+      {(() => {
+        // Nov 19: the last two HubSpot notes, calls or meetings, newest first.
+        const two = (c.hubspotNotes || []).filter(n => noteHasText(n) && n.activityType !== "Deal note").slice(0, NOTES_SHOWN);
+        const list = two.length ? two : c.shownNote ? [c.shownNote] : [];
+        if (!list.length) return null;
+        return (<>
+          <PdSectionHead text={list.length > 1 ? "Last two notes, calls or meetings · HubSpot" : "Most recent note, call or meeting · HubSpot"} first />
+          {list.map((n, i) => noteRow(n, `n${i}`))}
+        </>);
+      })()}
       {!c.shownNote && c.notes.length > 0 && <PdSectionHead text="Most recent note" first />}
       {!c.shownNote && c.notes.length > 0 && noteRow(c.notes[c.notes.length - 1], "n")}
       {!c.shownNote && c.notes.length === 0 && (
@@ -3087,13 +3103,13 @@ const PipeRowArrow = () => <span aria-hidden="true" style={{ fontSize: 18, color
 function dealDetailCard(d, stageLabel, contactNotes) {
   const today = pdDay(new Date());
   const mine = (contactNotes || []).filter(n => n.rid && n.rid === d.rid);
-  const notes = mine.filter(n => !/^task$/i.test(n.type) && n.date && n.date <= today).sort((a, b) => a.date - b.date);
+  const notes = mine.filter(n => !/^task$/i.test(n.type) && n.date && n.date <= today).sort(noteOrder);
   const last = notes[notes.length - 1] || null;
   const tasks = mine.filter(n => /^task$/i.test(n.type) && n.date && n.date >= today).sort((a, b) => a.date - b.date);
   const days = last ? pdDiff(last.date, today) : null;
   const light = days == null ? (tasks.length ? "yellow" : "none") : days <= 14 ? "green" : (days <= 30 || tasks.length) ? "yellow" : "red";
   const { property, buyer } = splitDealName(d.name);
-  return { name: buyer || d.name, advisor: d.advisor, src: d.src, ref: d.ref, kind: "deal", light, days, notes, shownNote: last,
+  return { name: buyer || d.name, advisor: d.advisor, src: d.src, ref: d.ref, kind: "deal", light, days, notes, shownNote: last, hubspotNotes: [...notes].reverse(),
     nextTask: tasks[0] || null, dealNotes: d.notes, stageChip: `${stageLabel}${d.amount ? ` · ${money(d.amount)}` : ""}${property && !/unit tbd/i.test(property) ? ` · ${property}` : ""}` };
 }
 const QualifiedOppList = ({ cards, onClose }) => {

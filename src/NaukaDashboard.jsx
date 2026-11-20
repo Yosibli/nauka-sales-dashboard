@@ -906,6 +906,15 @@ function parseCalendarSheet(rows) {
 // Oldest → newest. Two activities on the same day: the later one in HubSpot (higher Activity ID)
 // is the newer one (Nov 19: Strang's meeting and note were both Nov 19).
 function noteOrder(a, b) { return ((a.date || 0) - (b.date || 0)) || ((Number(a.aid) || 0) - (Number(b.aid) || 0)); }
+// Nov 19: date and activity type stand out from the note text: date in bold Cliff Gray,
+// type in a Booby Blue chip, author in grey, then the note on its own line.
+const NoteHead = ({ day, kind, author }) => (
+  <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 7, marginBottom: 4, fontFamily: FONT_BODY }}>
+    {day && <span style={{ fontSize: 12.5, fontWeight: "bold", color: C.gray }}>{day}</span>}
+    {kind && <span style={{ fontSize: 10.5, fontWeight: "bold", color: C.gray, background: "rgba(136,209,209,0.55)", borderRadius: 999, padding: "2px 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>{kind}</span>}
+    {author && <span style={{ fontSize: 11.5, color: PD_MUTED }}>{author}</span>}
+  </div>
+);
 // Nov 19: the last TWO HubSpot notes, calls or meetings, newest first (everywhere notes show).
 const NOTES_SHOWN = 2;
 function withLatestNote(records, contactNotes) {
@@ -921,7 +930,8 @@ function withLatestNote(records, contactNotes) {
     if (!list || !list.length) return r.notes && r.notes.length ? { ...r, notes: [r.notes[r.notes.length - 1]] } : r;
     return { ...r, notes: list.slice(0, NOTES_SHOWN).map(n => {
       const kind = activityLabel(n);
-      return { date: [twDayFmt(n.date), kind.charAt(0).toUpperCase() + kind.slice(1), n.author && n.author.split(" ")[0]].filter(Boolean).join(" · "), text: n.text };
+      const kindCap = kind.charAt(0).toUpperCase() + kind.slice(1);
+      return { date: [twDayFmt(n.date), kindCap, n.author && n.author.split(" ")[0]].filter(Boolean).join(" · "), day: twDayFmt(n.date), kind: kindCap, author: n.author, text: n.text };
     }) };
   });
 }
@@ -1209,8 +1219,8 @@ const CalendarRecordCard = ({ r, showIssues, advisorColors = CAL_ADVISOR_COLORS 
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {r.notes.map((n, i) => (
-              <div key={i} style={{ fontSize: 13, color: C.gray, lineHeight: 1.5, fontFamily: FONT_BODY, whiteSpace: "pre-line" }}>
-                {n.date && <span style={{ fontWeight: "bold", color: "rgba(54,67,74,0.55)" }}>{n.date}: </span>}
+              <div key={i} style={{ fontSize: 13, color: C.gray, lineHeight: 1.5, fontFamily: FONT_BODY, whiteSpace: "pre-line", paddingTop: i ? 8 : 0, borderTop: i ? "0.5px solid rgba(54,67,74,0.12)" : "none" }}>
+                {n.day ? <NoteHead day={n.day} kind={n.kind} author={n.author} /> : n.date && <span style={{ fontWeight: "bold", color: C.gray }}>{n.date}: </span>}
                 {n.text}
               </div>
             ))}
@@ -2131,7 +2141,7 @@ const TWEntryRow = ({ e, showDate }) => {
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {e.notes.map((n, i) => (
               <div key={i} style={{ fontSize: 12.5, color: "rgba(54,67,74,0.85)", lineHeight: 1.55, fontFamily: FONT_BODY, whiteSpace: "pre-line" }}>
-                {n.date && <span style={{ fontWeight: "bold", color: PD_MUTED }}>{n.date}: </span>}
+                {n.day ? <NoteHead day={n.day} kind={n.kind} author={n.author} /> : n.date && <span style={{ fontWeight: "bold", color: C.gray }}>{n.date}: </span>}
                 {n.text}
               </div>
             ))}
@@ -2843,11 +2853,10 @@ const WhiteboardDetail = ({ c, onClose }) => {
   const meta = [c.advisor, c.leadStatus && `Lead Status: ${c.leadStatus}`, c.src, c.ref && `Referral Source: ${c.ref}`].filter(Boolean).join(" · ");
   const noteRow = (n, i) => (
     <div key={i} style={{ ...ROW_STYLE, fontFamily: FONT_BODY }}>
-      {(n.date || n.author || n.type) && (
-        <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: "bold", color: PD_MUTED, marginBottom: 3 }}>
-          {[n.activityType ? activityLabel(n) : n.type, n.date ? (n.date instanceof Date ? twDayFmt(n.date) : n.date) : null, n.author].filter(Boolean).join(" · ")}
-        </div>
-      )}
+      {(n.date || n.author || n.type) && (() => {
+        const k = n.activityType ? activityLabel(n) : n.type;
+        return <NoteHead day={n.date ? (n.date instanceof Date ? twDayFmt(n.date) : n.date) : null} kind={k ? k.charAt(0).toUpperCase() + k.slice(1) : null} author={n.author} />;
+      })()}
       <div style={{ fontSize: 13.5, color: C.gray, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{n.text}</div>
     </div>
   );

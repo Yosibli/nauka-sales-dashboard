@@ -1236,8 +1236,22 @@ const CAL_MONTHS = [
   { year: 2027, month: 0, label: "January 2027" },
 ];
 
-const CalendarView = ({ records }) => {
+// Nov 19: guests of a club event (Latest_Event guests and Eli's event list) whose visit
+// overlaps the event are shown inside the event bar, not as their own bars. They are still
+// Prospect Visits in every count and in the advisors' lists; this changes only the bars.
+const CalendarView = ({ records, eventGuestRids }) => {
   const [selected, setSelected] = useState(null);
+  const calEvents = records.filter(calIsEvent);
+  const foldInto = new Map();
+  records.forEach(r => {
+    if (calIsEvent(r) || r.stage === "Canceled" || !eventGuestRids) return;
+    const id = pdId(r.recordId);
+    if (!id || !eventGuestRids.has(id)) return;
+    const ev = calEvents.find(e => r.arrival <= new Date(e.departure.getTime() + 864e5) && r.departure >= new Date(e.arrival.getTime() - 864e5));
+    if (ev) foldInto.set(r, ev);
+  });
+  const barRecords = records.filter(r => !foldInto.has(r));
+  const guestsOf = ev => records.filter(r => foldInto.get(r) === ev).sort((a, b) => a.name.localeCompare(b.name));
   // Advisor whose visit list is open (clicked in the color legend), or null.
   const [listAdvisor, setListAdvisor] = useState(null);
   // Open on the current month when it's in the slider, otherwise the latest month.
@@ -1357,7 +1371,7 @@ const CalendarView = ({ records }) => {
         </div>
 
         {weeks.map((week, wi) => {
-          const weekEvents = records
+          const weekEvents = barRecords
             .map(r => {
               let startIdx = -1, endIdx = -1;
               week.forEach((c, idx) => {
@@ -1396,7 +1410,7 @@ const CalendarView = ({ records }) => {
                         title={`${r.name} — ${advisor}${isCanceled ? " (Cancelled)" : ""}`}
                         style={{ gridColumn: `${startIdx + 1} / span ${endIdx - startIdx + 1}`, background: calAdvisorColor(r, advisorColors) }}
                       >
-                        {r.name}
+                        {r.name}{calIsEvent(r) && guestsOf(r).length ? ` · ${guestsOf(r).length} guests` : ""}
                       </div>
                     </div>
                   );
@@ -1463,6 +1477,21 @@ const CalendarView = ({ records }) => {
       {selected && (
         <Modal title={selected.name} onClose={() => setSelected(null)}>
           <CalendarRecordCard r={selected} showIssues={true} advisorColors={advisorColors} />
+          {calIsEvent(selected) && guestsOf(selected).length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: "bold", letterSpacing: "0.14em", textTransform: "uppercase", color: C.gray, fontFamily: FONT_BODY, paddingBottom: 6, borderBottom: `1px solid ${C.gray}` }}>Guests · {guestsOf(selected).length}</div>
+              {guestsOf(selected).map((g, i) => (
+                <div key={i} role="button" tabIndex={0} onClick={() => setSelected(g)}
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: "1px solid rgba(54,67,74,0.08)", cursor: "pointer", fontFamily: FONT_BODY }}>
+                  <i style={{ width: 4, alignSelf: "stretch", background: calAdvisorColor(g, advisorColors), borderRadius: 2 }} />
+                  <span style={{ flex: 1, fontSize: 13, color: C.gray, fontWeight: "bold" }}>{g.name}
+                    <span style={{ fontWeight: "normal", color: PD_MUTED, fontSize: 11.5 }}> · {calAdvisor(g) || CAL_UNASSIGNED_LABEL}</span></span>
+                  <span style={{ fontSize: 11.5, color: PD_MUTED }}>{calSameDay(g.arrival, g.departure) ? calFmt(g.arrival) : `${calFmt(g.arrival)} – ${calFmt(g.departure)}`}</span>
+                  <span style={{ fontSize: 18, color: PD_MUTED }}>›</span>
+                </div>
+              ))}
+            </div>
+          )}
         </Modal>
       )}
     </div>
@@ -4531,7 +4560,10 @@ function NaukaDashboard({ auth, onSignOut }) {
 
       {/* ── PROSPECT CALENDAR ───────────────────────────────────────── */}
       {view === "calendar" && (
-        <CalendarView records={calRecords} />
+        <CalendarView records={calRecords} eventGuestRids={new Set([
+          ...((latestEvent && latestEvent.guests) || []).flatMap(g => [g.rid, g.link]),
+          ...(eventPipeline || []).map(p => p.rid),
+        ].filter(Boolean))} />
       )}
 
       {renderModal()}

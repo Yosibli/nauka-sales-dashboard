@@ -708,8 +708,9 @@ const eventPipelineShare = (pipeline, openDeals, qoRids) => {
   });
   return { n, value };
 };
-const LatestEventSection = ({ event, pipeline, calRecords, today, openDeals, qoRids }) => {
+const LatestEventSection = ({ event, pipeline, calRecords, today, openDeals, qoRids, cards, contactNotes }) => {
   const [openList, setOpenList] = useState(null); // { group, key }
+  const [sel, setSel] = useState(null);
   if (!event || !event.start) return null;
   const from = new Date(event.start.getFullYear(), event.start.getMonth(), event.start.getDate() - 1);
   // Visit shown next to a name: the latest Prospect Visit from the day before the event on.
@@ -729,6 +730,15 @@ const LatestEventSection = ({ event, pipeline, calRecords, today, openDeals, qoR
   const items = (pipeline || []).map(p => { const s = stageOf(p); return { ...p, v: visitOf(p.rid), stage: s.key, value: s.amount != null ? s.amount : (s.key === "qo" ? null : p.amount) }; });
   const groups = [];
   items.forEach(p => { let g = groups.find(x => x.name === p.group); if (!g) groups.push(g = { name: p.group, items: [] }); g.items.push(p); });
+  // Tap a name: the whiteboard card (Qualified Opportunity / Active Negotiation) with the latest
+  // note, call or meeting; otherwise one built from the deal or from Contact_Notes.
+  const openPerson = p => {
+    const card = p.rid && (cards || []).find(c => c.rid === p.rid && (c.kind === "qo" || c.kind === "neg"));
+    if (card) return setSel(card);
+    const d = p.rid ? deals.find(x => x.rid === p.rid) : null;
+    const STAGE_ONE = { neg: "Active Negotiation", potp: "Pending OTP", sotp: "Signed OTP", qo: "Qualified Opportunity" };
+    setSel(dealDetailCard(d || { name: p.name, rid: p.rid, amount: p.value, advisor: p.team }, STAGE_ONE[p.stage] || "On Eli's list", contactNotes));
+  };
   const row = (p, i, last) => {
     // The pill shows the person's pipeline stage (deal stage or Qualified Opportunity);
     // an upcoming visit adds its dates. Nobody in a stage: the visit status, as before.
@@ -738,7 +748,7 @@ const LatestEventSection = ({ event, pipeline, calRecords, today, openDeals, qoR
     const when = p.v && p.v.arrival > today ? ` · ${pdShortRange(p.v.arrival, p.v.departure)}` : "";
     const note = p.v && p.v.notes && p.v.notes.length ? p.v.notes[p.v.notes.length - 1] : null;
     return (
-      <div key={i} style={{ padding: "10px 0", borderBottom: last ? "none" : "1px solid rgba(54,67,74,0.08)" }}>
+      <div key={i} role="button" tabIndex={0} onClick={() => openPerson(p)} style={{ padding: "10px 0", borderBottom: last ? "none" : "1px solid rgba(54,67,74,0.08)", cursor: "pointer" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
           <span style={{ fontSize: 13.5, fontWeight: "bold", color: C.gray, fontFamily: FONT_BODY }}>{p.name}
             {p.team && <span style={{ fontWeight: "normal", color: PD_MUTED, fontSize: 11.5 }}> · {p.team}</span>}</span>
@@ -796,6 +806,7 @@ const LatestEventSection = ({ event, pipeline, calRecords, today, openDeals, qoR
       {open && open.g && (
         <Modal title={open.st.label} subtitle={`${open.g.name} · ${open.list.length}${open.v > 0 ? ` · ${money(open.v)}` : ""}`} onClose={() => setOpenList(null)}>
           {open.list.map((p, i) => row(p, i, i === open.list.length - 1))}
+          {sel && <WhiteboardDetail c={sel} onClose={() => setSel(null)} />}
         </Modal>
       )}
     </div>
@@ -2841,6 +2852,7 @@ const WhiteboardDetail = ({ c, onClose }) => {
         {c.kind === "gone" && <span className="wb-chip" style={{ color: C.red, fontWeight: "bold" }}>Not moving forward · {c.reason}{c.property ? ` · ${c.property}` : ""}</span>}
         {c.kind === "gone" && c.fromStage && <span className="wb-chip">From {c.fromStage} · {c.fromPipe}</span>}
         {c.kind === "neg" && <span className="wb-chip wb-chip-on">Active Negotiation{c.amount ? ` · ${money(c.amount)}` : ""}{c.property ? ` · ${c.property}` : ""}</span>}
+        {c.stageChip && <span className="wb-chip wb-chip-on">{c.stageChip}</span>}
         {c.lastVisit && <span className="wb-chip">Visited {visitWhen(c.lastVisit)}</span>}
         {c.nextVisit && <span className="wb-chip wb-chip-on">{nextVisitLabel(c.nextVisit, pdDay(new Date()))}</span>}
         {c.nextStep && <span className="wb-chip wb-chip-on">{c.nextStep}</span>}
@@ -3068,7 +3080,24 @@ const PipelineTargetBar = ({ signed, openDeals }) => {
 };
 
 // Qualified Opportunities list (Sales pipeline row), same people the count uses.
+// Nov 19: tap a name in a stage list to see the latest note, call or meeting (same card as
+// the whiteboard). Deals without a whiteboard card get one built from Contact_Notes.
+const PIPE_ROW_TAP = { cursor: "pointer" };
+const PipeRowArrow = () => <span aria-hidden="true" style={{ fontSize: 18, color: PD_MUTED, marginLeft: 6 }}>›</span>;
+function dealDetailCard(d, stageLabel, contactNotes) {
+  const today = pdDay(new Date());
+  const mine = (contactNotes || []).filter(n => n.rid && n.rid === d.rid);
+  const notes = mine.filter(n => !/^task$/i.test(n.type) && n.date && n.date <= today).sort((a, b) => a.date - b.date);
+  const last = notes[notes.length - 1] || null;
+  const tasks = mine.filter(n => /^task$/i.test(n.type) && n.date && n.date >= today).sort((a, b) => a.date - b.date);
+  const days = last ? pdDiff(last.date, today) : null;
+  const light = days == null ? (tasks.length ? "yellow" : "none") : days <= 14 ? "green" : (days <= 30 || tasks.length) ? "yellow" : "red";
+  const { property, buyer } = splitDealName(d.name);
+  return { name: buyer || d.name, advisor: d.advisor, src: d.src, ref: d.ref, kind: "deal", light, days, notes, shownNote: last,
+    nextTask: tasks[0] || null, dealNotes: d.notes, stageChip: `${stageLabel}${d.amount ? ` · ${money(d.amount)}` : ""}${property && !/unit tbd/i.test(property) ? ` · ${property}` : ""}` };
+}
 const QualifiedOppList = ({ cards, onClose }) => {
+  const [sel, setSel] = useState(null);
   const list = [...cards].sort((a, b) => (a.advisor || "").localeCompare(b.advisor || "") || (b.lastVisit?.departure || 0) - (a.lastVisit?.departure || 0));
   return (
     <Modal title="Qualified Opportunities" subtitle={`${list.length} · Active prospect that visited`} onClose={onClose}>
@@ -3076,7 +3105,7 @@ const QualifiedOppList = ({ cards, onClose }) => {
       {list.map(c => {
         const L = WB_LIGHT[c.light];
         return (
-          <div key={c.key} style={ROW_STYLE}>
+          <div key={c.key} role="button" tabIndex={0} onClick={() => setSel(c)} style={{ ...ROW_STYLE, ...PIPE_ROW_TAP }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
               <Subhead>{c.name}</Subhead>
               {(() => {
@@ -3095,12 +3124,19 @@ const QualifiedOppList = ({ cards, onClose }) => {
           </div>
         );
       })}
+      {sel && <WhiteboardDetail c={sel} onClose={() => setSel(null)} />}
     </Modal>
   );
 };
 
-const PipelineDealList = ({ stageKey, openDeals, onClose }) => {
+const PipelineDealList = ({ stageKey, openDeals, onClose, cards, contactNotes }) => {
+  const [sel, setSel] = useState(null);
   const st = PIPE_STAGES.find(s => s.key === stageKey);
+  const STAGE_ONE = { neg: "Active Negotiation", potp: "Pending OTP", sotp: "Signed OTP" };
+  const openDeal = d => {
+    const card = stageKey === "neg" && d.rid ? (cards || []).find(c => c.kind === "neg" && c.rid === d.rid) : null;
+    setSel(card || dealDetailCard(d, STAGE_ONE[stageKey] || st.label, contactNotes));
+  };
   const items = openDeals[stageKey];
   const total = items.reduce((t, d) => t + d.amount, 0);
   return (
@@ -3109,18 +3145,19 @@ const PipelineDealList = ({ stageKey, openDeals, onClose }) => {
       {items.map((d, i) => {
         const { property, buyer } = splitDealName(d.name);
         return (
-          <div key={i} style={ROW_STYLE}>
+          <div key={i} role="button" tabIndex={0} onClick={() => openDeal(d)} style={{ ...ROW_STYLE, ...PIPE_ROW_TAP }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
               <div style={{ minWidth: 0 }}>
                 <Eyebrow>{property}</Eyebrow>
                 {buyer && <Subhead>{buyer}</Subhead>}
               </div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 19, color: C.gray, whiteSpace: "nowrap" }}>{money(d.amount)}</div>
+              <div style={{ display: "flex", alignItems: "center", fontFamily: FONT_DISPLAY, fontSize: 19, color: C.gray, whiteSpace: "nowrap" }}>{money(d.amount)}<PipeRowArrow /></div>
             </div>
             <RowMeta>{[d.advisor, d.src && `${d.src}${d.ref ? ` · via ${d.ref}` : ""}`, d.created && `Created ${twDayFmt(d.created)}`, d.dd && `DD ${twDayFmt(d.dd)}`, d.notes].filter(Boolean).join(" · ")}</RowMeta>
           </div>
         );
       })}
+      {sel && <WhiteboardDetail c={sel} onClose={() => setSel(null)} />}
     </Modal>
   );
 };
@@ -4365,7 +4402,7 @@ function NaukaDashboard({ auth, onSignOut }) {
   const renderModal = () => {
     if (!openModal) return null;
     if (openModal.type === "pipeStage" && openModal.key === "qo") return <QualifiedOppList cards={whiteboard.filter(c => c.kind === "qo")} onClose={() => setOpenModal(null)} />;
-    if (openModal.type === "pipeStage") return <PipelineDealList stageKey={openModal.key} openDeals={openDealsByStage(masterDeals)} onClose={() => setOpenModal(null)} />;
+    if (openModal.type === "pipeStage") return <PipelineDealList stageKey={openModal.key} openDeals={openDealsByStage(masterDeals)} onClose={() => setOpenModal(null)} cards={whiteboard} contactNotes={contactNotes} />;
     if (openModal.type === "active") {
       const stage = openModal.key;
       const info = pipe(stage);
@@ -4498,7 +4535,7 @@ function NaukaDashboard({ auth, onSignOut }) {
           <div>
             <PdSectionHead text="Sales pipeline" right={`Today · ${twDayFmt(model.today)}`} first />
             <SalesPipelineTable qoCount={qoCount} openDeals={openDeals} onOpenStage={k => setOpenModal({ type: "pipeStage", key: k })} eventShare={latestEvent && latestEvent.start ? { name: latestEvent.name, ...eventPipelineShare(eventPipeline, openDeals, qoRidSet) } : null} />
-            <LatestEventSection event={latestEvent} pipeline={eventPipeline} calRecords={calRecords} today={model.today} openDeals={openDeals} qoRids={qoRidSet} />
+            <LatestEventSection event={latestEvent} pipeline={eventPipeline} calRecords={calRecords} today={model.today} openDeals={openDeals} qoRids={qoRidSet} cards={whiteboard} contactNotes={contactNotes} />
             <PipelineTargetBar signed={sumAmount(salesTeamDeals) + sumAmount(partnerDeals)} openDeals={openDeals} />
             <PdSectionHead big text="Qualified Opportunities & Active Negotiations · by advisor" right="Tap a name for the notes" />
             <Whiteboard cards={boardCards} />

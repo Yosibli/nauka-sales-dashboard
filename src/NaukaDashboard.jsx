@@ -1884,7 +1884,8 @@ function buildModel({ masterLeads, masterDeals, calRecords, funnelContacts, kpis
     // Dated rows that fall in no reported week still count on their own day.
     return n + early.filter(e => !used.has(e.i) && e.date >= a && e.date <= b).length;
   };
-  const count = (type, a, b) => !ARCHIVED.includes(type) ? list(type, a, b).filter(e => !e.upgrade).length
+  // Nov 23: connectors (e.g. Cristobal of Restoration Hardware) are never Prospect Visits.
+  const count = (type, a, b) => !ARCHIVED.includes(type) ? list(type, a, b).filter(e => !e.upgrade && !(type === "tour" && e.connector)).length
     : countArchived(type, a, b);
   const amount = (type, a, b) => list(type, a, b).reduce((s, e) => s + e.amount, 0);
   // Day-level counts exist for [a, b] only if it starts on/after mastersFrom (or the type is always dated).
